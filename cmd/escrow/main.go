@@ -114,6 +114,9 @@ func main() {
 
 	if cfg.Ecosystems.Go {
 		h := gomod.New(httpClient, "https://proxy.golang.org", trustEngine, polEngine, c, evLog)
+		if wh != nil {
+			h.WithWebhook(wh)
+		}
 		h.Mount(r)
 		log.Info().Msg("go modules proxy enabled at /go/")
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/metrics"
@@ -23,6 +24,7 @@ type Handler struct {
 	policy      *policy.Engine
 	cache       cache.Cache
 	evlog       *eventlog.Log
+	webhook     *alerts.Webhook // may be nil
 }
 
 func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache, evLog *eventlog.Log) *Handler {
@@ -37,6 +39,11 @@ func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *pol
 		cache:       c,
 		evlog:       evLog,
 	}
+}
+
+func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
+	h.webhook = wh
+	return h
 }
 
 func (h *Handler) Mount(r chi.Router) {
@@ -78,12 +85,19 @@ func (h *Handler) serveVersioned(w http.ResponseWriter, r *http.Request, escaped
 		return
 	}
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, "upstream read error", http.StatusBadGateway)
+		return
+	}
 	var info struct {
 		Version string    `json:"Version"`
 		Time    time.Time `json:"Time"`
 	}
-	json.Unmarshal(bodyBytes, &info)
+	if err := json.Unmarshal(bodyBytes, &info); err != nil {
+		http.Error(w, "upstream decode error", http.StatusBadGateway)
+		return
+	}
 
 	if h.checkTrust(r, w, unescape(escapedModule), info.Version, info.Time) {
 		return
@@ -106,12 +120,19 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 		return
 	}
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, "upstream read error", http.StatusBadGateway)
+		return
+	}
 	var info struct {
 		Version string    `json:"Version"`
 		Time    time.Time `json:"Time"`
 	}
-	json.Unmarshal(bodyBytes, &info)
+	if err := json.Unmarshal(bodyBytes, &info); err != nil {
+		http.Error(w, "upstream decode error", http.StatusBadGateway)
+		return
+	}
 
 	if h.checkTrust(r, w, unescape(escapedModule), info.Version, info.Time) {
 		return
@@ -145,6 +166,9 @@ func (h *Handler) checkTrust(r *http.Request, w http.ResponseWriter, modulePath,
 		})
 	}
 
+	if d.Action == policy.ActionBlock && h.webhook != nil {
+		_ = h.webhook.Send(pkg, d)
+	}
 	if d.Action == policy.ActionBlock {
 		http.Error(w, fmt.Sprintf(`{"blocked":true,"signal":%q,"reason":%q}`, d.Signal, d.Reason), http.StatusForbidden)
 		return true
