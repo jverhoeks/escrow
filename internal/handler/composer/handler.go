@@ -70,18 +70,17 @@ func (h *Handler) serveRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rewrite metadata-url: "/p2/%package%.json" → "/composer/p2/%package%.json"
-	if metaURL, ok := root["metadata-url"].(string); ok {
-		if !strings.HasPrefix(metaURL, "/composer") {
-			root["metadata-url"] = "/composer" + metaURL
-		}
+	// Rewrite metadata-url to point to our proxy. Packagist may return either
+	// a relative path ("/p2/%package%.json") or a full absolute URL
+	// ("https://repo.packagist.org/p2/%package%.json"), so we always replace
+	// it with our fixed proxy path.
+	if _, ok := root["metadata-url"].(string); ok {
+		root["metadata-url"] = "/composer/p2/%package%.json"
 	}
 
-	// Rewrite providers-url if present: "/p/%package%$%hash%.json" → "/composer/p/%package%$%hash%.json"
-	if provURL, ok := root["providers-url"].(string); ok {
-		if !strings.HasPrefix(provURL, "/composer") {
-			root["providers-url"] = "/composer" + provURL
-		}
+	// Same for providers-url.
+	if _, ok := root["providers-url"].(string); ok {
+		root["providers-url"] = "/composer/p/%package%$%hash%.json"
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -125,6 +124,10 @@ func (h *Handler) servePackage(w http.ResponseWriter, r *http.Request) {
 				author := extractAuthor(vObj)
 
 				publishedAt := parseComposerTime(timeStr)
+				if publishedAt.IsZero() {
+					// Unknown publish time: treat as just-published so age gate blocks it.
+					publishedAt = time.Now()
+				}
 
 				if h.versionAllowed(r.Context(), pkgName, version, publishedAt, author) {
 					allowed = append(allowed, v)
@@ -188,12 +191,18 @@ func extractAuthor(vObj map[string]any) string {
 	return name
 }
 
-// parseComposerTime parses Packagist's RFC3339 time field, falling back to
-// "2006-01-02T15:04:05+00:00" if the standard parse fails.
+// parseComposerTime parses Packagist time fields. Packagist uses RFC3339 in
+// modern metadata but older packages use a space-separated format without
+// timezone (e.g. "2011-09-13 21:42:26"). Try formats in order.
 func parseComposerTime(s string) time.Time {
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t
+	for _, layout := range []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05+00:00",
+		"2006-01-02 15:04:05",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
 	}
-	t, _ := time.Parse("2006-01-02T15:04:05+00:00", s)
-	return t
+	return time.Time{}
 }
