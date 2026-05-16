@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
+	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
@@ -161,6 +162,10 @@ func (h *Handler) versionAllowed(ctx context.Context, name, version string, file
 	}
 	result, _ := h.engine.Check(ctx, pkg)
 	d := h.policy.Evaluate(result)
+	metrics.RequestsTotal.WithLabelValues(string(pkg.Ecosystem), string(d.Action)).Inc()
+	if d.Action == policy.ActionBlock {
+		metrics.BlocksTotal.WithLabelValues(string(pkg.Ecosystem), d.Signal).Inc()
+	}
 	if d.Action == policy.ActionBlock && h.webhook != nil {
 		_ = h.webhook.Send(pkg, d)
 	}

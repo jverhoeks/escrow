@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
+	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
@@ -88,7 +89,9 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 		}
 		result, _ := h.engine.Check(ctx, pkg)
 		decision := h.policy.Evaluate(result)
+		metrics.RequestsTotal.WithLabelValues(string(pkg.Ecosystem), string(decision.Action)).Inc()
 		if decision.Action == policy.ActionBlock {
+			metrics.BlocksTotal.WithLabelValues(string(pkg.Ecosystem), decision.Signal).Inc()
 			blocked[version] = true
 			delete(versions, version)
 			if h.webhook != nil {
