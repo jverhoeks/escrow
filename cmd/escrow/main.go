@@ -130,7 +130,7 @@ func main() {
 	}
 
 	if cfg.Dashboard.Enabled {
-		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger)
+		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
 	}

@@ -86,6 +86,30 @@ func (a *Auth) Middleware(loginPath string) func(http.Handler) http.Handler {
 	}
 }
 
+func (a *Auth) Username(r *http.Request) (string, bool) {
+	c, err := r.Cookie(cookieName)
+	if err != nil {
+		return "", false
+	}
+	parts := strings.SplitN(c.Value, ".", 2)
+	if len(parts) != 2 {
+		return "", false
+	}
+	payloadBytes, err := base64.URLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return "", false
+	}
+	payload := string(payloadBytes)
+	if a.sign(payload) != parts[1] {
+		return "", false
+	}
+	fields := strings.SplitN(payload, "|", 2)
+	if len(fields) != 2 {
+		return "", false
+	}
+	return fields[0], true
+}
+
 func (a *Auth) sign(payload string) string {
 	mac := hmac.New(sha256.New, a.secret)
 	mac.Write([]byte(payload))

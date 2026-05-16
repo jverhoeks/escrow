@@ -9,20 +9,22 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jverhoeks/escrow/internal/allow"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/rs/zerolog"
 )
 
 type Dashboard struct {
-	cfg    config.DashboardConfig
-	auth   *Auth
-	log    *eventlog.Log
-	logger zerolog.Logger
+	cfg       config.DashboardConfig
+	auth      *Auth
+	log       *eventlog.Log
+	logger    zerolog.Logger
+	allowList *allow.List // may be nil
 }
 
-func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger) *Dashboard {
-	return &Dashboard{cfg: cfg, auth: NewAuth(cfg.Username, cfg.Password, cfg.Secret), log: log, logger: logger}
+func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List) *Dashboard {
+	return &Dashboard{cfg: cfg, auth: NewAuth(cfg.Username, cfg.Password, cfg.Secret), log: log, logger: logger, allowList: allowList}
 }
 
 func (d *Dashboard) Mount(r chi.Router) {
@@ -37,6 +39,8 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Get("/api/stream", d.handleStream)
 	protected.Get("/api/events", d.handleEvents)
 	protected.Get("/api/stats", d.handleStats)
+	protected.Post("/api/allow", d.handleAllow)
+	protected.Get("/api/allowlist", d.handleAllowList)
 	r.Mount(base, protected)
 }
 
@@ -138,4 +142,49 @@ func (d *Dashboard) handleEvents(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(d.log.Stats())
+}
+
+func (d *Dashboard) handleAllow(w http.ResponseWriter, r *http.Request) {
+	if d.allowList == nil {
+		http.Error(w, `{"error":"allowlist not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	var req struct {
+		Ecosystem string `json:"ecosystem"`
+		Name      string `json:"name"`
+		Version   string `json:"version"`
+		Reason    string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+	if req.Ecosystem == "" || req.Name == "" {
+		http.Error(w, `{"error":"ecosystem and name are required"}`, http.StatusBadRequest)
+		return
+	}
+	username, _ := d.auth.Username(r)
+	entry := allow.Entry{
+		Ecosystem: req.Ecosystem,
+		Name:      req.Name,
+		Version:   req.Version,
+		Reason:    req.Reason,
+		AddedBy:   username,
+	}
+	if err := d.allowList.Add(entry); err != nil {
+		http.Error(w, `{"error":"failed to save allowlist"}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (d *Dashboard) handleAllowList(w http.ResponseWriter, r *http.Request) {
+	if d.allowList == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]struct{}{})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(d.allowList.Entries())
 }

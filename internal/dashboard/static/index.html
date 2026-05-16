@@ -56,6 +56,20 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 .top-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 11px; border-bottom: 1px solid #0f1929; }
 .top-name { color: #cbd5e1; }
 .top-count { color: #ef4444; }
+.approve-btn {
+    background: none;
+    border: 1px solid #334155;
+    color: #64748b;
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 2px;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    font-family: inherit;
+}
+.approve-btn:hover { border-color: #22c55e; color: #22c55e; }
+.approve-btn.approved { border-color: #334155; color: #334155; cursor: default; }
+.status-override { color: #a78bfa; font-weight: bold; min-width: 54px; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -150,6 +164,13 @@ function makeRow(e) {
   st.className = 'st ' + stClass;
   st.textContent = (e.action || 'allow').toUpperCase();
   row.append(ts, eco, pkg, sig, st);
+  if (e.action === 'block') {
+    const approveBtn = document.createElement('button');
+    approveBtn.textContent = 'Approve';
+    approveBtn.className = 'approve-btn';
+    approveBtn.onclick = () => approvePackage(e, approveBtn, st);
+    row.append(approveBtn);
+  }
   return row;
 }
 
@@ -229,6 +250,33 @@ fetch(BASE + '/api/events?n=100')
   .catch(() => connect(currentEco));
 
 setInterval(updateStats, 10000);
+
+async function approvePackage(event, btn, statusEl) {
+  const pkg = event.package || '';
+  const atIdx = pkg.lastIndexOf('@');
+  const name = atIdx > 0 ? pkg.slice(0, atIdx) : pkg;
+  const version = atIdx > 0 ? pkg.slice(atIdx + 1) : '';
+  const today = new Date().toISOString().slice(0, 10);
+  const reason = 'approved via dashboard on ' + today;
+  try {
+    const resp = await fetch(BASE + '/api/allow', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ecosystem: event.ecosystem, name, version, reason})
+    });
+    if (resp.ok) {
+      btn.textContent = '✓ Approved';
+      btn.classList.add('approved');
+      btn.disabled = true;
+      statusEl.textContent = 'OVERRIDE';
+      statusEl.className = 'status-override';
+    } else {
+      btn.textContent = 'Error';
+    }
+  } catch(e) {
+    btn.textContent = 'Error';
+  }
+}
 </script>
 </body>
 </html>
