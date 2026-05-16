@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"github.com/jverhoeks/escrow/internal/allow"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
@@ -19,11 +20,33 @@ type Decision struct {
 	Reason string
 }
 
-type Engine struct{ cfg *config.PolicyConfig }
+type Engine struct {
+	cfg       *config.PolicyConfig
+	allowList *allow.List // may be nil
+}
 
 func New(cfg *config.PolicyConfig) *Engine { return &Engine{cfg: cfg} }
 
+// WithAllowList sets the allowlist on the engine and returns the engine for chaining.
+func (e *Engine) WithAllowList(l *allow.List) *Engine {
+	e.allowList = l
+	return e
+}
+
 func (e *Engine) Evaluate(result trust.TrustResult) Decision {
+	if e.allowList != nil {
+		if ok, entry := e.allowList.IsAllowed(
+			string(result.Package.Ecosystem),
+			result.Package.Name,
+			result.Package.Version,
+		); ok {
+			return Decision{
+				Action: ActionAllow,
+				Signal: "override",
+				Reason: "allowlist: " + entry.Reason,
+			}
+		}
+	}
 	if e.cfg == nil {
 		return Decision{Action: ActionAllow}
 	}

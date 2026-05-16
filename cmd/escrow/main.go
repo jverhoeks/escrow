@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/jverhoeks/escrow/internal/alerts"
+	"github.com/jverhoeks/escrow/internal/allow"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dashboard"
@@ -68,6 +69,13 @@ func main() {
 
 	httpClient := upstream.New()
 	polEngine := policy.New(cfg.Policy)
+
+	allowList, err := allow.New(cfg.AllowlistPath)
+	if err != nil {
+		log.Fatal().Err(err).Str("path", cfg.AllowlistPath).Msg("failed to load allowlist")
+	}
+	polEngine.WithAllowList(allowList)
+
 	evLog := eventlog.New(500)
 
 	var signals []trust.Signal

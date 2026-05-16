@@ -9,12 +9,13 @@ import (
 )
 
 type Config struct {
-	Server     ServerConfig    `toml:"server"`
-	Storage    StorageConfig   `toml:"storage"`
-	Policy     *PolicyConfig   `toml:"policy"`
-	Ecosystems EcosystemConfig `toml:"ecosystems"`
-	Alerts     AlertsConfig    `toml:"alerts"`
-	Dashboard  DashboardConfig `toml:"dashboard"`
+	Server        ServerConfig    `toml:"server"`
+	Storage       StorageConfig   `toml:"storage"`
+	Policy        *PolicyConfig   `toml:"policy"`
+	Ecosystems    EcosystemConfig `toml:"ecosystems"`
+	Alerts        AlertsConfig    `toml:"alerts"`
+	Dashboard     DashboardConfig `toml:"dashboard"`
+	AllowlistPath string          `toml:"allowlist_path"`
 }
 
 type ServerConfig struct {
@@ -148,6 +149,8 @@ func GenerateIfMissing(path string) (bool, string, error) {
 
 [alerts]
   webhook_url = ""
+
+allowlist_path = "escrow-allowlist.json"
 `,
 		cfg.Server.Host, cfg.Server.Port, cfg.Server.LogLevel,
 		password, secret,
