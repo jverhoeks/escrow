@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,4 +83,48 @@ func TestNPMHandler_AllVersionsPass(t *testing.T) {
 	json.NewDecoder(rr.Body).Decode(&manifest)
 	versions := manifest["versions"].(map[string]any)
 	assert.Len(t, versions, 2)
+}
+
+func TestNPMHandler_ExtractsAuthorFromNpmUser(t *testing.T) {
+	npmUserSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/-/user/") {
+			json.NewEncoder(w).Encode(map[string]any{
+				"created": time.Now().Add(-5 * 24 * time.Hour).Format(time.RFC3339),
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"name":      "newpkg",
+			"dist-tags": map[string]string{"latest": "1.0.0"},
+			"versions": map[string]any{
+				"1.0.0": map[string]any{
+					"_npmUser": map[string]any{"name": "newauthor", "email": "a@b.com"},
+				},
+			},
+			"time": map[string]string{
+				"1.0.0": time.Now().Add(-30 * 24 * time.Hour).Format(time.RFC3339),
+			},
+		})
+	}))
+	defer npmUserSrv.Close()
+
+	c := cache.NewMemory()
+	defer c.Close()
+	pubSignal := trust.NewPublisherSignal(30, npmUserSrv.Client(), npmUserSrv.URL, "")
+	engine := trust.NewEngine(trust.NewAgeSignal(7, nil), pubSignal)
+	pol := policy.New(&config.PolicyConfig{
+		Age:       &config.AgePolicyConfig{MinDays: 7, Action: "block"},
+		Publisher: &config.PublisherPolicyConfig{MaxAccountAgeDays: 30, Action: "warn"},
+	})
+
+	h := npm.New(npmUserSrv.Client(), npmUserSrv.URL, engine, pol, c, nil)
+	req := httptest.NewRequest(http.MethodGet, "/newpkg", nil)
+	rr := httptest.NewRecorder()
+	h.ServeManifest(rr, req, "newpkg")
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	var manifest map[string]any
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&manifest))
+	versions := manifest["versions"].(map[string]any)
+	assert.Contains(t, versions, "1.0.0", "version should not be stripped on publisher warn")
 }

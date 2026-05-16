@@ -17,6 +17,24 @@ import (
 	"github.com/jverhoeks/escrow/internal/trust"
 )
 
+// extractAuthor returns the publisher username from a version's npm registry data.
+// Tries _npmUser first (set by the registry at publish time), falls back to maintainers[0].
+func extractAuthor(versionData map[string]any) string {
+	if npmUser, ok := versionData["_npmUser"].(map[string]any); ok {
+		if name, ok := npmUser["name"].(string); ok && name != "" {
+			return name
+		}
+	}
+	if maintainers, ok := versionData["maintainers"].([]any); ok && len(maintainers) > 0 {
+		if m, ok := maintainers[0].(map[string]any); ok {
+			if name, ok := m["name"].(string); ok {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
 type Handler struct {
 	client      *http.Client
 	upstreamURL string
@@ -81,6 +99,7 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 
 	blocked := map[string]bool{}
 	for version := range versions {
+		versionData, _ := versions[version].(map[string]any)
 		publishedStr, _ := times[version].(string)
 		publishedAt, _ := time.Parse(time.RFC3339, publishedStr)
 		pkg := trust.Package{
@@ -88,6 +107,7 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 			Name:        name,
 			Version:     version,
 			PublishedAt: publishedAt,
+			Author:      extractAuthor(versionData),
 		}
 		result, _ := h.engine.Check(ctx, pkg)
 		decision := h.policy.Evaluate(result)
