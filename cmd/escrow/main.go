@@ -17,6 +17,8 @@ import (
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dashboard"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/handler/cargo"
+	"github.com/jverhoeks/escrow/internal/handler/composer"
 	"github.com/jverhoeks/escrow/internal/handler/gomod"
 	"github.com/jverhoeks/escrow/internal/handler/npm"
 	"github.com/jverhoeks/escrow/internal/handler/pypi"
@@ -130,6 +132,24 @@ func main() {
 		}
 		h.Mount(r)
 		log.Info().Msg("go modules proxy enabled at /go/")
+	}
+
+	if cfg.Ecosystems.Cargo {
+		h := cargo.New(httpClient, trustEngine, polEngine, c, evLog)
+		if wh != nil {
+			h.WithWebhook(wh)
+		}
+		h.Mount(r)
+		log.Info().Msg("cargo sparse registry enabled at /cargo/")
+	}
+
+	if cfg.Ecosystems.Composer {
+		h := composer.New(httpClient, "https://repo.packagist.org", trustEngine, polEngine, c, evLog)
+		if wh != nil {
+			h.WithWebhook(wh)
+		}
+		h.Mount(r)
+		log.Info().Msg("composer proxy enabled at /composer/")
 	}
 
 	if cfg.Dashboard.Enabled {

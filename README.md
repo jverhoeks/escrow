@@ -53,6 +53,31 @@ index-url = "http://localhost:8888/pypi/simple/"
 export GOPROXY=http://localhost:8888/go,direct
 ```
 
+**Cargo (Rust)**
+```toml
+# .cargo/config.toml
+[source.crates-io]
+replace-with = "escrow"
+
+[source.escrow]
+registry = "sparse+http://localhost:8888/cargo/"
+```
+
+**Composer (PHP)**
+```json
+{
+    "repositories": [
+        {
+            "type": "composer",
+            "url": "http://localhost:8888/composer"
+        },
+        {
+            "packagist.org": false
+        }
+    ]
+}
+```
+
 ---
 
 ## Dashboard
@@ -212,14 +237,18 @@ The allowlist is checked **before** any policy signal. Approved packages bypass 
 | npm | `/` | `.npmrc`: `registry=http://localhost:8888/` |
 | PyPI (pip) | `/pypi/simple/` | `pip.conf` or `uv.toml`: `index-url = http://localhost:8888/pypi/simple/` |
 | Go modules | `/go/` | `GOPROXY=http://localhost:8888/go,direct` |
+| Cargo (Rust) | `/cargo/` | `.cargo/config.toml`: `registry = "sparse+http://localhost:8888/cargo/"` |
+| Composer (PHP) | `/composer/` | `composer.json`: `{"repositories":[{"type":"composer","url":"http://localhost:8888/composer"},{"packagist.org":false}]}` |
 
 Enable each ecosystem in config:
 
 ```toml
 [ecosystems]
-  npm  = true
-  pypi = true
-  go   = false  # off by default
+  npm      = true
+  pypi     = true
+  go       = false  # off by default
+  cargo    = false  # off by default
+  composer = false  # off by default
 ```
 
 ---
@@ -319,9 +348,11 @@ bash tests/e2e.sh ./escrow
   log_level = "info"    # debug | info | warn | error
 
 [ecosystems]
-  npm  = true
-  pypi = true
-  go   = false
+  npm      = true
+  pypi     = true
+  go       = false
+  cargo    = false
+  composer = false
 
 [storage]
   backend = "disk"      # disk | s3 | memory

@@ -24,8 +24,10 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 .eco-label { color: #334155; font-size: 10px; margin-right: 2px; }
 .eco-chip { padding: 2px 10px; border-radius: 3px; font-size: 10px; cursor: pointer; border: 1px solid #1e3a5f; color: #64748b; background: none; font-family: inherit; letter-spacing: 0.5px; text-transform: uppercase; }
 .eco-chip.sel-all  { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
-.eco-chip.sel-npm  { background: #14532d22; color: #4ade80; border-color: #16a34a55; }
-.eco-chip.sel-pypi { background: #1e3a8a22; color: #93c5fd; border-color: #3b82f655; }
+.eco-chip.sel-npm      { background: #14532d22; color: #4ade80; border-color: #16a34a55; }
+.eco-chip.sel-pypi     { background: #1e3a8a22; color: #93c5fd; border-color: #3b82f655; }
+.eco-chip.sel-cargo    { background: #431407aa; color: #fb923c; border-color: #ea580c55; }
+.eco-chip.sel-composer { background: #1e1b4b22; color: #a5b4fc; border-color: #6366f155; }
 .main { display: flex; flex: 1; overflow: hidden; }
 .feed-panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #1e3a5f; overflow: hidden; }
 .panel-header { padding: 8px 16px; border-bottom: 1px solid #1e3a5f; color: #64748b; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
@@ -35,8 +37,10 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 .feed-item:hover { background: #0f1929; }
 .ts { color: #334155; font-size: 10px; min-width: 56px; }
 .eco-tag { font-size: 9px; padding: 1px 5px; border-radius: 2px; min-width: 38px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
-.eco-tag.npm  { background: #14532d22; color: #4ade80; border: 1px solid #16a34a33; }
-.eco-tag.pypi { background: #1e3a8a22; color: #93c5fd; border: 1px solid #3b82f633; }
+.eco-tag.npm      { background: #14532d22; color: #4ade80; border: 1px solid #16a34a33; }
+.eco-tag.pypi     { background: #1e3a8a22; color: #93c5fd; border: 1px solid #3b82f633; }
+.eco-tag.cargo    { background: #431407aa; color: #fb923c; border: 1px solid #ea580c33; }
+.eco-tag.composer { background: #1e1b4b22; color: #a5b4fc; border: 1px solid #6366f133; }
 .pkg { color: #cbd5e1; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sig { color: #475569; font-size: 10px; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st { font-weight: bold; min-width: 54px; font-size: 11px; }
@@ -86,8 +90,10 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
   <div class="eco-filters">
     <span class="eco-label">ECOSYSTEM</span>
     <button class="eco-chip sel-all" id="chip-all"  onclick="setEco('')">All</button>
-    <button class="eco-chip"         id="chip-npm"  onclick="setEco('npm')">npm</button>
-    <button class="eco-chip"         id="chip-pypi" onclick="setEco('pypi')">PyPI</button>
+    <button class="eco-chip"         id="chip-npm"      onclick="setEco('npm')">npm</button>
+    <button class="eco-chip"         id="chip-pypi"     onclick="setEco('pypi')">PyPI</button>
+    <button class="eco-chip"         id="chip-cargo"    onclick="setEco('cargo')">Cargo</button>
+    <button class="eco-chip"         id="chip-composer" onclick="setEco('composer')">Composer</button>
   </div>
 </div>
 <div class="main">
@@ -237,9 +243,11 @@ function connect(eco) {
 
 function setEco(eco) {
   currentEco = eco;
-  document.getElementById('chip-all').className  = 'eco-chip' + (eco === ''     ? ' sel-all'  : '');
-  document.getElementById('chip-npm').className  = 'eco-chip' + (eco === 'npm'  ? ' sel-npm'  : '');
-  document.getElementById('chip-pypi').className = 'eco-chip' + (eco === 'pypi' ? ' sel-pypi' : '');
+  document.getElementById('chip-all').className      = 'eco-chip' + (eco === ''         ? ' sel-all'      : '');
+  document.getElementById('chip-npm').className      = 'eco-chip' + (eco === 'npm'      ? ' sel-npm'      : '');
+  document.getElementById('chip-pypi').className     = 'eco-chip' + (eco === 'pypi'     ? ' sel-pypi'     : '');
+  document.getElementById('chip-cargo').className    = 'eco-chip' + (eco === 'cargo'    ? ' sel-cargo'    : '');
+  document.getElementById('chip-composer').className = 'eco-chip' + (eco === 'composer' ? ' sel-composer' : '');
   connect(eco);
   rebuildFeed();
 }
