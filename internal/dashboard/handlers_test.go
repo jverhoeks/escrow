@@ -156,3 +156,59 @@ func TestHandleAllowList_NilAllowList(t *testing.T) {
 	// Should return empty JSON array, not an error.
 	assert.Contains(t, rec.Body.String(), "[]")
 }
+
+func TestHandleAllow_NilAllowList(t *testing.T) {
+	// Dashboard with nil allowList should return 503
+	cfg := config.DashboardConfig{
+		Enabled:  true,
+		Path:     "/dashboard",
+		Username: "admin",
+		Password: "pass",
+		Secret:   "aabbccddeeff00112233445566778899",
+	}
+	evLog := eventlog.New(50)
+	logger := zerolog.Nop()
+	dash := dashboard.New(cfg, evLog, logger, nil)
+	r := chi.NewRouter()
+	dash.Mount(r)
+
+	body, _ := json.Marshal(map[string]string{
+		"ecosystem": "npm",
+		"name":      "lodash",
+		"version":   "4.17.21",
+		"reason":    "test",
+	})
+	req := authenticatedRequest(t, http.MethodPost, "/dashboard/api/allow", body)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+func TestHandleAllow_UnauthenticatedRejected(t *testing.T) {
+	cfg := config.DashboardConfig{
+		Enabled:  true,
+		Path:     "/dashboard",
+		Username: "admin",
+		Password: "pw",
+		Secret:   "secret123456789012345678901234",
+	}
+	al, err := allow.New("")
+	require.NoError(t, err)
+	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al)
+	r := chi.NewRouter()
+	dash.Mount(r)
+
+	body, _ := json.Marshal(map[string]string{
+		"ecosystem": "npm",
+		"name":      "lodash",
+		"version":   "4.17.21",
+		"reason":    "test",
+	})
+	// No session cookie — unauthenticated request
+	req := httptest.NewRequest(http.MethodPost, cfg.Path+"/api/allow", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	// Auth middleware redirects to login (302) or returns 401 — either way, not 200
+	assert.NotEqual(t, http.StatusOK, rec.Code, "unauthenticated request should not succeed")
+}

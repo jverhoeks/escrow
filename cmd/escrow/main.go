@@ -74,6 +74,9 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Str("path", cfg.AllowlistPath).Msg("failed to load allowlist")
 	}
+	if cfg.AllowlistPath == "" {
+		log.Warn().Msg("allowlist_path not configured — allow list entries will not persist across restarts")
+	}
 	polEngine.WithAllowList(allowList)
 
 	evLog := eventlog.New(500)
