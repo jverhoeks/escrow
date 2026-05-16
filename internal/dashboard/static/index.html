@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>escrow dashboard</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','Courier New',monospace; font-size: 13px; display: flex; flex-direction: column; }
+.topbar { background: #0f1929; border-bottom: 1px solid #1e3a5f; padding: 0 20px; height: 44px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.logo { color: #60a5fa; font-weight: bold; letter-spacing: 2px; font-size: 14px; }
+.logo span { color: #94a3b8; font-weight: normal; font-size: 11px; margin-left: 8px; }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+#live-badge { background: #16a34a22; color: #4ade80; border: 1px solid #16a34a55; padding: 2px 8px; border-radius: 4px; font-size: 10px; }
+#live-badge.off { color: #64748b; border-color: #1e3a5f; background: none; }
+.user-info { color: #94a3b8; font-size: 11px; }
+.logout-btn { color: #64748b; font-size: 11px; text-decoration: none; border: 1px solid #1e3a5f; padding: 3px 10px; border-radius: 4px; }
+.nav-bar { background: #0f1929; border-bottom: 1px solid #1e3a5f; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; height: 36px; flex-shrink: 0; }
+.nav-tabs { display: flex; height: 100%; }
+.nav-tab { padding: 0 16px; color: #64748b; font-size: 11px; cursor: pointer; border-bottom: 2px solid transparent; display: flex; align-items: center; letter-spacing: 0.5px; }
+.nav-tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+.eco-filters { display: flex; align-items: center; gap: 6px; }
+.eco-label { color: #334155; font-size: 10px; margin-right: 2px; }
+.eco-chip { padding: 2px 10px; border-radius: 3px; font-size: 10px; cursor: pointer; border: 1px solid #1e3a5f; color: #64748b; background: none; font-family: inherit; letter-spacing: 0.5px; text-transform: uppercase; }
+.eco-chip.sel-all  { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
+.eco-chip.sel-npm  { background: #14532d22; color: #4ade80; border-color: #16a34a55; }
+.eco-chip.sel-pypi { background: #1e3a8a22; color: #93c5fd; border-color: #3b82f655; }
+.main { display: flex; flex: 1; overflow: hidden; }
+.feed-panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #1e3a5f; overflow: hidden; }
+.panel-header { padding: 8px 16px; border-bottom: 1px solid #1e3a5f; color: #64748b; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+.col-headers { display: flex; align-items: baseline; gap: 10px; padding: 5px 16px 4px; border-bottom: 1px solid #0f1929; font-size: 9px; color: #334155; letter-spacing: 0.5px; text-transform: uppercase; flex-shrink: 0; }
+#feed { flex: 1; overflow-y: auto; }
+.feed-item { padding: 7px 16px; border-bottom: 1px solid #0f1929; display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
+.feed-item:hover { background: #0f1929; }
+.ts { color: #334155; font-size: 10px; min-width: 56px; }
+.eco-tag { font-size: 9px; padding: 1px 5px; border-radius: 2px; min-width: 38px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
+.eco-tag.npm  { background: #14532d22; color: #4ade80; border: 1px solid #16a34a33; }
+.eco-tag.pypi { background: #1e3a8a22; color: #93c5fd; border: 1px solid #3b82f633; }
+.pkg { color: #cbd5e1; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sig { color: #475569; font-size: 10px; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st { font-weight: bold; min-width: 54px; font-size: 11px; }
+.st.block { color: #ef4444; }
+.st.warn  { color: #f59e0b; }
+.st.allow { color: #22c55e; }
+.policy-strip { background: #0f1929; border-top: 1px solid #1e3a5f; padding: 5px 16px; font-size: 10px; color: #475569; display: flex; gap: 16px; flex-shrink: 0; }
+.policy-strip span { color: #60a5fa; }
+.stats-panel { width: 240px; display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+.stat-card { padding: 14px 16px; border-bottom: 1px solid #1e3a5f; }
+.stat-label { color: #64748b; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+.stat-value { font-size: 26px; font-weight: bold; line-height: 1; }
+.stat-value.blocked { color: #ef4444; }
+.stat-value.warned  { color: #f59e0b; }
+.stat-value.allowed { color: #22c55e; }
+.top-section { padding: 12px 16px; flex: 1; }
+.top-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 11px; border-bottom: 1px solid #0f1929; }
+.top-name { color: #cbd5e1; }
+.top-count { color: #ef4444; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div><span class="logo">ESCROW<span>package proxy</span></span></div>
+  <div class="topbar-right">
+    <span id="live-badge">● LIVE</span>
+    <span class="user-info">admin</span>
+    <a class="logout-btn" href="logout">logout</a>
+  </div>
+</div>
+<div class="nav-bar">
+  <div class="nav-tabs"><div class="nav-tab active">Live Feed</div></div>
+  <div class="eco-filters">
+    <span class="eco-label">ECOSYSTEM</span>
+    <button class="eco-chip sel-all" id="chip-all"  onclick="setEco('')">All</button>
+    <button class="eco-chip"         id="chip-npm"  onclick="setEco('npm')">npm</button>
+    <button class="eco-chip"         id="chip-pypi" onclick="setEco('pypi')">PyPI</button>
+  </div>
+</div>
+<div class="main">
+  <div class="feed-panel">
+    <div class="panel-header">
+      <span>PACKAGE EVENTS</span>
+      <span id="feed-count" style="color:#334155"></span>
+    </div>
+    <div class="col-headers">
+      <span style="min-width:56px">time</span>
+      <span style="min-width:46px">eco</span>
+      <span style="flex:1">package</span>
+      <span style="min-width:160px">signal / reason</span>
+      <span style="min-width:54px">status</span>
+    </div>
+    <div id="feed"></div>
+    <div style="flex:1"></div>
+    <div class="policy-strip">
+      <span>age <span id="p-age">—</span></span>
+      <span>osv <span id="p-osv">—</span></span>
+      <span>publisher <span id="p-pub">—</span></span>
+      <span>popularity <span id="p-pop">—</span></span>
+    </div>
+  </div>
+  <div class="stats-panel">
+    <div class="stat-card">
+      <div class="stat-label">Blocked</div>
+      <div class="stat-value blocked" id="stat-blocked">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Warned</div>
+      <div class="stat-value warned" id="stat-warned">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Allowed</div>
+      <div class="stat-value allowed" id="stat-allowed">—</div>
+    </div>
+    <div class="top-section">
+      <div class="panel-header" style="padding:0 0 8px;margin-bottom:8px;border-bottom:1px solid #1e3a5f">TOP BLOCKED</div>
+      <div id="top-blocked"></div>
+    </div>
+  </div>
+</div>
+<script>
+const BASE = window.location.pathname.replace(/\/+$/, '');
+let currentEco = '';
+let es = null;
+let allEvents = [];
+
+function fmtTime(ts) {
+  return new Date(ts).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+
+function makeRow(e) {
+  const row = document.createElement('div');
+  row.className = 'feed-item';
+  const ts = document.createElement('span');
+  ts.className = 'ts';
+  ts.textContent = fmtTime(e.timestamp);
+  const eco = document.createElement('span');
+  eco.className = 'eco-tag ' + (e.ecosystem || '');
+  eco.textContent = e.ecosystem || '';
+  const pkg = document.createElement('span');
+  pkg.className = 'pkg';
+  pkg.title = e.package || '';
+  pkg.textContent = e.package || '';
+  const sigText = e.signal ? (e.signal + (e.reason ? ' · ' + e.reason : '')) : '—';
+  const sig = document.createElement('span');
+  sig.className = 'sig';
+  sig.title = sigText;
+  sig.textContent = sigText;
+  const stClass = e.action === 'block' ? 'block' : e.action === 'warn' ? 'warn' : 'allow';
+  const st = document.createElement('span');
+  st.className = 'st ' + stClass;
+  st.textContent = (e.action || 'allow').toUpperCase();
+  row.append(ts, eco, pkg, sig, st);
+  return row;
+}
+
+function rebuildFeed() {
+  const feed = document.getElementById('feed');
+  feed.textContent = '';
+  const filtered = currentEco ? allEvents.filter(e => e.ecosystem === currentEco) : allEvents;
+  filtered.forEach(e => feed.appendChild(makeRow(e)));
+  document.getElementById('feed-count').textContent = filtered.length + ' events';
+}
+
+function prependRow(e) {
+  allEvents.unshift(e);
+  if (allEvents.length > 500) allEvents.pop();
+  if (currentEco && e.ecosystem !== currentEco) return;
+  const feed = document.getElementById('feed');
+  feed.insertBefore(makeRow(e), feed.firstChild);
+  document.getElementById('feed-count').textContent = feed.children.length + ' events';
+}
+
+function updateStats() {
+  fetch(BASE + '/api/stats').then(r => r.json()).then(s => {
+    document.getElementById('stat-blocked').textContent = s.blocked;
+    document.getElementById('stat-warned').textContent = s.warned;
+    document.getElementById('stat-allowed').textContent = s.allowed;
+    const top = document.getElementById('top-blocked');
+    top.textContent = '';
+    (s.top_blocked || []).forEach(t => {
+      const row = document.createElement('div');
+      row.className = 'top-row';
+      const name = document.createElement('span');
+      name.className = 'top-name';
+      name.textContent = t.package;
+      const count = document.createElement('span');
+      count.className = 'top-count';
+      count.textContent = t.count + 'x';
+      row.append(name, count);
+      top.appendChild(row);
+    });
+  }).catch(() => {});
+}
+
+function connect(eco) {
+  if (es) { es.close(); es = null; }
+  const url = BASE + '/api/stream' + (eco ? '?eco=' + encodeURIComponent(eco) : '');
+  es = new EventSource(url);
+  es.onopen = () => {
+    const b = document.getElementById('live-badge');
+    b.className = '';
+    b.textContent = '● LIVE';
+  };
+  es.onmessage = ev => {
+    prependRow(JSON.parse(ev.data));
+    updateStats();
+  };
+  es.onerror = () => {
+    const b = document.getElementById('live-badge');
+    b.className = 'off';
+    b.textContent = '○ RECONNECTING';
+    es.close();
+    setTimeout(() => connect(eco), 3000);
+  };
+}
+
+function setEco(eco) {
+  currentEco = eco;
+  document.getElementById('chip-all').className  = 'eco-chip' + (eco === ''     ? ' sel-all'  : '');
+  document.getElementById('chip-npm').className  = 'eco-chip' + (eco === 'npm'  ? ' sel-npm'  : '');
+  document.getElementById('chip-pypi').className = 'eco-chip' + (eco === 'pypi' ? ' sel-pypi' : '');
+  connect(eco);
+  rebuildFeed();
+}
+
+fetch(BASE + '/api/events?n=100')
+  .then(r => r.json())
+  .then(events => { allEvents = events || []; rebuildFeed(); connect(currentEco); updateStats(); })
+  .catch(() => connect(currentEco));
+
+setInterval(updateStats, 10000);
+</script>
+</body>
+</html>

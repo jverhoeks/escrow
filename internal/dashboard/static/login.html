@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>escrow login</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','Courier New',monospace; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.box { background: #0f1929; border: 1px solid #1e3a5f; border-radius: 6px; padding: 40px; width: 340px; }
+.logo { color: #60a5fa; font-size: 18px; font-weight: bold; letter-spacing: 3px; margin-bottom: 6px; }
+.sub { color: #475569; font-size: 11px; margin-bottom: 32px; }
+label { display: block; color: #64748b; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+input { width: 100%; background: #0a0f1a; border: 1px solid #1e3a5f; border-radius: 4px; color: #e2e8f0; font-family: inherit; font-size: 13px; padding: 10px 12px; outline: none; margin-bottom: 20px; }
+input:focus { border-color: #3b82f6; }
+button { width: 100%; background: #1e3a5f; border: 1px solid #3b82f6; border-radius: 4px; color: #93c5fd; font-family: inherit; font-size: 12px; letter-spacing: 1px; padding: 10px; cursor: pointer; }
+button:hover { background: #1e4080; }
+.err { color: #ef4444; font-size: 11px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="logo">ESCROW</div>
+  <div class="sub">package proxy dashboard</div>
+  <form method="POST" action="login">
+    <label for="u">USERNAME</label>
+    <input id="u" name="username" type="text" autocomplete="username" autofocus>
+    <label for="p">PASSWORD</label>
+    <input id="p" name="password" type="password" autocomplete="current-password">
+    {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+    <button type="submit">SIGN IN</button>
+  </form>
+</div>
+</body>
+</html>
