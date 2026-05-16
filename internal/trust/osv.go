@@ -68,6 +68,10 @@ func (s *OSVSignal) Check(ctx context.Context, pkg Package) (SignalReport, error
 		ecosystem = "PyPI"
 	case EcosystemGo:
 		ecosystem = "Go"
+	case EcosystemCargo:
+		ecosystem = "crates.io"
+	case EcosystemComposer:
+		ecosystem = "Packagist"
 	}
 	body, _ := json.Marshal(osvQuery{
 		Version: pkg.Version,

@@ -73,9 +73,11 @@ type PyPIPolicyConfig struct {
 }
 
 type EcosystemConfig struct {
-	NPM  bool `toml:"npm"`
-	PyPI bool `toml:"pypi"`
-	Go   bool `toml:"go"`
+	NPM      bool `toml:"npm"`
+	PyPI     bool `toml:"pypi"`
+	Go       bool `toml:"go"`
+	Cargo    bool `toml:"cargo"`
+	Composer bool `toml:"composer"`
 }
 
 type AlertsConfig struct {
@@ -94,7 +96,7 @@ func DefaultConfig() Config {
 	return Config{
 		Server:     ServerConfig{Host: "0.0.0.0", Port: 8888, LogLevel: "info"},
 		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "./sentinel-cache"}},
-		Ecosystems: EcosystemConfig{NPM: true, PyPI: true, Go: false},
+		Ecosystems: EcosystemConfig{NPM: true, PyPI: true, Go: false, Cargo: false, Composer: false},
 		Dashboard:  DashboardConfig{Enabled: true, Path: "/dashboard"},
 	}
 }
@@ -136,9 +138,11 @@ func GenerateIfMissing(path string) (bool, string, error) {
     path = "./escrow-cache"
 
 [ecosystems]
-  npm  = true
-  pypi = true
-  go   = false
+  npm      = true
+  pypi     = true
+  go       = false
+  cargo    = false
+  composer = false
 
 [dashboard]
   enabled  = true

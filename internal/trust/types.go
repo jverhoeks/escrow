@@ -8,9 +8,11 @@ import (
 type Ecosystem string
 
 const (
-	EcosystemNPM  Ecosystem = "npm"
-	EcosystemPyPI Ecosystem = "pypi"
-	EcosystemGo   Ecosystem = "go"
+	EcosystemNPM      Ecosystem = "npm"
+	EcosystemPyPI     Ecosystem = "pypi"
+	EcosystemGo       Ecosystem = "go"
+	EcosystemCargo    Ecosystem = "cargo"
+	EcosystemComposer Ecosystem = "composer"
 )
 
 // Package is everything the trust engine needs to assess a specific release.

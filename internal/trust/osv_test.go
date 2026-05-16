@@ -95,3 +95,47 @@ func TestOSVSignal_LowSeverityFiltered(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, trust.SignalPass, report.Result, "LOW severity should be filtered when minSeverity=MEDIUM")
 }
+
+func TestOSVSignal_CargoEcosystem(t *testing.T) {
+	var capturedEcosystem string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Package struct {
+				Ecosystem string `json:"ecosystem"`
+			} `json:"package"`
+		}
+		json.NewDecoder(r.Body).Decode(&q)
+		capturedEcosystem = q.Package.Ecosystem
+		json.NewEncoder(w).Encode(map[string]any{"vulns": []any{}})
+	}))
+	defer srv.Close()
+	c := cache.NewMemory()
+	defer c.Close()
+	sig := trust.NewOSVSignal("MEDIUM", srv.Client(), c, srv.URL)
+	pkg := trust.Package{Ecosystem: trust.EcosystemCargo, Name: "serde", Version: "1.0.0"}
+	_, err := sig.Check(context.Background(), pkg)
+	require.NoError(t, err)
+	assert.Equal(t, "crates.io", capturedEcosystem, "cargo ecosystem should map to crates.io in OSV query")
+}
+
+func TestOSVSignal_ComposerEcosystem(t *testing.T) {
+	var capturedEcosystem string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Package struct {
+				Ecosystem string `json:"ecosystem"`
+			} `json:"package"`
+		}
+		json.NewDecoder(r.Body).Decode(&q)
+		capturedEcosystem = q.Package.Ecosystem
+		json.NewEncoder(w).Encode(map[string]any{"vulns": []any{}})
+	}))
+	defer srv.Close()
+	c := cache.NewMemory()
+	defer c.Close()
+	sig := trust.NewOSVSignal("MEDIUM", srv.Client(), c, srv.URL)
+	pkg := trust.Package{Ecosystem: trust.EcosystemComposer, Name: "symfony/console", Version: "6.0.0"}
+	_, err := sig.Check(context.Background(), pkg)
+	require.NoError(t, err)
+	assert.Equal(t, "Packagist", capturedEcosystem, "composer ecosystem should map to Packagist in OSV query")
+}
