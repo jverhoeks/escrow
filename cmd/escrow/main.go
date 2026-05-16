@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +14,8 @@ import (
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
+	"github.com/jverhoeks/escrow/internal/dashboard"
+	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/handler/npm"
 	"github.com/jverhoeks/escrow/internal/handler/pypi"
 	"github.com/jverhoeks/escrow/internal/policy"
@@ -27,6 +30,14 @@ func main() {
 	cfgPath := "sentinel.toml"
 	if len(os.Args) > 1 {
 		cfgPath = os.Args[1]
+	}
+
+	generated, msg, err := config.GenerateIfMissing(cfgPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to generate config")
+	}
+	if generated {
+		fmt.Println(msg)
 	}
 
 	cfg, err := config.Load(cfgPath)
@@ -56,6 +67,7 @@ func main() {
 
 	httpClient := upstream.New()
 	polEngine := policy.New(cfg.Policy)
+	evLog := eventlog.New(500)
 
 	var signals []trust.Signal
 	if cfg.Policy != nil {
@@ -79,11 +91,12 @@ func main() {
 		wh = alerts.NewWebhook(cfg.Alerts.WebhookURL, nil)
 		log.Info().Str("url", cfg.Alerts.WebhookURL).Msg("webhook alerts enabled")
 	}
+
 	srv := server.New(cfg.Server.Host, cfg.Server.Port, log.Logger, cfg.Storage.Backend)
 	r := srv.Router()
 
 	if cfg.Ecosystems.NPM {
-		h := npm.New(httpClient, "https://registry.npmjs.org", trustEngine, polEngine, c)
+		h := npm.New(httpClient, "https://registry.npmjs.org", trustEngine, polEngine, c, evLog)
 		if wh != nil {
 			h.WithWebhook(wh)
 		}
@@ -91,11 +104,17 @@ func main() {
 	}
 	if cfg.Ecosystems.PyPI {
 		blockSdist := cfg.Policy != nil && cfg.Policy.PyPI != nil && cfg.Policy.PyPI.BlockSdist
-		h := pypi.New(httpClient, "https://pypi.org", trustEngine, polEngine, c, blockSdist)
+		h := pypi.New(httpClient, "https://pypi.org", trustEngine, polEngine, c, blockSdist, evLog)
 		if wh != nil {
 			h.WithWebhook(wh)
 		}
 		h.Mount(r)
+	}
+
+	if cfg.Dashboard.Enabled {
+		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger)
+		dash.Mount(r)
+		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
 	}
 
 	quit := make(chan os.Signal, 1)

@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
+	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -23,6 +24,7 @@ type Handler struct {
 	policy      *policy.Engine
 	cache       cache.Cache
 	webhook     *alerts.Webhook // may be nil
+	evlog       *eventlog.Log
 }
 
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
@@ -30,8 +32,8 @@ func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
 	return h
 }
 
-func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache) *Handler {
-	return &Handler{client: client, upstreamURL: upstreamURL, engine: engine, policy: pol, cache: c}
+func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache, evLog *eventlog.Log) *Handler {
+	return &Handler{client: client, upstreamURL: upstreamURL, engine: engine, policy: pol, cache: c, evlog: evLog}
 }
 
 func (h *Handler) Mount(r chi.Router) {
@@ -94,9 +96,18 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 			metrics.BlocksTotal.WithLabelValues(string(pkg.Ecosystem), decision.Signal).Inc()
 			blocked[version] = true
 			delete(versions, version)
-			if h.webhook != nil {
-				_ = h.webhook.Send(pkg, decision)
-			}
+		}
+		if h.evlog != nil {
+			h.evlog.Record(eventlog.PackageEvent{
+				Ecosystem: string(pkg.Ecosystem),
+				Package:   pkg.Name + "@" + pkg.Version,
+				Action:    string(decision.Action),
+				Signal:    decision.Signal,
+				Reason:    decision.Reason,
+			})
+		}
+		if decision.Action == policy.ActionBlock && h.webhook != nil {
+			_ = h.webhook.Send(pkg, decision)
 		}
 	}
 

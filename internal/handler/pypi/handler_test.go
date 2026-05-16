@@ -43,7 +43,7 @@ func TestPyPIHandler_BlocksNewVersionInSimpleIndex(t *testing.T) {
 	pol := policy.New(&config.PolicyConfig{
 		Age: &config.AgePolicyConfig{MinDays: 7, Action: "block"},
 	})
-	h := pypi.New(upstream.Client(), upstream.URL, engine, pol, c, false)
+	h := pypi.New(upstream.Client(), upstream.URL, engine, pol, c, false, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/pypi/simple/requests/", nil)
 	rr := httptest.NewRecorder()
@@ -63,7 +63,7 @@ func TestPyPIHandler_BlockSdist(t *testing.T) {
 
 	c := cache.NewMemory()
 	defer c.Close()
-	h := pypi.New(upstream.Client(), upstream.URL, trust.NewEngine(), policy.New(nil), c, true)
+	h := pypi.New(upstream.Client(), upstream.URL, trust.NewEngine(), policy.New(nil), c, true, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/pypi/packages/requests-2.31.0.tar.gz", nil)
 	rr := httptest.NewRecorder()

@@ -44,7 +44,7 @@ func TestNPMHandler_BlocksNewVersion(t *testing.T) {
 		Age: &config.AgePolicyConfig{MinDays: 7, Action: "block"},
 	})
 
-	h := npm.New(upstream.Client(), upstream.URL, engine, pol, c)
+	h := npm.New(upstream.Client(), upstream.URL, engine, pol, c, nil)
 	req := httptest.NewRequest(http.MethodGet, "/lodash", nil)
 	rr := httptest.NewRecorder()
 	h.ServeManifest(rr, req, "lodash")
@@ -71,7 +71,7 @@ func TestNPMHandler_AllVersionsPass(t *testing.T) {
 	pol := policy.New(&config.PolicyConfig{
 		Age: &config.AgePolicyConfig{MinDays: 7, Action: "block"},
 	})
-	h := npm.New(upstream.Client(), upstream.URL, engine, pol, c)
+	h := npm.New(upstream.Client(), upstream.URL, engine, pol, c, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/lodash", nil)
 	rr := httptest.NewRecorder()

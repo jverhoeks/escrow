@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
+	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -25,6 +26,7 @@ type Handler struct {
 	cache       cache.Cache
 	blockSdist  bool
 	webhook     *alerts.Webhook // may be nil
+	evlog       *eventlog.Log
 }
 
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
@@ -32,8 +34,8 @@ func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
 	return h
 }
 
-func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache, blockSdist bool) *Handler {
-	return &Handler{client: client, upstreamURL: upstreamURL, engine: engine, policy: pol, cache: c, blockSdist: blockSdist}
+func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache, blockSdist bool, evLog *eventlog.Log) *Handler {
+	return &Handler{client: client, upstreamURL: upstreamURL, engine: engine, policy: pol, cache: c, blockSdist: blockSdist, evlog: evLog}
 }
 
 func (h *Handler) Mount(r chi.Router) {
@@ -165,6 +167,15 @@ func (h *Handler) versionAllowed(ctx context.Context, name, version string, file
 	metrics.RequestsTotal.WithLabelValues(string(pkg.Ecosystem), string(d.Action)).Inc()
 	if d.Action == policy.ActionBlock {
 		metrics.BlocksTotal.WithLabelValues(string(pkg.Ecosystem), d.Signal).Inc()
+	}
+	if h.evlog != nil {
+		h.evlog.Record(eventlog.PackageEvent{
+			Ecosystem: string(pkg.Ecosystem),
+			Package:   pkg.Name + "@" + pkg.Version,
+			Action:    string(d.Action),
+			Signal:    d.Signal,
+			Reason:    d.Reason,
+		})
 	}
 	if d.Action == policy.ActionBlock && h.webhook != nil {
 		_ = h.webhook.Send(pkg, d)
