@@ -14,5 +14,7 @@ type Cache interface {
 	// GetBlob returns nil, nil on a cache miss.
 	GetBlob(ctx context.Context, key string) (io.ReadCloser, error)
 	SetBlob(ctx context.Context, key string, r io.Reader) error
+	// HasBlob returns true if the blob is present in cache (no download needed).
+	HasBlob(ctx context.Context, key string) bool
 	Close() error
 }

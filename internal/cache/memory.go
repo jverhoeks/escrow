@@ -75,6 +75,11 @@ func (m *Memory) SetBlob(_ context.Context, key string, r io.Reader) error {
 	return err
 }
 
+func (m *Memory) HasBlob(_ context.Context, key string) bool {
+	_, err := os.Stat(filepath.Join(m.tempDir, sanitize(key)))
+	return err == nil
+}
+
 func (m *Memory) Close() error {
 	return os.RemoveAll(m.tempDir)
 }

@@ -34,7 +34,7 @@ func newTestDashboard(t *testing.T) (http.Handler, *allow.List) {
 	evLog := eventlog.New(50)
 	logger := zerolog.Nop()
 
-	dash := dashboard.New(cfg, evLog, logger, al)
+	dash := dashboard.New(cfg, evLog, logger, al, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 	return r, al
@@ -143,7 +143,7 @@ func TestHandleAllowList_NilAllowList(t *testing.T) {
 	}
 	evLog := eventlog.New(50)
 	logger := zerolog.Nop()
-	dash := dashboard.New(cfg, evLog, logger, nil)
+	dash := dashboard.New(cfg, evLog, logger, nil, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -168,7 +168,7 @@ func TestHandleAllow_NilAllowList(t *testing.T) {
 	}
 	evLog := eventlog.New(50)
 	logger := zerolog.Nop()
-	dash := dashboard.New(cfg, evLog, logger, nil)
+	dash := dashboard.New(cfg, evLog, logger, nil, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -194,7 +194,7 @@ func TestHandleAllow_UnauthenticatedRejected(t *testing.T) {
 	}
 	al, err := allow.New("")
 	require.NoError(t, err)
-	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al)
+	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 

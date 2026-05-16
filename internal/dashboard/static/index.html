@@ -23,7 +23,7 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 .eco-filters { display: flex; align-items: center; gap: 6px; }
 .eco-label { color: #334155; font-size: 10px; margin-right: 2px; }
 .eco-chip { padding: 2px 10px; border-radius: 3px; font-size: 10px; cursor: pointer; border: 1px solid #1e3a5f; color: #64748b; background: none; font-family: inherit; letter-spacing: 0.5px; text-transform: uppercase; }
-.eco-chip.sel-all  { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
+.eco-chip.sel-all      { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
 .eco-chip.sel-npm      { background: #14532d22; color: #4ade80; border-color: #16a34a55; }
 .eco-chip.sel-pypi     { background: #1e3a8a22; color: #93c5fd; border-color: #3b82f655; }
 .eco-chip.sel-cargo    { background: #431407aa; color: #fb923c; border-color: #ea580c55; }
@@ -36,9 +36,10 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 .feed-item { padding: 7px 16px; border-bottom: 1px solid #0f1929; display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
 .feed-item:hover { background: #0f1929; }
 .ts { color: #334155; font-size: 10px; min-width: 56px; }
-.eco-tag { font-size: 9px; padding: 1px 5px; border-radius: 2px; min-width: 38px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
+.eco-tag { font-size: 9px; padding: 1px 5px; border-radius: 2px; min-width: 54px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
 .eco-tag.npm      { background: #14532d22; color: #4ade80; border: 1px solid #16a34a33; }
 .eco-tag.pypi     { background: #1e3a8a22; color: #93c5fd; border: 1px solid #3b82f633; }
+.eco-tag.go       { background: #083344aa; color: #67e8f9; border: 1px solid #0891b233; }
 .eco-tag.cargo    { background: #431407aa; color: #fb923c; border: 1px solid #ea580c33; }
 .eco-tag.composer { background: #1e1b4b22; color: #a5b4fc; border: 1px solid #6366f133; }
 .pkg { color: #cbd5e1; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -60,20 +61,21 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 .top-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 11px; border-bottom: 1px solid #0f1929; }
 .top-name { color: #cbd5e1; }
 .top-count { color: #ef4444; }
-.approve-btn {
-    background: none;
-    border: 1px solid #334155;
-    color: #64748b;
-    font-size: 9px;
-    padding: 1px 6px;
-    border-radius: 2px;
-    cursor: pointer;
-    letter-spacing: 0.5px;
-    font-family: inherit;
-}
+.approve-btn { background: none; border: 1px solid #334155; color: #64748b; font-size: 9px; padding: 1px 6px; border-radius: 2px; cursor: pointer; letter-spacing: 0.5px; font-family: inherit; }
 .approve-btn:hover { border-color: #22c55e; color: #22c55e; }
 .approve-btn.approved { border-color: #334155; color: #334155; cursor: default; }
 .status-override { color: #a78bfa; font-weight: bold; min-width: 54px; font-size: 11px; }
+/* packages view */
+.refresh-btn { background: none; border: 1px solid #1e3a5f; color: #64748b; font-size: 10px; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-family: inherit; letter-spacing: 0.5px; }
+.refresh-btn:hover { border-color: #3b82f6; color: #60a5fa; }
+.pkg-row { padding: 6px 16px; border-bottom: 1px solid #0f1929; display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
+.pkg-row:hover { background: #0f1929; }
+.pkg-name { color: #cbd5e1; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pkg-ver  { color: #64748b; font-size: 11px; min-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pkg-last { color: #334155; font-size: 10px; min-width: 56px; }
+.pkg-hits { color: #475569; font-size: 10px; min-width: 36px; text-align: right; }
+.cached-badge { font-size: 9px; padding: 1px 5px; border-radius: 2px; background: #14532d22; color: #4ade80; border: 1px solid #16a34a33; letter-spacing: 0.5px; white-space: nowrap; }
+.uncached-badge { font-size: 9px; padding: 1px 5px; border-radius: 2px; background: #1e1e2e; color: #334155; border: 1px solid #1e3a5f; letter-spacing: 0.5px; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -86,17 +88,22 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
   </div>
 </div>
 <div class="nav-bar">
-  <div class="nav-tabs"><div class="nav-tab active">Live Feed</div></div>
+  <div class="nav-tabs">
+    <div class="nav-tab active" id="tab-live"     onclick="setTab('live')">Live Feed</div>
+    <div class="nav-tab"        id="tab-packages" onclick="setTab('packages')">Packages</div>
+  </div>
   <div class="eco-filters">
     <span class="eco-label">ECOSYSTEM</span>
-    <button class="eco-chip sel-all" id="chip-all"  onclick="setEco('')">All</button>
+    <button class="eco-chip sel-all" id="chip-all"      onclick="setEco('')">All</button>
     <button class="eco-chip"         id="chip-npm"      onclick="setEco('npm')">npm</button>
     <button class="eco-chip"         id="chip-pypi"     onclick="setEco('pypi')">PyPI</button>
     <button class="eco-chip"         id="chip-cargo"    onclick="setEco('cargo')">Cargo</button>
     <button class="eco-chip"         id="chip-composer" onclick="setEco('composer')">Composer</button>
   </div>
 </div>
-<div class="main">
+
+<!-- Live Feed view -->
+<div id="main-live" class="main">
   <div class="feed-panel">
     <div class="panel-header">
       <span>PACKAGE EVENTS</span>
@@ -104,7 +111,7 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
     </div>
     <div class="col-headers">
       <span style="min-width:56px">time</span>
-      <span style="min-width:46px">eco</span>
+      <span style="min-width:62px">eco</span>
       <span style="flex:1">package</span>
       <span style="min-width:160px">signal / reason</span>
       <span style="min-width:54px">status</span>
@@ -137,15 +144,43 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
     </div>
   </div>
 </div>
+
+<!-- Packages view -->
+<div id="main-packages" class="main" style="display:none">
+  <div class="feed-panel">
+    <div class="panel-header">
+      <span>PACKAGE INVENTORY</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="pkg-count" style="color:#334155"></span>
+        <button class="refresh-btn" onclick="loadPackages()">↻ Refresh</button>
+      </div>
+    </div>
+    <div class="col-headers">
+      <span style="min-width:56px">last seen</span>
+      <span style="min-width:62px">eco</span>
+      <span style="flex:1">package</span>
+      <span style="min-width:110px">version</span>
+      <span style="min-width:160px">signal / reason</span>
+      <span style="min-width:54px">status</span>
+      <span style="min-width:36px;text-align:right">hits</span>
+      <span style="min-width:64px">cache</span>
+    </div>
+    <div id="pkg-list" style="flex:1;overflow-y:auto"></div>
+  </div>
+</div>
+
 <script>
 const BASE = window.location.pathname.replace(/\/+$/, '');
 let currentEco = '';
+let currentTab = 'live';
 let es = null;
 let allEvents = [];
 
 function fmtTime(ts) {
   return new Date(ts).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
 }
+
+// ── Live Feed ────────────────────────────────────────────────────────────────
 
 function makeRow(e) {
   const row = document.createElement('div');
@@ -241,6 +276,122 @@ function connect(eco) {
   };
 }
 
+async function approvePackage(event, btn, statusEl) {
+  const pkg = event.package || '';
+  const atIdx = pkg.lastIndexOf('@');
+  const name = atIdx > 0 ? pkg.slice(0, atIdx) : pkg;
+  const version = atIdx > 0 ? pkg.slice(atIdx + 1) : '';
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const resp = await fetch(BASE + '/api/allow', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ecosystem: event.ecosystem, name, version, reason: 'approved via dashboard on ' + today})
+    });
+    if (resp.ok) {
+      btn.textContent = '✓ Approved'; btn.classList.add('approved'); btn.disabled = true;
+      statusEl.textContent = 'OVERRIDE'; statusEl.className = 'status-override';
+    } else { btn.textContent = 'Error'; }
+  } catch(e) { btn.textContent = 'Error'; }
+}
+
+// ── Packages view ────────────────────────────────────────────────────────────
+
+function loadPackages() {
+  const url = BASE + '/api/packages' + (currentEco ? '?eco=' + encodeURIComponent(currentEco) : '');
+  fetch(url).then(r => r.json()).then(data => renderPackages(data || [])).catch(() => {});
+}
+
+function renderPackages(pkgs) {
+  const list = document.getElementById('pkg-list');
+  list.textContent = '';
+  pkgs.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'pkg-row';
+
+    const ts = document.createElement('span');
+    ts.className = 'pkg-last';
+    ts.textContent = fmtTime(p.last_seen);
+
+    const ecoTag = document.createElement('span');
+    ecoTag.className = 'eco-tag ' + (p.ecosystem || '');
+    ecoTag.textContent = p.ecosystem || '';
+
+    const name = document.createElement('span');
+    name.className = 'pkg-name';
+    name.textContent = p.name;
+    name.title = p.name;
+
+    const ver = document.createElement('span');
+    ver.className = 'pkg-ver';
+    ver.textContent = p.version;
+    ver.title = p.version;
+
+    const sigText = p.signal ? (p.signal + (p.reason ? ' · ' + p.reason : '')) : '—';
+    const sig = document.createElement('span');
+    sig.className = 'sig';
+    sig.textContent = sigText;
+    sig.title = sigText;
+
+    const stClass = p.action === 'block' ? 'block' : p.action === 'warn' ? 'warn' : 'allow';
+    const st = document.createElement('span');
+    st.className = 'st ' + stClass;
+    st.textContent = (p.action || 'allow').toUpperCase();
+
+    const hits = document.createElement('span');
+    hits.className = 'pkg-hits';
+    hits.textContent = p.hit_count + 'x';
+    hits.title = p.hit_count + ' request' + (p.hit_count === 1 ? '' : 's');
+
+    const cache = document.createElement('span');
+    if (p.cached) {
+      cache.className = 'cached-badge';
+      cache.textContent = '● cached';
+    } else if (p.ecosystem === 'npm' || p.ecosystem === 'cargo') {
+      cache.className = 'uncached-badge';
+      cache.textContent = '○ —';
+    }
+
+    row.append(ts, ecoTag, name, ver, sig, st, hits, cache);
+
+    if (p.action === 'block') {
+      const btn = document.createElement('button');
+      btn.textContent = 'Approve';
+      btn.className = 'approve-btn';
+      btn.onclick = () => approvePkgEntry(p, btn, st);
+      row.append(btn);
+    }
+    list.appendChild(row);
+  });
+  document.getElementById('pkg-count').textContent = pkgs.length + ' packages';
+}
+
+async function approvePkgEntry(p, btn, statusEl) {
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const resp = await fetch(BASE + '/api/allow', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ecosystem: p.ecosystem, name: p.name, version: p.version, reason: 'approved via dashboard on ' + today})
+    });
+    if (resp.ok) {
+      btn.textContent = '✓ Approved'; btn.classList.add('approved'); btn.disabled = true;
+      statusEl.textContent = 'OVERRIDE'; statusEl.className = 'status-override';
+    } else { btn.textContent = 'Error'; }
+  } catch(e) { btn.textContent = 'Error'; }
+}
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+
+function setTab(tab) {
+  currentTab = tab;
+  document.getElementById('tab-live').classList.toggle('active', tab === 'live');
+  document.getElementById('tab-packages').classList.toggle('active', tab === 'packages');
+  document.getElementById('main-live').style.display     = tab === 'live'     ? '' : 'none';
+  document.getElementById('main-packages').style.display = tab === 'packages' ? '' : 'none';
+  if (tab === 'packages') loadPackages();
+}
+
 function setEco(eco) {
   currentEco = eco;
   document.getElementById('chip-all').className      = 'eco-chip' + (eco === ''         ? ' sel-all'      : '');
@@ -248,9 +399,15 @@ function setEco(eco) {
   document.getElementById('chip-pypi').className     = 'eco-chip' + (eco === 'pypi'     ? ' sel-pypi'     : '');
   document.getElementById('chip-cargo').className    = 'eco-chip' + (eco === 'cargo'    ? ' sel-cargo'    : '');
   document.getElementById('chip-composer').className = 'eco-chip' + (eco === 'composer' ? ' sel-composer' : '');
-  connect(eco);
-  rebuildFeed();
+  if (currentTab === 'live') {
+    connect(eco);
+    rebuildFeed();
+  } else {
+    loadPackages();
+  }
 }
+
+// ── Init ─────────────────────────────────────────────────────────────────────
 
 fetch(BASE + '/api/events?n=100')
   .then(r => r.json())
@@ -258,33 +415,6 @@ fetch(BASE + '/api/events?n=100')
   .catch(() => connect(currentEco));
 
 setInterval(updateStats, 10000);
-
-async function approvePackage(event, btn, statusEl) {
-  const pkg = event.package || '';
-  const atIdx = pkg.lastIndexOf('@');
-  const name = atIdx > 0 ? pkg.slice(0, atIdx) : pkg;
-  const version = atIdx > 0 ? pkg.slice(atIdx + 1) : '';
-  const today = new Date().toISOString().slice(0, 10);
-  const reason = 'approved via dashboard on ' + today;
-  try {
-    const resp = await fetch(BASE + '/api/allow', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ecosystem: event.ecosystem, name, version, reason})
-    });
-    if (resp.ok) {
-      btn.textContent = '✓ Approved';
-      btn.classList.add('approved');
-      btn.disabled = true;
-      statusEl.textContent = 'OVERRIDE';
-      statusEl.className = 'status-override';
-    } else {
-      btn.textContent = 'Error';
-    }
-  } catch(e) {
-    btn.textContent = 'Error';
-  }
-}
 </script>
 </body>
 </html>

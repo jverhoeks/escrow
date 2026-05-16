@@ -1,15 +1,19 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jverhoeks/escrow/internal/allow"
+	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/rs/zerolog"
@@ -20,11 +24,12 @@ type Dashboard struct {
 	auth      *Auth
 	log       *eventlog.Log
 	logger    zerolog.Logger
-	allowList *allow.List // may be nil
+	allowList *allow.List  // may be nil
+	cache     cache.Cache  // may be nil
 }
 
-func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List) *Dashboard {
-	return &Dashboard{cfg: cfg, auth: NewAuth(cfg.Username, cfg.Password, cfg.Secret), log: log, logger: logger, allowList: allowList}
+func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, c cache.Cache) *Dashboard {
+	return &Dashboard{cfg: cfg, auth: NewAuth(cfg.Username, cfg.Password, cfg.Secret), log: log, logger: logger, allowList: allowList, cache: c}
 }
 
 func (d *Dashboard) Mount(r chi.Router) {
@@ -41,6 +46,7 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Get("/api/stats", d.handleStats)
 	protected.Post("/api/allow", d.handleAllow)
 	protected.Get("/api/allowlist", d.handleAllowList)
+	protected.Get("/api/packages", d.handlePackages)
 	r.Mount(base, protected)
 }
 
@@ -177,6 +183,99 @@ func (d *Dashboard) handleAllow(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (d *Dashboard) handlePackages(w http.ResponseWriter, r *http.Request) {
+	eco := r.URL.Query().Get("eco")
+	all := d.log.Events("") // newest-first
+
+	type pkgEntry struct {
+		Ecosystem string    `json:"ecosystem"`
+		Name      string    `json:"name"`
+		Version   string    `json:"version"`
+		Action    string    `json:"action"`
+		Signal    string    `json:"signal"`
+		Reason    string    `json:"reason"`
+		LastSeen  time.Time `json:"last_seen"`
+		HitCount  int       `json:"hit_count"`
+		Cached    bool      `json:"cached"`
+	}
+
+	type key struct{ eco, name, version string }
+	seen := map[key]*pkgEntry{}
+	for _, e := range all { // newest-first: first occurrence per key = most recent status
+		if eco != "" && e.Ecosystem != eco {
+			continue
+		}
+		name, version := splitPackage(e.Package)
+		k := key{e.Ecosystem, name, version}
+		if existing, ok := seen[k]; ok {
+			existing.HitCount++
+		} else {
+			seen[k] = &pkgEntry{
+				Ecosystem: e.Ecosystem,
+				Name:      name,
+				Version:   version,
+				Action:    e.Action,
+				Signal:    e.Signal,
+				Reason:    e.Reason,
+				LastSeen:  e.Timestamp,
+				HitCount:  1,
+			}
+		}
+	}
+
+	// Check blob cache for ecosystems with predictable cache keys.
+	if d.cache != nil {
+		for k, entry := range seen {
+			entry.Cached = blobCached(r.Context(), d.cache, k.eco, k.name, k.version)
+		}
+	}
+
+	result := make([]pkgEntry, 0, len(seen))
+	for _, e := range seen {
+		result = append(result, *e)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Ecosystem != result[j].Ecosystem {
+			return result[i].Ecosystem < result[j].Ecosystem
+		}
+		if result[i].Name != result[j].Name {
+			return result[i].Name < result[j].Name
+		}
+		return result[i].Version < result[j].Version
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// blobCached returns true if the package binary is present in the blob cache.
+// Only npm and cargo have predictable cache key formats.
+func blobCached(ctx context.Context, c cache.Cache, ecosystem, name, version string) bool {
+	var key string
+	switch ecosystem {
+	case "npm":
+		// scoped: @scope/pkg → cache key uses just the package basename
+		basename := name
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			basename = name[i+1:]
+		}
+		key = fmt.Sprintf("npm/%s/-/%s-%s.tgz", name, basename, version)
+	case "cargo":
+		key = fmt.Sprintf("cargo/crates/%s/%s/download", name, version)
+	default:
+		return false
+	}
+	return c.HasBlob(ctx, key)
+}
+
+func splitPackage(pkg string) (name, version string) {
+	i := strings.LastIndex(pkg, "@")
+	if i <= 0 {
+		return pkg, ""
+	}
+	return pkg[:i], pkg[i+1:]
 }
 
 func (d *Dashboard) handleAllowList(w http.ResponseWriter, r *http.Request) {

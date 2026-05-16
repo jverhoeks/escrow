@@ -106,4 +106,9 @@ func (d *Disk) SetBlob(_ context.Context, key string, r io.Reader) error {
 	return err
 }
 
+func (d *Disk) HasBlob(_ context.Context, key string) bool {
+	_, err := os.Stat(d.blobPath(key))
+	return err == nil
+}
+
 func (d *Disk) Close() error { return nil }

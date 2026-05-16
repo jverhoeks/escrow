@@ -114,4 +114,10 @@ func (s *S3Cache) SetBlob(ctx context.Context, key string, r io.Reader) error {
 	return err
 }
 
+func (s *S3Cache) HasBlob(ctx context.Context, key string) bool {
+	k := s.blobKey(key)
+	_, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &s.bucket, Key: &k})
+	return err == nil
+}
+
 func (s *S3Cache) Close() error { return nil }
