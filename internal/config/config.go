@@ -16,6 +16,7 @@ type Config struct {
 	Alerts        AlertsConfig    `toml:"alerts"`
 	Dashboard     DashboardConfig `toml:"dashboard"`
 	AllowlistPath string          `toml:"allowlist_path"`
+	BlocklistPath string          `toml:"blocklist_path"`
 }
 
 type ServerConfig struct {
@@ -155,6 +156,7 @@ func GenerateIfMissing(path string) (bool, string, error) {
   webhook_url = ""
 
 allowlist_path = "escrow-allowlist.json"
+blocklist_path = "escrow-blocklist.json"
 `,
 		cfg.Server.Host, cfg.Server.Port, cfg.Server.LogLevel,
 		password, secret,

@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/allow"
+	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dashboard"
@@ -80,6 +81,15 @@ func main() {
 		log.Warn().Msg("allowlist_path not configured — allow list entries will not persist across restarts")
 	}
 	polEngine.WithAllowList(allowList)
+
+	blockList, err := block.New(cfg.BlocklistPath)
+	if err != nil {
+		log.Fatal().Err(err).Str("path", cfg.BlocklistPath).Msg("failed to load blocklist")
+	}
+	if cfg.BlocklistPath == "" {
+		log.Warn().Msg("blocklist_path not configured — block list entries will not persist across restarts")
+	}
+	polEngine.WithBlockList(blockList)
 
 	evLog := eventlog.New(500)
 
@@ -153,7 +163,7 @@ func main() {
 	}
 
 	if cfg.Dashboard.Enabled {
-		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, c)
+		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
 	}

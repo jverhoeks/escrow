@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jverhoeks/escrow/internal/allow"
+	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -25,11 +26,12 @@ type Dashboard struct {
 	log       *eventlog.Log
 	logger    zerolog.Logger
 	allowList *allow.List  // may be nil
+	blockList *block.List  // may be nil
 	cache     cache.Cache  // may be nil
 }
 
-func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, c cache.Cache) *Dashboard {
-	return &Dashboard{cfg: cfg, auth: NewAuth(cfg.Username, cfg.Password, cfg.Secret), log: log, logger: logger, allowList: allowList, cache: c}
+func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache) *Dashboard {
+	return &Dashboard{cfg: cfg, auth: NewAuth(cfg.Username, cfg.Password, cfg.Secret), log: log, logger: logger, allowList: allowList, blockList: blockList, cache: c}
 }
 
 func (d *Dashboard) Mount(r chi.Router) {
@@ -46,6 +48,8 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Get("/api/stats", d.handleStats)
 	protected.Post("/api/allow", d.handleAllow)
 	protected.Get("/api/allowlist", d.handleAllowList)
+	protected.Post("/api/block", d.handleBlock)
+	protected.Get("/api/blocklist", d.handleBlockList)
 	protected.Get("/api/packages", d.handlePackages)
 	r.Mount(base, protected)
 }
@@ -286,4 +290,49 @@ func (d *Dashboard) handleAllowList(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(d.allowList.Entries())
+}
+
+func (d *Dashboard) handleBlock(w http.ResponseWriter, r *http.Request) {
+	if d.blockList == nil {
+		http.Error(w, `{"error":"blocklist not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	var req struct {
+		Ecosystem string `json:"ecosystem"`
+		Name      string `json:"name"`
+		Version   string `json:"version"`
+		Reason    string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+	if req.Ecosystem == "" || req.Name == "" {
+		http.Error(w, `{"error":"ecosystem and name are required"}`, http.StatusBadRequest)
+		return
+	}
+	username, _ := d.auth.Username(r)
+	entry := block.Entry{
+		Ecosystem: req.Ecosystem,
+		Name:      req.Name,
+		Version:   req.Version,
+		Reason:    req.Reason,
+		AddedBy:   username,
+	}
+	if err := d.blockList.Add(entry); err != nil {
+		http.Error(w, `{"error":"failed to save blocklist"}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (d *Dashboard) handleBlockList(w http.ResponseWriter, r *http.Request) {
+	if d.blockList == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]struct{}{})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(d.blockList.Entries())
 }

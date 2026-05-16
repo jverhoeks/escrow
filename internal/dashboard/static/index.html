@@ -64,6 +64,10 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 .approve-btn { background: none; border: 1px solid #334155; color: #64748b; font-size: 9px; padding: 1px 6px; border-radius: 2px; cursor: pointer; letter-spacing: 0.5px; font-family: inherit; }
 .approve-btn:hover { border-color: #22c55e; color: #22c55e; }
 .approve-btn.approved { border-color: #334155; color: #334155; cursor: default; }
+.block-btn { background: none; border: 1px solid #334155; color: #64748b; font-size: 9px; padding: 1px 6px; border-radius: 2px; cursor: pointer; letter-spacing: 0.5px; font-family: inherit; }
+.block-btn:hover { border-color: #ef4444; color: #ef4444; }
+.block-btn.blocked { border-color: #334155; color: #334155; cursor: default; }
+.status-manual-block { color: #f97316; font-weight: bold; min-width: 54px; font-size: 11px; }
 .status-override { color: #a78bfa; font-weight: bold; min-width: 54px; font-size: 11px; }
 /* packages view */
 .refresh-btn { background: none; border: 1px solid #1e3a5f; color: #64748b; font-size: 10px; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-family: inherit; letter-spacing: 0.5px; }
@@ -212,6 +216,13 @@ function makeRow(e) {
     approveBtn.onclick = () => approvePackage(e, approveBtn, st);
     row.append(approveBtn);
   }
+  if (e.action !== 'block') {
+    const blockBtn = document.createElement('button');
+    blockBtn.textContent = 'Block';
+    blockBtn.className = 'block-btn';
+    blockBtn.onclick = () => blockPackage(e, blockBtn, st);
+    row.append(blockBtn);
+  }
   return row;
 }
 
@@ -295,6 +306,40 @@ async function approvePackage(event, btn, statusEl) {
   } catch(e) { btn.textContent = 'Error'; }
 }
 
+async function blockPackage(event, btn, statusEl) {
+  const pkg = event.package || '';
+  const atIdx = pkg.lastIndexOf('@');
+  const name = atIdx > 0 ? pkg.slice(0, atIdx) : pkg;
+  const version = atIdx > 0 ? pkg.slice(atIdx + 1) : '';
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const resp = await fetch(BASE + '/api/block', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ecosystem: event.ecosystem, name, version, reason: 'blocked via dashboard on ' + today})
+    });
+    if (resp.ok) {
+      btn.textContent = '✓ Blocked'; btn.classList.add('blocked'); btn.disabled = true;
+      statusEl.textContent = 'BLOCK'; statusEl.className = 'st block';
+    } else { btn.textContent = 'Error'; }
+  } catch(e) { btn.textContent = 'Error'; }
+}
+
+async function blockPkgEntry(p, btn, statusEl) {
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const resp = await fetch(BASE + '/api/block', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ecosystem: p.ecosystem, name: p.name, version: p.version, reason: 'blocked via dashboard on ' + today})
+    });
+    if (resp.ok) {
+      btn.textContent = '✓ Blocked'; btn.classList.add('blocked'); btn.disabled = true;
+      statusEl.textContent = 'BLOCK'; statusEl.className = 'st block';
+    } else { btn.textContent = 'Error'; }
+  } catch(e) { btn.textContent = 'Error'; }
+}
+
 // ── Packages view ────────────────────────────────────────────────────────────
 
 function loadPackages() {
@@ -360,6 +405,13 @@ function renderPackages(pkgs) {
       btn.className = 'approve-btn';
       btn.onclick = () => approvePkgEntry(p, btn, st);
       row.append(btn);
+    }
+    if (p.action !== 'block') {
+      const blockBtn = document.createElement('button');
+      blockBtn.textContent = 'Block';
+      blockBtn.className = 'block-btn';
+      blockBtn.onclick = () => blockPkgEntry(p, blockBtn, st);
+      row.append(blockBtn);
     }
     list.appendChild(row);
   });

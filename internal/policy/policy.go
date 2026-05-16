@@ -2,6 +2,7 @@ package policy
 
 import (
 	"github.com/jverhoeks/escrow/internal/allow"
+	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
@@ -23,6 +24,7 @@ type Decision struct {
 type Engine struct {
 	cfg       *config.PolicyConfig
 	allowList *allow.List // may be nil
+	blockList *block.List // may be nil
 }
 
 func New(cfg *config.PolicyConfig) *Engine { return &Engine{cfg: cfg} }
@@ -30,6 +32,12 @@ func New(cfg *config.PolicyConfig) *Engine { return &Engine{cfg: cfg} }
 // WithAllowList sets the allowlist on the engine and returns the engine for chaining.
 func (e *Engine) WithAllowList(l *allow.List) *Engine {
 	e.allowList = l
+	return e
+}
+
+// WithBlockList sets the blocklist on the engine and returns the engine for chaining.
+func (e *Engine) WithBlockList(l *block.List) *Engine {
+	e.blockList = l
 	return e
 }
 
@@ -44,6 +52,19 @@ func (e *Engine) Evaluate(result trust.TrustResult) Decision {
 				Action: ActionAllow,
 				Signal: "override",
 				Reason: "allowlist: " + entry.Reason,
+			}
+		}
+	}
+	if e.blockList != nil {
+		if ok, entry := e.blockList.IsBlocked(
+			string(result.Package.Ecosystem),
+			result.Package.Name,
+			result.Package.Version,
+		); ok {
+			return Decision{
+				Action: ActionBlock,
+				Signal: "manual-block",
+				Reason: "blocklist: " + entry.Reason,
 			}
 		}
 	}
