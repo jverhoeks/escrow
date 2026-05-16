@@ -55,3 +55,26 @@ func TestWarnings_MemoryBackend(t *testing.T) {
 	assert.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "memory")
 }
+
+func TestGenerateIfMissing_CreatesFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sentinel.toml")
+	generated, msg, err := config.GenerateIfMissing(path)
+	require.NoError(t, err)
+	assert.True(t, generated)
+	assert.Contains(t, msg, "username: admin")
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	assert.True(t, cfg.Dashboard.Enabled)
+	assert.Equal(t, "admin", cfg.Dashboard.Username)
+	assert.Len(t, cfg.Dashboard.Secret, 64)
+}
+
+func TestGenerateIfMissing_SkipsExisting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sentinel.toml")
+	os.WriteFile(path, []byte("[server]\n  port = 9999\n"), 0o644)
+	generated, _, err := config.GenerateIfMissing(path)
+	require.NoError(t, err)
+	assert.False(t, generated)
+	cfg, _ := config.Load(path)
+	assert.Equal(t, 9999, cfg.Server.Port)
+}
