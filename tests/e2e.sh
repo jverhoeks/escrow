@@ -10,6 +10,7 @@ BLOCK_CFG="/tmp/escrow-block-$$.toml"
 PORT=18989
 
 PASS=0; FAIL=0
+ESCROW_PID=""
 
 cleanup() {
     kill "$ESCROW_PID" 2>/dev/null || true
@@ -46,7 +47,11 @@ EOF
 echo "Starting escrow (allow-all)..."
 "$BIN" "$ALLOW_CFG" &
 ESCROW_PID=$!
-for i in $(seq 1 20); do nc -z 127.0.0.1 $PORT 2>/dev/null && break; sleep 0.3; done
+for i in $(seq 1 20); do
+    [ -n "$ESCROW_PID" ] && kill -0 "$ESCROW_PID" 2>/dev/null || { echo "ERROR: escrow exited early"; exit 1; }
+    curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1 && break
+    sleep 0.3
+done
 
 # healthz
 if curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; then ok "healthz"; else fail "healthz"; fi
@@ -80,7 +85,7 @@ else
 fi
 
 # Go list
-if curl -sf "http://127.0.0.1:$PORT/go/golang.org/x/text/@v/list" | grep -q "v0"; then
+if curl -sf "http://127.0.0.1:$PORT/go/golang.org/x/text/@v/list" | grep -qE '^v0\.[0-9]+'; then
     ok "go list pass-through"
 else
     fail "go list pass-through"
@@ -93,7 +98,10 @@ else
     fail "go info pass-through"
 fi
 
-kill "$ESCROW_PID" 2>/dev/null; wait "$ESCROW_PID" 2>/dev/null || true; sleep 0.5
+kill "$ESCROW_PID" 2>/dev/null
+wait "$ESCROW_PID" 2>/dev/null || true
+for i in $(seq 1 10); do nc -z 127.0.0.1 $PORT 2>/dev/null || break; sleep 0.2; done
+ESCROW_PID=""
 
 # --- Block-all config (age gate = 99999 days) ---
 cat > "$BLOCK_CFG" <<EOF
@@ -120,7 +128,11 @@ EOF
 echo "Starting escrow (block-all)..."
 "$BIN" "$BLOCK_CFG" &
 ESCROW_PID=$!
-for i in $(seq 1 20); do nc -z 127.0.0.1 $PORT 2>/dev/null && break; sleep 0.3; done
+for i in $(seq 1 20); do
+    [ -n "$ESCROW_PID" ] && kill -0 "$ESCROW_PID" 2>/dev/null || { echo "ERROR: escrow exited early"; exit 1; }
+    curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1 && break
+    sleep 0.3
+done
 
 # npm: all versions blocked → empty versions map
 if curl -sf "http://127.0.0.1:$PORT/lodash" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if len(d.get('versions',{})) == 0 else 1)"; then
