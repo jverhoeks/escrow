@@ -74,6 +74,7 @@ type PyPIPolicyConfig struct {
 type EcosystemConfig struct {
 	NPM  bool `toml:"npm"`
 	PyPI bool `toml:"pypi"`
+	Go   bool `toml:"go"`
 }
 
 type AlertsConfig struct {
@@ -92,7 +93,7 @@ func DefaultConfig() Config {
 	return Config{
 		Server:     ServerConfig{Host: "0.0.0.0", Port: 8888, LogLevel: "info"},
 		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "./sentinel-cache"}},
-		Ecosystems: EcosystemConfig{NPM: true, PyPI: true},
+		Ecosystems: EcosystemConfig{NPM: true, PyPI: true, Go: false},
 		Dashboard:  DashboardConfig{Enabled: true, Path: "/dashboard"},
 	}
 }
@@ -136,6 +137,7 @@ func GenerateIfMissing(path string) (bool, string, error) {
 [ecosystems]
   npm  = true
   pypi = true
+  go   = false
 
 [dashboard]
   enabled  = true

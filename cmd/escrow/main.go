@@ -16,6 +16,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dashboard"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/handler/gomod"
 	"github.com/jverhoeks/escrow/internal/handler/npm"
 	"github.com/jverhoeks/escrow/internal/handler/pypi"
 	"github.com/jverhoeks/escrow/internal/policy"
@@ -109,6 +110,12 @@ func main() {
 			h.WithWebhook(wh)
 		}
 		h.Mount(r)
+	}
+
+	if cfg.Ecosystems.Go {
+		h := gomod.New(httpClient, "https://proxy.golang.org", trustEngine, polEngine, c, evLog)
+		h.Mount(r)
+		log.Info().Msg("go modules proxy enabled at /go/")
 	}
 
 	if cfg.Dashboard.Enabled {

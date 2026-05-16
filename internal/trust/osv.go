@@ -63,8 +63,11 @@ func (s *OSVSignal) Check(ctx context.Context, pkg Package) (SignalReport, error
 	}
 
 	ecosystem := "npm"
-	if pkg.Ecosystem == EcosystemPyPI {
+	switch pkg.Ecosystem {
+	case EcosystemPyPI:
 		ecosystem = "PyPI"
+	case EcosystemGo:
+		ecosystem = "Go"
 	}
 	body, _ := json.Marshal(osvQuery{
 		Version: pkg.Version,
