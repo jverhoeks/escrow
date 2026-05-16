@@ -86,8 +86,12 @@ func TestNPMHandler_AllVersionsPass(t *testing.T) {
 }
 
 func TestNPMHandler_ExtractsAuthorFromNpmUser(t *testing.T) {
+	publisherLookupCalled := 0
 	npmUserSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/-/user/") {
+			// Verify the lookup was made for the correct author
+			assert.Contains(t, r.URL.Path, "newauthor", "publisher lookup should use extracted author name")
+			publisherLookupCalled++
 			json.NewEncoder(w).Encode(map[string]any{
 				"created": time.Now().Add(-5 * 24 * time.Hour).Format(time.RFC3339),
 			})
@@ -127,4 +131,5 @@ func TestNPMHandler_ExtractsAuthorFromNpmUser(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&manifest))
 	versions := manifest["versions"].(map[string]any)
 	assert.Contains(t, versions, "1.0.0", "version should not be stripped on publisher warn")
+	assert.Equal(t, 1, publisherLookupCalled, "publisher lookup should have been called with extracted author")
 }

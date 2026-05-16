@@ -27,7 +27,7 @@ func extractAuthor(versionData map[string]any) string {
 	}
 	if maintainers, ok := versionData["maintainers"].([]any); ok && len(maintainers) > 0 {
 		if m, ok := maintainers[0].(map[string]any); ok {
-			if name, ok := m["name"].(string); ok {
+			if name, ok := m["name"].(string); ok && name != "" {
 				return name
 			}
 		}
