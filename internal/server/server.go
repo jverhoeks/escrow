@@ -50,7 +50,7 @@ func New(host string, port int, log zerolog.Logger, storageBackend string) *Serv
 func (s *Server) Router() *chi.Mux { return s.router }
 
 func (s *Server) Start() error {
-	s.log.Info().Str("addr", s.http.Addr).Msg("sentinel listening")
+	s.log.Info().Str("addr", s.http.Addr).Msg("escrow listening")
 	return s.http.ListenAndServe()
 }
 

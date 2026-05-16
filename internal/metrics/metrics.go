@@ -12,22 +12,22 @@ import (
 
 var (
 	RequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "sentinel_requests_total",
+		Name: "escrow_requests_total",
 		Help: "Total requests by ecosystem and action",
 	}, []string{"ecosystem", "action"})
 
 	BlocksTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "sentinel_blocks_total",
+		Name: "escrow_blocks_total",
 		Help: "Blocked packages by ecosystem and signal",
 	}, []string{"ecosystem", "signal"})
 
 	CacheHitsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "sentinel_cache_hits_total",
+		Name: "escrow_cache_hits_total",
 		Help: "Cache hits by ecosystem and type",
 	}, []string{"ecosystem", "cache_type"})
 
 	OSVQueryDuration = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name:    "sentinel_osv_query_duration_seconds",
+		Name:    "escrow_osv_query_duration_seconds",
 		Help:    "OSV API query latency",
 		Buckets: prometheus.DefBuckets,
 	})
