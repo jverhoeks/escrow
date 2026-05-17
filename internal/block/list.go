@@ -54,6 +54,24 @@ func (l *List) IsBlocked(ecosystem, name, version string) (bool, Entry) {
 	return false, Entry{}
 }
 
+// Remove deletes all entries matching ecosystem+name. If version is non-empty,
+// only the exact version entry is removed; otherwise all versions are removed.
+func (l *List) Remove(ecosystem, name, version string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]Entry, 0, len(l.entries))
+	for _, e := range l.entries {
+		if e.Ecosystem == ecosystem && e.Name == name {
+			if version == "" || e.Version == version {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	l.entries = out
+	return l.save()
+}
+
 // Add appends an entry and persists if a path is set.
 func (l *List) Add(e Entry) error {
 	l.mu.Lock()

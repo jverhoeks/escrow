@@ -31,7 +31,7 @@ func TestPublisherSignal_NewAccount(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	sig := trust.NewPublisherSignal(30, srv.Client(), srv.URL, "")
+	sig := trust.NewPublisherSignal(30, srv.Client(), nil, srv.URL, "")
 	pkg := trust.Package{
 		Ecosystem: trust.EcosystemNPM,
 		Name:      "new-pkg",
@@ -60,7 +60,7 @@ func TestPublisherSignal_EstablishedAccount(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	sig := trust.NewPublisherSignal(30, srv.Client(), srv.URL, "")
+	sig := trust.NewPublisherSignal(30, srv.Client(), nil, srv.URL, "")
 	pkg := trust.Package{
 		Ecosystem: trust.EcosystemNPM,
 		Name:      "established-pkg",

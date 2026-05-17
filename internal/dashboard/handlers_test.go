@@ -48,7 +48,7 @@ func authenticatedRequest(t *testing.T, method, path string, body []byte) *http.
 
 	// Obtain a valid cookie by calling SetCookie on a recorder.
 	rec := httptest.NewRecorder()
-	auth.SetCookie(rec, "admin")
+	auth.SetCookie(rec, httptest.NewRequest(http.MethodGet, "/", nil), "admin")
 	cookie := rec.Result().Cookies()[0]
 
 	var req *http.Request

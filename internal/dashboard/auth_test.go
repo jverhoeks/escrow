@@ -13,7 +13,7 @@ import (
 func TestAuth_SetAndVerify(t *testing.T) {
 	a := dashboard.NewAuth("admin", "secret", "aabbccddeeff00112233445566778899")
 	w := httptest.NewRecorder()
-	a.SetCookie(w, "admin")
+	a.SetCookie(w, httptest.NewRequest(http.MethodGet, "/", nil), "admin")
 	cookies := w.Result().Cookies()
 	require.Len(t, cookies, 1)
 	assert.Equal(t, "escrow_session", cookies[0].Name)

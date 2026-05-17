@@ -53,5 +53,8 @@ func (w *Webhook) Send(pkg trust.Package, d policy.Decision) error {
 		return fmt.Errorf("webhook post failed: %w", err)
 	}
 	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("webhook returned %d", resp.StatusCode)
+	}
 	return nil
 }

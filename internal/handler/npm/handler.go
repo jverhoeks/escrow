@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/sync/singleflight"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -17,8 +18,8 @@ import (
 	"github.com/jverhoeks/escrow/internal/trust"
 )
 
-// extractAuthor returns the publisher username from a version's npm registry data.
-// Tries _npmUser first (set by the registry at publish time), falls back to maintainers[0].
+const manifestTTL = 5 * time.Minute
+
 func extractAuthor(versionData map[string]any) string {
 	if npmUser, ok := versionData["_npmUser"].(map[string]any); ok {
 		if name, ok := npmUser["name"].(string); ok && name != "" {
@@ -43,6 +44,7 @@ type Handler struct {
 	cache       cache.Cache
 	webhook     *alerts.Webhook // may be nil
 	evlog       *eventlog.Log
+	sf          singleflight.Group
 }
 
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
@@ -72,22 +74,42 @@ func (h *Handler) Mount(r chi.Router) {
 }
 
 func (h *Handler) ServeManifest(w http.ResponseWriter, r *http.Request, name string) {
-	resp, err := h.client.Get(fmt.Sprintf("%s/%s", h.upstreamURL, name))
-	if err != nil || resp.StatusCode != http.StatusOK {
+	cacheKey := "npm/meta/" + name
+	if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
+		metrics.CacheHitsTotal.WithLabelValues("npm", "manifest").Inc()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(cached)
+		return
+	}
+
+	// Deduplicate concurrent cold-cache fetches for the same package.
+	raw, err, _ := h.sf.Do(name, func() (any, error) {
+		t0 := time.Now()
+		resp, err := h.client.Get(fmt.Sprintf("%s/%s", h.upstreamURL, name))
+		metrics.ProxyRequestDuration.WithLabelValues("npm").Observe(time.Since(t0).Seconds())
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("upstream %d", resp.StatusCode)
+		}
+		defer resp.Body.Close()
+		var manifest map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+			return nil, err
+		}
+		manifest = h.filterManifest(context.Background(), name, manifest)
+		data, _ := json.Marshal(manifest)
+		h.cache.SetMeta(context.Background(), cacheKey, data, manifestTTL)
+		return data, nil
+	})
+	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
-
-	var manifest map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-		http.Error(w, "malformed manifest", http.StatusBadGateway)
-		return
-	}
-
-	manifest = h.filterManifest(r.Context(), name, manifest)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(manifest)
+	w.Write(raw.([]byte))
 }
 
 func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[string]any) map[string]any {
@@ -98,6 +120,10 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 	}
 
 	blocked := map[string]bool{}
+	// Track one representative decision per signal for webhook dedup.
+	type webhookKey struct{ signal string }
+	webhookSent := map[webhookKey]bool{}
+
 	for version := range versions {
 		versionData, _ := versions[version].(map[string]any)
 		publishedStr, _ := times[version].(string)
@@ -116,6 +142,14 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 			metrics.BlocksTotal.WithLabelValues(string(pkg.Ecosystem), decision.Signal).Inc()
 			blocked[version] = true
 			delete(versions, version)
+			// Send at most one webhook per unique signal type per manifest filter.
+			if h.webhook != nil {
+				key := webhookKey{decision.Signal}
+				if !webhookSent[key] {
+					_ = h.webhook.Send(pkg, decision)
+					webhookSent[key] = true
+				}
+			}
 		}
 		if h.evlog != nil {
 			h.evlog.Record(eventlog.PackageEvent{
@@ -126,19 +160,15 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 				Reason:    decision.Reason,
 			})
 		}
-		if decision.Action == policy.ActionBlock && h.webhook != nil {
-			_ = h.webhook.Send(pkg, decision)
-		}
 	}
 
-	// Reassign dist-tags if the tagged version was blocked
+	// Reassign dist-tags if the tagged version was blocked.
 	if distTags, ok := manifest["dist-tags"].(map[string]any); ok {
 		for tag, ver := range distTags {
 			v, ok := ver.(string)
 			if !ok || !blocked[v] {
 				continue
 			}
-			// Find newest remaining version by publish time
 			newest := ""
 			newestTime := time.Time{}
 			for v2 := range versions {
@@ -164,18 +194,27 @@ func (h *Handler) ServeTarball(w http.ResponseWriter, r *http.Request, pkg, tarb
 	cacheKey := fmt.Sprintf("npm/%s/-/%s", pkg, tarball)
 	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
 		defer blob.Close()
+		metrics.CacheHitsTotal.WithLabelValues("npm", "blob").Inc()
 		io.Copy(w, blob)
 		return
 	}
 	resp, err := h.client.Get(fmt.Sprintf("%s/%s/-/%s", h.upstreamURL, pkg, tarball))
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
-	h.cache.SetBlob(r.Context(), cacheKey, resp.Body)
-	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
-		defer blob.Close()
-		io.Copy(w, blob)
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "upstream error", http.StatusBadGateway)
+		return
 	}
+	pr, pw := io.Pipe()
+	cacheDone := make(chan struct{})
+	go func() {
+		defer close(cacheDone)
+		h.cache.SetBlob(context.Background(), cacheKey, pr)
+	}()
+	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
+	pw.CloseWithError(copyErr)
+	<-cacheDone
 }

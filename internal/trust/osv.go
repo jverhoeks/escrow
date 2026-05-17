@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jverhoeks/escrow/internal/cache"
+	"github.com/jverhoeks/escrow/internal/metrics"
 )
 
 type OSVSignal struct {
@@ -62,6 +63,8 @@ func (s *OSVSignal) Check(ctx context.Context, pkg Package) (SignalReport, error
 		}
 	}
 
+	// Map escrow ecosystem names to OSV database ecosystem identifiers.
+	// https://osv.dev/docs/#tag/api/operation/OSV_QueryAffected
 	ecosystem := "npm"
 	switch pkg.Ecosystem {
 	case EcosystemPyPI:
@@ -72,19 +75,31 @@ func (s *OSVSignal) Check(ctx context.Context, pkg Package) (SignalReport, error
 		ecosystem = "crates.io"
 	case EcosystemComposer:
 		ecosystem = "Packagist"
+	case EcosystemNuGet:
+		ecosystem = "NuGet"
+	case EcosystemMaven:
+		ecosystem = "Maven"
 	}
 	body, _ := json.Marshal(osvQuery{
 		Version: pkg.Version,
 		Package: osvPackage{Name: pkg.Name, Ecosystem: ecosystem},
 	})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/v1/query", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/v1/query", bytes.NewReader(body))
+	if err != nil {
+		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "OSV request build failed"}, nil
+	}
 	req.Header.Set("Content-Type", "application/json")
 
+	t0 := time.Now()
 	resp, err := s.client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
+	metrics.OSVQueryDuration.Observe(time.Since(t0).Seconds())
+	if err != nil {
 		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "OSV query failed"}, nil
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() // must come before status check to avoid body leak on non-200
+	if resp.StatusCode != http.StatusOK {
+		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "OSV query failed"}, nil
+	}
 
 	var osvResp osvResponse
 	if err := json.NewDecoder(resp.Body).Decode(&osvResp); err != nil {

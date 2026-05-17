@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"os"
@@ -60,19 +59,31 @@ func (m *Memory) GetBlob(_ context.Context, key string) (io.ReadCloser, error) {
 
 func (m *Memory) SetBlob(_ context.Context, key string, r io.Reader) error {
 	path := filepath.Join(m.tempDir, sanitize(key))
-	os.MkdirAll(filepath.Dir(path), 0o755)
-	// Read into memory first so the reader isn't consumed
+	dir := filepath.Dir(path)
+	os.MkdirAll(dir, 0o755)
+	// Buffer first, then write to a temp file and rename atomically.
+	// This prevents concurrent readers from seeing partial data and concurrent
+	// writers from corrupting the file.
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
-	f, err := os.Create(path)
+	tmp, err := os.CreateTemp(dir, ".blob-tmp-")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = io.Copy(f, bytes.NewReader(data))
-	return err
+	tmpName := tmp.Name()
+	_, err = tmp.Write(data)
+	tmp.Close()
+	if err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 func (m *Memory) HasBlob(_ context.Context, key string) bool {

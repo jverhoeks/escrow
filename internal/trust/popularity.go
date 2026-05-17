@@ -72,13 +72,19 @@ func (s *PopularitySignal) Check(ctx context.Context, pkg Package) (SignalReport
 }
 
 func (s *PopularitySignal) fetchNPMDownloads(ctx context.Context, name string) (int, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		fmt.Sprintf("%s/downloads/point/last-week/%s", s.npmBaseURL, name), nil)
+	if err != nil {
+		return 0, fmt.Errorf("npm download stats unavailable")
+	}
 	resp, err := s.client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		return 0, fmt.Errorf("npm download stats unavailable")
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("npm download stats unavailable")
+	}
 	var data struct {
 		Downloads int `json:"downloads"`
 	}
@@ -87,13 +93,19 @@ func (s *PopularitySignal) fetchNPMDownloads(ctx context.Context, name string) (
 }
 
 func (s *PopularitySignal) fetchPyPIDownloads(ctx context.Context, name string) (int, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		fmt.Sprintf("%s/packages/%s/recent", s.pypiBaseURL, name), nil)
+	if err != nil {
+		return 0, fmt.Errorf("PyPI download stats unavailable")
+	}
 	resp, err := s.client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		return 0, fmt.Errorf("PyPI download stats unavailable")
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("PyPI download stats unavailable")
+	}
 	var data struct {
 		Data struct {
 			LastWeek int `json:"last_week"`

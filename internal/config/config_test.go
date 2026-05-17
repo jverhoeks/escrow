@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,7 +14,7 @@ import (
 func TestLoadDefaults_NoFile(t *testing.T) {
 	cfg, err := config.Load("/nonexistent/path/sentinel.toml")
 	require.NoError(t, err)
-	assert.Equal(t, "0.0.0.0", cfg.Server.Host)
+	assert.Equal(t, "127.0.0.1", cfg.Server.Host)
 	assert.Equal(t, 8888, cfg.Server.Port)
 	assert.Equal(t, "disk", cfg.Storage.Backend)
 	assert.Nil(t, cfg.Policy)
@@ -42,18 +43,34 @@ func TestLoad_ParsesFile(t *testing.T) {
 func TestWarnings_NoPolicy(t *testing.T) {
 	cfg := config.Config{}
 	warnings := cfg.Warnings()
-	assert.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "no policy configured")
+	// Expects: "no policy configured" + "no ecosystems are enabled"
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "no policy configured") {
+			found = true
+		}
+	}
+	assert.True(t, found, "should warn about missing policy")
 }
 
 func TestWarnings_MemoryBackend(t *testing.T) {
 	cfg := config.Config{
-		Storage: config.StorageConfig{Backend: "memory"},
+		Storage:    config.StorageConfig{Backend: "memory"},
+		Ecosystems: config.EcosystemConfig{NPM: true}, // enable one ecosystem to silence that warning
 	}
 	cfg.Policy = &config.PolicyConfig{}
 	warnings := cfg.Warnings()
-	assert.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "memory")
+	foundMemory, foundSignals := false, false
+	for _, w := range warnings {
+		if strings.Contains(w, "memory") {
+			foundMemory = true
+		}
+		if strings.Contains(w, "no signals") {
+			foundSignals = true
+		}
+	}
+	assert.True(t, foundMemory, "should warn about memory backend")
+	assert.True(t, foundSignals, "should warn about empty policy with no signals")
 }
 
 func TestGenerateIfMissing_CreatesFile(t *testing.T) {

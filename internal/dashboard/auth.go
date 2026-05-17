@@ -3,6 +3,7 @@ package dashboard
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -25,19 +26,31 @@ func NewAuth(username, password, secret string) *Auth {
 }
 
 func (a *Auth) CheckCredentials(username, password string) bool {
-	return username == a.username && password == a.password
+	// Hash both the stored and provided values before comparing so that
+	// ConstantTimeCompare always receives equal-length slices. Without this,
+	// different-length inputs short-circuit and leak the stored value's length.
+	hStored := func(prefix, s string) []byte {
+		m := hmac.New(sha256.New, a.secret)
+		m.Write([]byte(prefix + s))
+		return m.Sum(nil)
+	}
+	uOK := subtle.ConstantTimeCompare(hStored("u:", a.username), hStored("u:", username)) == 1
+	pOK := subtle.ConstantTimeCompare(hStored("p:", a.password), hStored("p:", password)) == 1
+	return uOK && pOK
 }
 
-func (a *Auth) SetCookie(w http.ResponseWriter, username string) {
+func (a *Auth) SetCookie(w http.ResponseWriter, r *http.Request, username string) {
 	expiry := time.Now().Add(cookieTTL).Unix()
 	payload := fmt.Sprintf("%s|%d", username, expiry)
 	value := base64.URLEncoding.EncodeToString([]byte(payload)) + "." + a.sign(payload)
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(cookieTTL.Seconds()),
 	})
 }
@@ -56,7 +69,7 @@ func (a *Auth) IsValid(r *http.Request) bool {
 		return false
 	}
 	payload := string(payloadBytes)
-	if a.sign(payload) != parts[1] {
+	if !hmac.Equal([]byte(a.sign(payload)), []byte(parts[1])) {
 		return false
 	}
 	fields := strings.SplitN(payload, "|", 2)
@@ -100,7 +113,7 @@ func (a *Auth) Username(r *http.Request) (string, bool) {
 		return "", false
 	}
 	payload := string(payloadBytes)
-	if a.sign(payload) != parts[1] {
+	if !hmac.Equal([]byte(a.sign(payload)), []byte(parts[1])) {
 		return "", false
 	}
 	fields := strings.SplitN(payload, "|", 2)

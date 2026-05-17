@@ -21,6 +21,9 @@ func NewAgeSignal(minDays int, nowFn func() time.Time) *AgeSignal {
 func (s *AgeSignal) Name() string { return "age" }
 
 func (s *AgeSignal) Check(_ context.Context, pkg Package) (SignalReport, error) {
+	// When PublishedAt is zero (unknown publish time), Sub returns ~738,000 days
+	// (now minus year 1), which is always >= minDays → package passes (fail-open).
+	// This is intentional: an upstream API outage should not block all installs.
 	ageDays := int(s.now().Sub(pkg.PublishedAt).Hours() / 24)
 	if ageDays < s.minDays {
 		return SignalReport{

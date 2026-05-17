@@ -94,16 +94,29 @@ func (d *Disk) GetBlob(_ context.Context, key string) (io.ReadCloser, error) {
 
 func (d *Disk) SetBlob(_ context.Context, key string, r io.Reader) error {
 	path := d.blobPath(key)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	f, err := os.Create(path)
+	// Write to a temp file in the same directory, then rename atomically.
+	// This prevents concurrent writers from corrupting the file and prevents
+	// partial reads if a client disconnects mid-download.
+	tmp, err := os.CreateTemp(dir, ".blob-tmp-")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = io.Copy(f, r)
-	return err
+	tmpName := tmp.Name()
+	_, err = io.Copy(tmp, r)
+	tmp.Close()
+	if err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName) // clean up temp file if rename fails (e.g. permissions)
+		return err
+	}
+	return nil
 }
 
 func (d *Disk) HasBlob(_ context.Context, key string) bool {

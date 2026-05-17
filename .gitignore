@@ -1,0 +1,5 @@
+sentinel.toml
+escrow-cache/
+escrow
+escrow-darwin-*
+escrow-linux-*

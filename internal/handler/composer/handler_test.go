@@ -177,3 +177,34 @@ func TestComposerHandler_ServePackage_EmptyAuthors(t *testing.T) {
 		assert.Len(t, versions, 2, "both versions without authors should pass through")
 	})
 }
+
+// TestComposerHandler_MissingTimeAllowsThrough verifies that packages with no
+// publish time (old Packagist entries) pass the age gate rather than being blocked.
+// The fallback is time.Date(2000,1,1,...) which is always older than any min_days setting.
+func TestComposerHandler_MissingTimeAllowsThrough(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"packages": map[string]any{
+				"vendor/oldpkg": []any{
+					map[string]any{
+						"name":    "vendor/oldpkg",
+						"version": "1.0.0",
+						// no "time" field — simulates old Packagist entry
+					},
+				},
+			},
+		})
+	}))
+	defer upstream.Close()
+
+	h := buildHandler(upstream, 7)
+	rr := doGet(t, h, "/composer/p2/vendor/oldpkg.json")
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var payload map[string]any
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&payload))
+	packages := payload["packages"].(map[string]any)
+	versions := packages["vendor/oldpkg"].([]any)
+	assert.Len(t, versions, 1, "package with missing time should be treated as ancient and pass the age gate")
+}

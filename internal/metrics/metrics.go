@@ -1,8 +1,10 @@
 package metrics
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,25 +33,89 @@ var (
 		Help:    "OSV API query latency",
 		Buckets: prometheus.DefBuckets,
 	})
+
+	ProxyRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "escrow_proxy_request_duration_seconds",
+		Help:    "End-to-end proxy request latency",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"ecosystem"})
 )
 
 var startTime = time.Now()
 
 type HealthResponse struct {
-	Status  string `json:"status"`
-	Uptime  string `json:"uptime"`
-	Backend string `json:"storage_backend"`
+	Status         string          `json:"status"`
+	Uptime         string          `json:"uptime"`
+	Backend        string          `json:"storage_backend"`
+	CacheWritable  bool            `json:"cache_writable"`
+	UpstreamStatus map[string]bool `json:"upstream_status,omitempty"`
 }
 
-func HealthHandler(backend string) http.HandlerFunc {
+// HealthHandler returns a health check handler that probes each upstream and the cache.
+// upstreams maps ecosystem name → base URL (e.g. "npm" → "https://registry.npmjs.org").
+// cacheDir is the disk cache root directory; empty means cache is non-disk (memory/S3).
+func HealthHandler(backend string, upstreams map[string]string, cacheDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		upstreamStatus := make(map[string]bool, len(upstreams))
+		for eco, url := range upstreams {
+			upstreamStatus[eco] = probeUpstream(r.Context(), url)
+		}
+
+		cacheWritable := probeCacheWritable(cacheDir)
+
+		status := "ok"
+		if !cacheWritable && cacheDir != "" {
+			status = "degraded"
+		}
+		for _, ok := range upstreamStatus {
+			if !ok {
+				status = "degraded"
+				break
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
+		if status == "degraded" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
 		json.NewEncoder(w).Encode(HealthResponse{
-			Status:  "ok",
-			Uptime:  time.Since(startTime).Round(time.Second).String(),
-			Backend: backend,
+			Status:         status,
+			Uptime:         time.Since(startTime).Round(time.Second).String(),
+			Backend:        backend,
+			CacheWritable:  cacheWritable,
+			UpstreamStatus: upstreamStatus,
 		})
 	}
+}
+
+// probeCacheWritable verifies the disk cache directory is writable by creating and removing a probe file.
+func probeCacheWritable(dir string) bool {
+	if dir == "" {
+		return true // non-disk backends always report writable
+	}
+	f, err := os.CreateTemp(dir, ".health-probe-*")
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(f.Name())
+	return true
+}
+
+// probeUpstream does a HEAD request with a 3-second timeout.
+func probeUpstream(ctx context.Context, baseURL string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, baseURL, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 500
 }
 
 func MetricsHandler() http.Handler {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/sync/singleflight"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -16,6 +17,8 @@ import (
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
+
+const manifestTTL = 5 * time.Minute
 
 // Handler is the Composer/Packagist V2 proxy handler.
 type Handler struct {
@@ -26,6 +29,7 @@ type Handler struct {
 	cache       cache.Cache
 	evlog       *eventlog.Log
 	webhook     *alerts.Webhook // may be nil
+	sf          singleflight.Group
 }
 
 // New creates a new Composer handler.
@@ -58,11 +62,15 @@ func (h *Handler) Mount(r chi.Router) {
 // metadata-url and providers-url to point to our proxy prefix.
 func (h *Handler) serveRoot(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.client.Get(fmt.Sprintf("%s/packages.json", h.upstreamURL))
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "upstream error", http.StatusBadGateway)
+		return
+	}
 
 	var root map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&root); err != nil {
@@ -95,51 +103,67 @@ func (h *Handler) servePackage(w http.ResponseWriter, r *http.Request) {
 	// Strip .json suffix to get the canonical package name (e.g. "symfony/console")
 	pkgName := strings.TrimSuffix(wildcard, ".json")
 
-	resp, err := h.client.Get(fmt.Sprintf("%s/p2/%s.json", h.upstreamURL, pkgName))
-	if err != nil || resp.StatusCode != http.StatusOK {
+	cacheKey := "composer/meta/" + pkgName
+	if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
+		metrics.CacheHitsTotal.WithLabelValues("composer", "manifest").Inc()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(cached)
+		return
+	}
+
+	raw, err, _ := h.sf.Do(pkgName, func() (any, error) {
+		t0 := time.Now()
+		resp, err := h.client.Get(fmt.Sprintf("%s/p2/%s.json", h.upstreamURL, pkgName))
+		metrics.ProxyRequestDuration.WithLabelValues("composer").Observe(time.Since(t0).Seconds())
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("upstream %d", resp.StatusCode)
+		}
+		defer resp.Body.Close()
+		var payload map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			return nil, err
+		}
+		packages, _ := payload["packages"].(map[string]any)
+		if packages != nil {
+			versions, _ := packages[pkgName].([]any)
+			if versions != nil {
+				allowed := make([]any, 0, len(versions))
+				for _, v := range versions {
+					vObj, ok := v.(map[string]any)
+					if !ok {
+						continue
+					}
+					version, _ := vObj["version"].(string)
+					timeStr, _ := vObj["time"].(string)
+					author := extractAuthor(vObj)
+					publishedAt := parseComposerTime(timeStr)
+					if publishedAt.IsZero() {
+						// Unknown publish time on old Packagist entries — treat as ancient so the
+						// age gate allows them through. Using time.Now() would block them erroneously.
+						publishedAt = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+					}
+					if h.versionAllowed(context.Background(), pkgName, version, publishedAt, author) {
+						allowed = append(allowed, v)
+					}
+				}
+				packages[pkgName] = allowed
+			}
+			payload["packages"] = packages
+		}
+		data, _ := json.Marshal(payload)
+		h.cache.SetMeta(context.Background(), cacheKey, data, manifestTTL)
+		return data, nil
+	})
+	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
-
-	var payload map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		http.Error(w, "malformed response", http.StatusBadGateway)
-		return
-	}
-
-	// packages is a map from "vendor/package" → []version-objects
-	packages, _ := payload["packages"].(map[string]any)
-	if packages != nil {
-		versions, _ := packages[pkgName].([]any)
-		if versions != nil {
-			allowed := make([]any, 0, len(versions))
-			for _, v := range versions {
-				vObj, ok := v.(map[string]any)
-				if !ok {
-					continue
-				}
-				version, _ := vObj["version"].(string)
-				timeStr, _ := vObj["time"].(string)
-				author := extractAuthor(vObj)
-
-				publishedAt := parseComposerTime(timeStr)
-				if publishedAt.IsZero() {
-					// Unknown publish time: treat as just-published so age gate blocks it.
-					publishedAt = time.Now()
-				}
-
-				if h.versionAllowed(r.Context(), pkgName, version, publishedAt, author) {
-					allowed = append(allowed, v)
-				}
-			}
-			packages[pkgName] = allowed
-		}
-		payload["packages"] = packages
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(payload)
+	w.Write(raw.([]byte))
 }
 
 // versionAllowed runs the trust engine and policy for a single version,

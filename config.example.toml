@@ -1,42 +1,77 @@
 [server]
-  host      = "0.0.0.0"
+  host      = "127.0.0.1"     # bind to localhost only; use 0.0.0.0 for all interfaces or --host flag
   port      = 8888
-  log_level = "info"   # debug | info | warn | error
+  log_level = "info"           # debug | info | warn | error
+
+  # write_timeout_seconds      = 120  # default 120; increase for slow clients downloading large archives
+  # read_header_timeout_seconds = 10   # default 10; increase for high-latency corporate networks
+  # idle_timeout_seconds        = 120  # default 120; keep-alive connection idle limit
+  # tls_cert_file = "/path/to/cert.pem"
+  # tls_key_file  = "/path/to/key.pem"
+  # proxy_rate_limit_per_min = 0  # requests/min per IP on proxy endpoints; 0 = disabled
 
 [ecosystems]
-  npm  = true
-  pypi = true
+  npm      = true
+  # npm_upstream = "https://registry.npmjs.org"  # override to point at internal Nexus etc.
+
+  pypi     = true
+  # pypi_upstream = "https://pypi.org"
+
+  go       = false
+  # go_upstream = "https://proxy.golang.org"
+
+  cargo    = false
+  composer = false
+  # composer_upstream = "https://repo.packagist.org"
+
+  nuget    = false
+  # nuget_upstream          = "https://api.nuget.org/v3"
+  # nuget_flatcontainer_url = ""  # optional; for Nexus/Azure Artifacts that don't use the /v3 path scheme
+
+  maven    = false   # also covers Gradle (same /maven2/ endpoint)
+  # maven_upstream          = "https://repo1.maven.org/maven2"
+  # maven_snapshot_upstream = ""  # route -SNAPSHOT requests here; empty = same as maven_upstream
 
 [storage]
   backend = "disk"   # disk | s3 | memory
-
   [storage.disk]
     path = "./escrow-cache"
 
-  [storage.s3]
-    bucket   = ""
-    region   = "eu-west-1"
-    endpoint = ""   # blank = AWS; set for MinIO
+  # [storage.s3]
+  #   bucket   = "my-escrow-cache"
+  #   region   = "eu-west-1"
+  #   endpoint = ""   # blank = AWS S3; set for MinIO: "http://localhost:9000"
 
 [policy]
   [policy.age]
-    min_days = 7
-    action   = "block"   # block | warn | allow
+    min_days = 7       # block packages published fewer than N days ago
+    action   = "block" # block | warn | allow
 
   [policy.osv]
     min_severity = "MEDIUM"   # LOW | MEDIUM | HIGH | CRITICAL
     action       = "block"
 
   [policy.publisher]
-    max_account_age_days = 30
+    max_account_age_days = 30  # warn on packages from accounts younger than N days
     action               = "warn"
 
-  [policy.popularity]
-    spike_factor = 10.0
-    action       = "warn"
+  # [policy.popularity]
+  #   spike_factor = 10.0   # warn when downloads spike >10x vs baseline
+  #   action       = "warn"
 
-  [policy.pypi]
-    block_sdist = false
+  # [policy.pypi]
+  #   block_sdist = false   # block source distributions (sdist) — forces wheel-only installs
 
 [alerts]
-  webhook_url = ""
+  webhook_url = ""   # POST JSON to this URL on every block; blank = disabled
+
+[dashboard]
+  enabled  = true
+  path     = "/dashboard"
+  username = "admin"
+  password = "changeme"    # replaced by random value on first boot
+  secret   = ""            # HMAC secret for session cookies; replaced by random value on first boot
+
+allowlist_path = "escrow-allowlist.json"
+blocklist_path = "escrow-blocklist.json"
+# eventlog_path = "escrow-events.jsonl"  # persist events across restarts; empty = in-memory only

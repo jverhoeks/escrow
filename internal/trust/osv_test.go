@@ -139,3 +139,73 @@ func TestOSVSignal_ComposerEcosystem(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Packagist", capturedEcosystem, "composer ecosystem should map to Packagist in OSV query")
 }
+
+func TestOSVSignal_NuGetEcosystem(t *testing.T) {
+	var capturedEcosystem string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Package struct {
+				Ecosystem string `json:"ecosystem"`
+			} `json:"package"`
+		}
+		json.NewDecoder(r.Body).Decode(&q)
+		capturedEcosystem = q.Package.Ecosystem
+		json.NewEncoder(w).Encode(map[string]any{"vulns": []any{}})
+	}))
+	defer srv.Close()
+	c := cache.NewMemory()
+	defer c.Close()
+	sig := trust.NewOSVSignal("MEDIUM", srv.Client(), c, srv.URL)
+	pkg := trust.Package{Ecosystem: trust.EcosystemNuGet, Name: "Newtonsoft.Json", Version: "13.0.3"}
+	_, err := sig.Check(context.Background(), pkg)
+	require.NoError(t, err)
+	assert.Equal(t, "NuGet", capturedEcosystem, "nuget ecosystem should map to NuGet in OSV query")
+}
+
+func TestOSVSignal_MavenEcosystem(t *testing.T) {
+	var capturedEcosystem string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Package struct {
+				Ecosystem string `json:"ecosystem"`
+			} `json:"package"`
+		}
+		json.NewDecoder(r.Body).Decode(&q)
+		capturedEcosystem = q.Package.Ecosystem
+		json.NewEncoder(w).Encode(map[string]any{"vulns": []any{}})
+	}))
+	defer srv.Close()
+	c := cache.NewMemory()
+	defer c.Close()
+	sig := trust.NewOSVSignal("MEDIUM", srv.Client(), c, srv.URL)
+	pkg := trust.Package{Ecosystem: trust.EcosystemMaven, Name: "org.springframework:spring-core", Version: "6.1.0"}
+	_, err := sig.Check(context.Background(), pkg)
+	require.NoError(t, err)
+	assert.Equal(t, "Maven", capturedEcosystem, "maven ecosystem should map to Maven in OSV query")
+}
+
+// TestOSVSignal_NuGetPreservesCase verifies that the OSV query sends the canonical
+// package name case (e.g. "Newtonsoft.Json", not "newtonsoft.json").
+// OSV's NuGet ecosystem is case-sensitive.
+func TestOSVSignal_NuGetPreservesCase(t *testing.T) {
+	var capturedName string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Package struct {
+				Name string `json:"name"`
+			} `json:"package"`
+		}
+		json.NewDecoder(r.Body).Decode(&q)
+		capturedName = q.Package.Name
+		json.NewEncoder(w).Encode(map[string]any{"vulns": []any{}})
+	}))
+	defer srv.Close()
+	c := cache.NewMemory()
+	defer c.Close()
+	sig := trust.NewOSVSignal("MEDIUM", srv.Client(), c, srv.URL)
+	pkg := trust.Package{Ecosystem: trust.EcosystemNuGet, Name: "Newtonsoft.Json", Version: "13.0.3"}
+	_, err := sig.Check(context.Background(), pkg)
+	require.NoError(t, err)
+	assert.Equal(t, "Newtonsoft.Json", capturedName,
+		"OSV query must preserve original case for NuGet package names")
+}

@@ -1,0 +1,96 @@
+<h2>Dashboard Layout Options</h2>
+<p class="subtitle">Which overall structure fits the escrow package monitor?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock-nav" style="font-size:11px;padding:6px 12px;">🔒 escrow &nbsp;|&nbsp; Live Feed &nbsp;|&nbsp; Packages &nbsp;|&nbsp; Settings &nbsp;&nbsp;&nbsp; <span style="float:right">admin ▾</span></div>
+      <div style="display:flex;gap:0;height:160px;">
+        <div style="width:52px;background:#1e2533;padding:8px 6px;display:flex;flex-direction:column;gap:6px;">
+          <div style="background:#3b4a6b;border-radius:4px;height:8px;width:36px"></div>
+          <div style="background:#3b4a6b;border-radius:4px;height:8px;width:36px"></div>
+          <div style="background:#4f6bb3;border-radius:4px;height:8px;width:36px"></div>
+          <div style="background:#3b4a6b;border-radius:4px;height:8px;width:36px"></div>
+        </div>
+        <div style="flex:1;background:#f5f7fa;padding:10px;display:flex;flex-direction:column;gap:6px;">
+          <div style="display:flex;gap:6px;">
+            <div style="flex:1;background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:6px;font-size:9px"><b>247</b><br>requests</div>
+            <div style="flex:1;background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:6px;font-size:9px"><b style="color:#dc2626">12</b><br>blocked</div>
+            <div style="flex:1;background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:6px;font-size:9px"><b style="color:#d97706">8</b><br>warned</div>
+          </div>
+          <div style="background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:6px;flex:1;font-size:8px">
+            📦 lodash@4.17.21 &nbsp;<span style="color:#dc2626">BLOCKED</span>&nbsp; 2s ago<br>
+            📦 requests@2.31.0 &nbsp;<span style="color:#16a34a">ALLOWED</span>&nbsp; 5s ago<br>
+            📦 semver@7.8.0 &nbsp;<span style="color:#d97706">WARNED</span>&nbsp; 12s ago<br>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Sidebar + Main</h3>
+      <p>Icon sidebar nav, top stats bar, live package feed takes up most of the screen. Classic admin dashboard feel.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock-nav" style="font-size:11px;padding:6px 12px;">🔒 escrow &nbsp;&nbsp; <b>Live</b> &nbsp;·&nbsp; Packages &nbsp;·&nbsp; Stats &nbsp;&nbsp;&nbsp; <span style="float:right">admin ▾</span></div>
+      <div style="background:#f5f7fa;padding:8px;display:flex;flex-direction:column;gap:6px;height:155px;">
+        <div style="display:flex;gap:6px;">
+          <div style="flex:1;background:#fff;border-left:3px solid #dc2626;border-radius:4px;padding:6px;font-size:9px"><b>12 blocked</b><br>today</div>
+          <div style="flex:1;background:#fff;border-left:3px solid #16a34a;border-radius:4px;padding:6px;font-size:9px"><b>227 allowed</b><br>today</div>
+          <div style="flex:1;background:#fff;border-left:3px solid #d97706;border-radius:4px;padding:6px;font-size:9px"><b>8 warned</b><br>today</div>
+        </div>
+        <div style="display:flex;gap:6px;flex:1;">
+          <div style="flex:2;background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:6px;font-size:8px;">
+            <b>Live Feed</b><br>
+            📦 lodash@4.17.21 · BLOCKED · 2s<br>
+            📦 requests@2.31.0 · OK · 5s<br>
+            📦 semver@7.8.0 · WARN · 12s
+          </div>
+          <div style="flex:1;background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:6px;font-size:8px;">
+            <b>Top blocked</b><br>
+            lodash × 8<br>
+            axios × 3<br>
+            moment × 1
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Top nav + Cards</h3>
+      <p>Flat top nav, coloured KPI cards, live feed and mini-stats side by side. Compact, no sidebar.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0f172a;color:#e2e8f0;padding:8px 12px;font-size:11px;display:flex;justify-content:space-between;">
+        <span>🔒 escrow</span><span style="color:#94a3b8">admin · logout</span>
+      </div>
+      <div style="background:#0f172a;display:flex;gap:6px;padding:8px;height:150px;">
+        <div style="flex:1;background:#1e293b;border-radius:4px;padding:8px;font-size:8px;color:#e2e8f0;overflow:hidden;">
+          <div style="color:#94a3b8;font-size:7px;margin-bottom:4px">LIVE FEED</div>
+          <div style="color:#ef4444">● lodash@4.17.21 BLOCKED</div>
+          <div style="color:#22c55e">● requests@2.31.0 OK</div>
+          <div style="color:#f59e0b">● semver@7.8.0 WARN</div>
+          <div style="color:#22c55e">● once@1.4.0 OK</div>
+          <div style="color:#ef4444">● lodash@4.17.20 BLOCKED</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;width:80px;">
+          <div style="background:#1e293b;border-radius:4px;padding:6px;font-size:8px;color:#e2e8f0;text-align:center;"><div style="color:#ef4444;font-size:14px;font-weight:bold">12</div>blocked</div>
+          <div style="background:#1e293b;border-radius:4px;padding:6px;font-size:8px;color:#e2e8f0;text-align:center;"><div style="color:#22c55e;font-size:14px;font-weight:bold">227</div>allowed</div>
+          <div style="background:#1e293b;border-radius:4px;padding:6px;font-size:8px;color:#e2e8f0;text-align:center;"><div style="color:#f59e0b;font-size:14px;font-weight:bold">8</div>warned</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Dark terminal style</h3>
+      <p>Dark theme, monospace feel. Live feed dominant with counters as a column. Feels like a security tool, not a BI dashboard.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px">Click a card to select. All three have login, real-time updates, and the same data — just different layouts and visual styles.</p>

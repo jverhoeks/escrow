@@ -13,6 +13,8 @@ const (
 	EcosystemGo       Ecosystem = "go"
 	EcosystemCargo    Ecosystem = "cargo"
 	EcosystemComposer Ecosystem = "composer"
+	EcosystemNuGet    Ecosystem = "nuget"
+	EcosystemMaven    Ecosystem = "maven"
 )
 
 // Package is everything the trust engine needs to assess a specific release.

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -42,11 +43,11 @@ func NewS3(bucket, region, endpoint string) (*S3Cache, error) {
 }
 
 func (s *S3Cache) metaKey(key string) string {
-	return "meta/" + key + ".json"
+	return "meta/" + sanitize(key) + ".json"
 }
 
 func (s *S3Cache) blobKey(key string) string {
-	return "blobs/" + key
+	return "blobs/" + sanitize(key)
 }
 
 func isNotFound(err error) bool {
@@ -101,15 +102,29 @@ func (s *S3Cache) GetBlob(ctx context.Context, key string) (io.ReadCloser, error
 }
 
 func (s *S3Cache) SetBlob(ctx context.Context, key string, r io.Reader) error {
-	data, err := io.ReadAll(r)
+	// Write to a temp file first so we know the content length for the S3 PutObject call.
+	// This avoids buffering the entire blob in RAM (important for large archives).
+	tmp, err := os.CreateTemp("", "escrow-s3-*")
 	if err != nil {
 		return err
 	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+
+	size, err := io.Copy(tmp, r)
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
 	k := s.blobKey(key)
 	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: &s.bucket,
-		Key:    &k,
-		Body:   bytes.NewReader(data),
+		Bucket:        &s.bucket,
+		Key:           &k,
+		Body:          tmp,
+		ContentLength: &size,
 	})
 	return err
 }

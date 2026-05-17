@@ -1,0 +1,8 @@
+{"type":"server-started","port":52973,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:52973","screen_dir":"/Users/jjverhoeks/src/tries/2026-05-16-escrow/.superpowers/brainstorm/90783-1778939537/content","state_dir":"/Users/jjverhoeks/src/tries/2026-05-16-escrow/.superpowers/brainstorm/90783-1778939537/state"}
+{"type":"screen-added","file":"/Users/jjverhoeks/src/tries/2026-05-16-escrow/.superpowers/brainstorm/90783-1778939537/content/dashboard-layout.html"}
+{"source":"user-event","type":"click","text":"🔒 escrowadmin · logout\n      \n      \n        \n          LIVE FEED\n          ● lodash@4.17.21 BLOCKED\n          ● requests@2.31.0 OK\n          ● semver@7.8.0 WARN\n          ● once@1.4.0 OK\n          ● lodash@4.17.20 BLOCKED\n        \n        \n          12blocked\n          227allowed\n          8warned\n        \n      \n    \n    \n      C — Dark terminal style\n      Dark theme, monospace feel. Live feed dominant with counters as a column. Feels like a security tool, not a BI dashboard.","choice":"c","id":null,"timestamp":1778939627886}
+{"type":"screen-added","file":"/Users/jjverhoeks/src/tries/2026-05-16-escrow/.superpowers/brainstorm/90783-1778939537/content/waiting-1.html"}
+{"type":"screen-added","file":"/Users/jjverhoeks/src/tries/2026-05-16-escrow/.superpowers/brainstorm/90783-1778939537/content/dashboard-mockup.html"}
+{"type":"screen-added","file":"/Users/jjverhoeks/src/tries/2026-05-16-escrow/.superpowers/brainstorm/90783-1778939537/content/dashboard-mockup-v2.html"}
+{"type":"screen-added","file":"/Users/jjverhoeks/src/tries/2026-05-16-escrow/.superpowers/brainstorm/90783-1778939537/content/waiting-2.html"}
+{"type":"server-stopped","reason":"idle timeout"}

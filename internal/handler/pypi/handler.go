@@ -1,6 +1,7 @@
 package pypi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/sync/singleflight"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -17,6 +19,8 @@ import (
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
+
+const manifestTTL = 5 * time.Minute
 
 type Handler struct {
 	client      *http.Client
@@ -27,6 +31,8 @@ type Handler struct {
 	blockSdist  bool
 	webhook     *alerts.Webhook // may be nil
 	evlog       *eventlog.Log
+	sfJSON      singleflight.Group // dedup concurrent JSON manifest fetches
+	sfSimple    singleflight.Group // dedup concurrent simple-index fetches
 }
 
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
@@ -51,56 +57,95 @@ func (h *Handler) Mount(r chi.Router) {
 }
 
 func (h *Handler) ServeSimpleIndex(w http.ResponseWriter, r *http.Request, name string) {
-	releases := h.fetchReleases(r.Context(), name)
-	if releases == nil {
+	cacheKey := "pypi/meta/simple/" + name
+	if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
+		metrics.CacheHitsTotal.WithLabelValues("pypi", "simple").Inc()
+		w.Header().Set("Content-Type", "text/html")
+		w.Write(cached)
+		return
+	}
+
+	raw, err, _ := h.sfSimple.Do(name, func() (any, error) {
+		releases := h.fetchReleases(context.Background(), name)
+		if releases == nil {
+			return nil, fmt.Errorf("upstream error")
+		}
+		var buf bytes.Buffer
+		buf.WriteString("<!DOCTYPE html><html><body>\n")
+		for version, files := range releases {
+			if !h.versionAllowed(context.Background(), name, version, files) {
+				continue
+			}
+			for _, f := range files {
+				if filename, ok := f["filename"].(string); ok {
+					fmt.Fprintf(&buf, `<a href="/pypi/packages/%s">%s</a>`+"\n", filename, filename)
+				}
+			}
+		}
+		buf.WriteString("</body></html>\n")
+		data := buf.Bytes()
+		h.cache.SetMeta(context.Background(), cacheKey, data, manifestTTL)
+		return data, nil
+	})
+	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte("<!DOCTYPE html><html><body>\n"))
-	for version, files := range releases {
-		if !h.versionAllowed(r.Context(), name, version, files) {
-			continue
-		}
-		for _, f := range files {
-			if filename, ok := f["filename"].(string); ok {
-				fmt.Fprintf(w, `<a href="/pypi/packages/%s">%s</a>`+"\n", filename, filename)
-			}
-		}
-	}
-	w.Write([]byte("</body></html>\n"))
+	w.Write(raw.([]byte))
 }
 
 func (h *Handler) ServeJSON(w http.ResponseWriter, r *http.Request, name string) {
-	resp, err := h.client.Get(fmt.Sprintf("%s/pypi/%s/json", h.upstreamURL, name))
-	if err != nil || resp.StatusCode != http.StatusOK {
+	cacheKey := "pypi/meta/json/" + name
+	if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
+		metrics.CacheHitsTotal.WithLabelValues("pypi", "manifest").Inc()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(cached)
+		return
+	}
+
+	raw, err, _ := h.sfJSON.Do(name, func() (any, error) {
+		t0 := time.Now()
+		resp, err := h.client.Get(fmt.Sprintf("%s/pypi/%s/json", h.upstreamURL, name))
+		metrics.ProxyRequestDuration.WithLabelValues("pypi").Observe(time.Since(t0).Seconds())
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("upstream %d", resp.StatusCode)
+		}
+		defer resp.Body.Close()
+		var meta map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+			return nil, err
+		}
+		releases, _ := meta["releases"].(map[string]any)
+		filtered := make(map[string]any)
+		for version, files := range releases {
+			var fList []map[string]any
+			if arr, ok := files.([]any); ok {
+				for _, f := range arr {
+					if m, ok := f.(map[string]any); ok {
+						fList = append(fList, m)
+					}
+				}
+			}
+			if h.versionAllowed(context.Background(), name, version, fList) {
+				filtered[version] = files
+			}
+		}
+		meta["releases"] = filtered
+		data, _ := json.Marshal(meta)
+		h.cache.SetMeta(context.Background(), cacheKey, data, manifestTTL)
+		return data, nil
+	})
+	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
-	var meta map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
-		http.Error(w, "malformed response", http.StatusBadGateway)
-		return
-	}
-	releases, _ := meta["releases"].(map[string]any)
-	filtered := make(map[string]any)
-	for version, files := range releases {
-		var fList []map[string]any
-		if arr, ok := files.([]any); ok {
-			for _, f := range arr {
-				if m, ok := f.(map[string]any); ok {
-					fList = append(fList, m)
-				}
-			}
-		}
-		if h.versionAllowed(r.Context(), name, version, fList) {
-			filtered[version] = files
-		}
-	}
-	meta["releases"] = filtered
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(meta)
+	w.Write(raw.([]byte))
 }
 
 func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, filename string) {
@@ -111,28 +156,40 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, filename str
 	cacheKey := "pypi/packages/" + filename
 	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
 		defer blob.Close()
+		metrics.CacheHitsTotal.WithLabelValues("pypi", "blob").Inc()
 		io.Copy(w, blob)
 		return
 	}
 	resp, err := h.client.Get(fmt.Sprintf("%s/pypi/packages/%s", h.upstreamURL, filename))
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
-	h.cache.SetBlob(r.Context(), cacheKey, resp.Body)
-	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
-		defer blob.Close()
-		io.Copy(w, blob)
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "upstream error", http.StatusBadGateway)
+		return
 	}
+	pr, pw := io.Pipe()
+	cacheDone := make(chan struct{})
+	go func() {
+		defer close(cacheDone)
+		h.cache.SetBlob(context.Background(), cacheKey, pr)
+	}()
+	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
+	pw.CloseWithError(copyErr)
+	<-cacheDone
 }
 
 func (h *Handler) fetchReleases(ctx context.Context, name string) map[string][]map[string]any {
 	resp, err := h.client.Get(fmt.Sprintf("%s/pypi/%s/json", h.upstreamURL, name))
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		return nil
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
 	var meta struct {
 		Releases map[string][]map[string]any `json:"releases"`
 	}
@@ -150,11 +207,9 @@ func (h *Handler) versionAllowed(ctx context.Context, name, version string, file
 			break
 		}
 	}
-	// Try RFC3339 first (used in test mocks), fall back to PyPI's actual format (no timezone, treat as UTC)
 	publishedAt, err := time.Parse(time.RFC3339, uploadTime)
 	if err != nil {
 		publishedAt, _ = time.Parse("2006-01-02T15:04:05", uploadTime)
-		// If both fail, publishedAt remains zero value and the age check treats it as ancient (safe default)
 	}
 	pkg := trust.Package{
 		Ecosystem:   trust.EcosystemPyPI,

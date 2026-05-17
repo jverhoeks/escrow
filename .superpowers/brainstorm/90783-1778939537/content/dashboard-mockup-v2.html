@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>escrow dashboard mockup v2</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; }
+
+.topbar {
+  background: #0f1929;
+  border-bottom: 1px solid #1e3a5f;
+  padding: 0 20px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.logo { color: #60a5fa; font-weight: bold; letter-spacing: 2px; font-size: 14px; }
+.logo span { color: #94a3b8; font-weight: normal; font-size: 11px; margin-left: 8px; }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+.badge-live { background: #16a34a22; color: #4ade80; border: 1px solid #16a34a55; padding: 2px 8px; border-radius: 4px; font-size: 10px; }
+.badge-live::before { content: '● '; }
+.user-info { color: #94a3b8; font-size: 11px; }
+.logout-btn { color: #64748b; font-size: 11px; cursor: pointer; border: 1px solid #1e3a5f; padding: 3px 10px; border-radius: 4px; background: none; }
+
+/* Nav bar with tabs + filters together */
+.nav-bar {
+  background: #0f1929;
+  border-bottom: 1px solid #1e3a5f;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+}
+.nav-tabs { display: flex; gap: 0; height: 100%; }
+.nav-tab {
+  padding: 0 16px;
+  color: #64748b;
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+}
+.nav-tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+.nav-tab:hover:not(.active) { color: #94a3b8; }
+
+/* Ecosystem filter chips */
+.eco-filters { display: flex; align-items: center; gap: 6px; }
+.eco-label { color: #334155; font-size: 10px; letter-spacing: 0.5px; margin-right: 2px; }
+.eco-chip {
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  border: 1px solid #1e3a5f;
+  color: #64748b;
+  background: none;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.eco-chip.active-all  { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
+.eco-chip.active-npm  { background: #14532d22; color: #4ade80; border-color: #16a34a55; }
+.eco-chip.active-pypi { background: #1e3a8a22; color: #93c5fd; border-color: #3b82f655; }
+
+.main { display: flex; height: calc(100vh - 80px); }
+
+.feed-panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #1e3a5f; }
+.panel-header {
+  padding: 8px 16px;
+  border-bottom: 1px solid #1e3a5f;
+  color: #64748b;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Column headers */
+.feed-col-headers {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 16px 4px;
+  border-bottom: 1px solid #0f1929;
+  font-size: 9px;
+  color: #334155;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.feed-item {
+  padding: 7px 16px;
+  border-bottom: 1px solid #0f1929;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+.feed-item:hover { background: #0f1929; }
+.ts { color: #334155; font-size: 10px; min-width: 56px; }
+.eco-tag {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  min-width: 38px;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.eco-tag.npm  { background: #14532d22; color: #4ade80; border: 1px solid #16a34a33; }
+.eco-tag.pypi { background: #1e3a8a22; color: #93c5fd; border: 1px solid #3b82f633; }
+.pkg { color: #cbd5e1; flex: 1; }
+.signal { color: #475569; font-size: 10px; min-width: 140px; }
+.status-blocked { color: #ef4444; font-weight: bold; min-width: 54px; font-size: 11px; }
+.status-warned  { color: #f59e0b; font-weight: bold; min-width: 54px; font-size: 11px; }
+.status-allowed { color: #22c55e; font-weight: bold; min-width: 54px; font-size: 11px; }
+
+.stats-panel { width: 240px; display: flex; flex-direction: column; }
+.stat-card { padding: 14px 16px; border-bottom: 1px solid #1e3a5f; }
+.stat-label { color: #64748b; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+.stat-value { font-size: 26px; font-weight: bold; line-height: 1; }
+.stat-value.blocked { color: #ef4444; }
+.stat-value.warned  { color: #f59e0b; }
+.stat-value.allowed { color: #22c55e; }
+.stat-sub { color: #475569; font-size: 10px; margin-top: 2px; }
+
+.top-blocked { padding: 12px 16px; flex: 1; overflow: auto; }
+.top-row { display: flex; justify-content: space-between; padding: 5px 0; color: #94a3b8; font-size: 11px; border-bottom: 1px solid #0f1929; }
+.top-row .pkg-name { color: #cbd5e1; }
+.top-row .count { color: #ef4444; }
+
+.policy-strip {
+  background: #0f1929;
+  border-top: 1px solid #1e3a5f;
+  padding: 5px 16px;
+  font-size: 10px;
+  color: #475569;
+  display: flex;
+  gap: 16px;
+}
+.policy-item span { color: #60a5fa; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <span class="logo">ESCROW<span>package proxy</span></span>
+  </div>
+  <div class="topbar-right">
+    <span class="badge-live">LIVE</span>
+    <span class="user-info">admin</span>
+    <button class="logout-btn">logout</button>
+  </div>
+</div>
+
+<!-- Nav + ecosystem filter on same row -->
+<div class="nav-bar">
+  <div class="nav-tabs">
+    <div class="nav-tab active">Live Feed</div>
+    <div class="nav-tab">Packages</div>
+    <div class="nav-tab">Stats</div>
+  </div>
+  <div class="eco-filters">
+    <span class="eco-label">ECOSYSTEM</span>
+    <button class="eco-chip active-all">All</button>
+    <button class="eco-chip active-npm">npm</button>
+    <button class="eco-chip active-pypi">PyPI</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <div class="feed-panel">
+    <div class="panel-header">
+      <span>PACKAGE EVENTS</span>
+      <span style="color:#334155">↑ newest first &nbsp;·&nbsp; 500 max</span>
+    </div>
+    <div class="feed-col-headers">
+      <span style="min-width:56px">time</span>
+      <span style="min-width:46px">eco</span>
+      <span style="flex:1">package</span>
+      <span style="min-width:140px">signal / reason</span>
+      <span style="min-width:54px">status</span>
+    </div>
+
+    <div class="feed-item">
+      <span class="ts">15:34:02</span>
+      <span class="eco-tag npm">npm</span>
+      <span class="pkg">lodash@4.17.21</span>
+      <span class="signal">osv · 3 CVEs (HIGH)</span>
+      <span class="status-blocked">BLOCKED</span>
+    </div>
+    <div class="feed-item">
+      <span class="ts">15:34:00</span>
+      <span class="eco-tag pypi">pypi</span>
+      <span class="pkg">requests@2.31.0</span>
+      <span class="signal">—</span>
+      <span class="status-allowed">ALLOWED</span>
+    </div>
+    <div class="feed-item">
+      <span class="ts">15:33:58</span>
+      <span class="eco-tag npm">npm</span>
+      <span class="pkg">semver@7.8.0</span>
+      <span class="signal">publisher · new account (8d)</span>
+      <span class="status-warned">WARNED</span>
+    </div>
+    <div class="feed-item">
+      <span class="ts">15:33:51</span>
+      <span class="eco-tag npm">npm</span>
+      <span class="pkg">once@1.4.0</span>
+      <span class="signal">—</span>
+      <span class="status-allowed">ALLOWED</span>
+    </div>
+    <div class="feed-item">
+      <span class="ts">15:33:44</span>
+      <span class="eco-tag pypi">pypi</span>
+      <span class="pkg">cryptography@42.0.5</span>
+      <span class="signal">—</span>
+      <span class="status-allowed">ALLOWED</span>
+    </div>
+    <div class="feed-item">
+      <span class="ts">15:33:39</span>
+      <span class="eco-tag npm">npm</span>
+      <span class="pkg">axios@1.9.0</span>
+      <span class="signal">age · 3 days old (min: 7)</span>
+      <span class="status-blocked">BLOCKED</span>
+    </div>
+    <div class="feed-item">
+      <span class="ts">15:33:31</span>
+      <span class="eco-tag pypi">pypi</span>
+      <span class="pkg">numpy@2.0.0</span>
+      <span class="signal">popularity · 18× spike</span>
+      <span class="status-warned">WARNED</span>
+    </div>
+    <div class="feed-item">
+      <span class="ts">15:33:22</span>
+      <span class="eco-tag npm">npm</span>
+      <span class="pkg">ms@2.1.3</span>
+      <span class="signal">—</span>
+      <span class="status-allowed">ALLOWED</span>
+    </div>
+
+    <div style="flex:1"></div>
+    <div class="policy-strip">
+      <span class="policy-item">age <span>7d block</span></span>
+      <span class="policy-item">osv <span>MEDIUM block</span></span>
+      <span class="policy-item">publisher <span>30d warn</span></span>
+      <span class="policy-item">popularity <span>10× warn</span></span>
+    </div>
+  </div>
+
+  <div class="stats-panel">
+    <div class="stat-card">
+      <div class="stat-label">Blocked today</div>
+      <div class="stat-value blocked">12</div>
+      <div class="stat-sub">npm: 10 · pypi: 2</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Warned today</div>
+      <div class="stat-value warned">8</div>
+      <div class="stat-sub">publisher: 5 · popularity: 3</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Allowed today</div>
+      <div class="stat-value allowed">227</div>
+      <div class="stat-sub">npm: 181 · pypi: 46</div>
+    </div>
+    <div class="top-blocked">
+      <div class="panel-header" style="padding:0 0 8px 0;margin-bottom:8px;border-bottom:1px solid #1e3a5f;">TOP BLOCKED</div>
+      <div class="top-row"><span class="pkg-name">lodash</span><span class="count">8×</span></div>
+      <div class="top-row"><span class="pkg-name">axios</span><span class="count">3×</span></div>
+      <div class="top-row"><span class="pkg-name">moment</span><span class="count">1×</span></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

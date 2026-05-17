@@ -114,7 +114,7 @@ func TestNPMHandler_ExtractsAuthorFromNpmUser(t *testing.T) {
 
 	c := cache.NewMemory()
 	defer c.Close()
-	pubSignal := trust.NewPublisherSignal(30, npmUserSrv.Client(), npmUserSrv.URL, "")
+	pubSignal := trust.NewPublisherSignal(30, npmUserSrv.Client(), nil, npmUserSrv.URL, "")
 	engine := trust.NewEngine(trust.NewAgeSignal(7, nil), pubSignal)
 	pol := policy.New(&config.PolicyConfig{
 		Age:       &config.AgePolicyConfig{MinDays: 7, Action: "block"},

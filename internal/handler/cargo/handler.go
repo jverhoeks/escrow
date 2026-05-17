@@ -2,7 +2,6 @@ package cargo
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -93,8 +92,12 @@ func (h *Handler) serveConfig(w http.ResponseWriter, r *http.Request) {
 	if host == "" {
 		host = "localhost:8888"
 	}
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
 	cfg := map[string]string{
-		"dl":  fmt.Sprintf("http://%s/cargo/crates/{crate}/{version}/download", host),
+		"dl":  fmt.Sprintf("%s://%s/cargo/crates/{crate}/{version}/download", scheme, host),
 		"api": "https://crates.io",
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -118,7 +121,9 @@ func (h *Handler) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("User-Agent", userAgent)
 
+	t0 := time.Now()
 	resp, err := h.client.Do(req)
+	metrics.ProxyRequestDuration.WithLabelValues("cargo").Observe(time.Since(t0).Seconds())
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
@@ -173,6 +178,7 @@ func (h *Handler) serveDownload(w http.ResponseWriter, r *http.Request) {
 	cacheKey := fmt.Sprintf("cargo/crates/%s/%s/download", name, version)
 	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
 		defer blob.Close()
+		metrics.CacheHitsTotal.WithLabelValues("cargo", "blob").Inc()
 		io.Copy(w, blob)
 		return
 	}
@@ -198,11 +204,17 @@ func (h *Handler) serveDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.cache.SetBlob(r.Context(), cacheKey, resp.Body)
-	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
-		defer blob.Close()
-		io.Copy(w, blob)
-	}
+	// Stream to client and cache simultaneously; wait for cache write before returning
+	// so the next request always finds the blob (prevents cache-miss race on sequential requests).
+	pr, pw := io.Pipe()
+	cacheDone := make(chan struct{})
+	go func() {
+		defer close(cacheDone)
+		h.cache.SetBlob(context.Background(), cacheKey, pr)
+	}()
+	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
+	pw.CloseWithError(copyErr)
+	<-cacheDone
 }
 
 // fetchVersionMeta fetches crate version metadata from the crates.io API, caching for 1 hour.
@@ -306,45 +318,3 @@ func (h *Handler) checkTrust(r *http.Request, w http.ResponseWriter, name, versi
 	return d.Action == policy.ActionBlock
 }
 
-// responseStarted is a helper used in serveIndex to detect whether headers are flushed.
-// We use a simple wrapper that tracks first write to avoid writing 403 after NDJSON started.
-type responseStarted struct {
-	http.ResponseWriter
-	started bool
-}
-
-func (rw *responseStarted) Write(p []byte) (int, error) {
-	rw.started = true
-	return rw.ResponseWriter.Write(p)
-}
-
-func (rw *responseStarted) WriteHeader(code int) {
-	rw.started = true
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-// buildIndexLine is a test helper exposed via the unexported indexLine struct.
-// It returns the raw NDJSON bytes for a version entry.
-func buildIndexLine(name, vers string, extra map[string]any) []byte {
-	entry := map[string]any{
-		"name": name,
-		"vers": vers,
-		"deps": []any{},
-		"cksum": "0000000000000000000000000000000000000000000000000000000000000000",
-		"yanked": false,
-	}
-	for k, v := range extra {
-		entry[k] = v
-	}
-	b, _ := json.Marshal(entry)
-	return append(b, '\n')
-}
-
-// makeNDJSON builds an NDJSON body from multiple entries.
-func makeNDJSON(entries ...[]byte) io.Reader {
-	var buf bytes.Buffer
-	for _, e := range entries {
-		buf.Write(e)
-	}
-	return &buf
-}

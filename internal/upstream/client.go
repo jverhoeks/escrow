@@ -6,14 +6,19 @@ import (
 )
 
 // New returns an http.Client tuned for upstream registry requests.
+// No total request Timeout is set: large artifacts (Maven JARs, Python wheels,
+// Cargo crates) can exceed any reasonable fixed ceiling. Individual phase
+// timeouts (TLS handshake, response headers) are set separately.
+// The server's WriteTimeout (default 120s) acts as the wall-clock ceiling
+// for the full handler — if an upstream stalls, the server closes the connection.
 func New() *http.Client {
 	return &http.Client{
-		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
-			MaxIdleConnsPerHost:   10,
-			IdleConnTimeout:       60 * time.Second,
+			MaxIdleConns:          100, // global cap; 7 upstreams × 20/host = 140 potential, cap at 100
+			MaxIdleConnsPerHost:   20,
+			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
 		},
 	}
 }
