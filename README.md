@@ -16,34 +16,62 @@ Packages that fail policy are **blocked at the proxy level** — they never reac
 
 ## 🚀 Quick Install
 
-### Docker
+### 🍺 Homebrew (macOS — recommended)
 
 ```bash
-docker run -p 7888:7888 -p 8889:8889 ghcr.io/jverhoeks/escrow:latest
+brew tap jverhoeks/tap
+brew install escrow
 ```
 
-### Binary
+**Run as a background service** (auto-starts on login):
+
+```bash
+brew services start escrow
+# → http://localhost:7888/dashboard
+# Dashboard credentials are in: $(brew --prefix)/var/log/escrow.log
+```
+
+```bash
+brew services stop escrow      # stop
+brew services restart escrow   # reload config
+```
+
+Config lives at `$(brew --prefix)/etc/escrow/sentinel.toml` — edit it to enable more ecosystems, then restart the service.
+
+### 🐳 Docker
+
+```bash
+docker run -p 7888:7888 ghcr.io/jverhoeks/escrow:latest
+```
+
+**Debug config** (all 7 ecosystems, full policy, `admin` / `escrow`):
+
+```bash
+cd docker/
+mkdir -p data && cp sentinel.debug.toml data/sentinel.toml
+docker compose up -d
+# → http://localhost:7888/dashboard
+```
+
+### 📦 Binary
 
 ```bash
 # macOS arm64
 curl -L https://github.com/jverhoeks/escrow/releases/latest/download/escrow-darwin-arm64 -o escrow
-chmod +x escrow
-./escrow
+chmod +x escrow && ./escrow
 
 # macOS amd64
 curl -L https://github.com/jverhoeks/escrow/releases/latest/download/escrow-darwin-amd64 -o escrow
-chmod +x escrow
-./escrow
+chmod +x escrow && ./escrow
 
 # Linux amd64
 curl -L https://github.com/jverhoeks/escrow/releases/latest/download/escrow-linux-amd64 -o escrow
-chmod +x escrow
-./escrow
+chmod +x escrow && ./escrow
 ```
 
 On first boot escrow generates `sentinel.toml` with a random dashboard password and prints credentials to stdout.
 
-### Flags
+### ⚙️ Flags
 
 ```bash
 ./escrow                              # binds to 127.0.0.1:7888 (localhost only)
