@@ -79,7 +79,7 @@ func TestNuGetHandler_RegistrationPagedFetchesAndFilters(t *testing.T) {
 	h.Mount(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/nuget/v3/registration5-semver1/mypkg/index.json", nil)
-	req.Host = "localhost:8888"
+	req.Host = "localhost:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 

@@ -69,7 +69,7 @@ func TestNuGetHandler_Index(t *testing.T) {
 	h.Mount(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/nuget/index.json", nil)
-	req.Host = "localhost:8888"
+	req.Host = "localhost:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
@@ -84,7 +84,7 @@ func TestNuGetHandler_Index(t *testing.T) {
 		rm := res.(map[string]any)
 		if id, _ := rm["@id"].(string); id != "" {
 			if t2, _ := rm["@type"].(string); t2 == "RegistrationsBaseUrl/3.6.0" {
-				assert.Contains(t, id, "localhost:8888/nuget/v3/registration5-semver1/")
+				assert.Contains(t, id, "localhost:7888/nuget/v3/registration5-semver1/")
 				found = true
 			}
 		}
@@ -117,7 +117,7 @@ func TestNuGetHandler_RegistrationFiltersNewVersions(t *testing.T) {
 	h.Mount(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/nuget/v3/registration5-semver1/newtonsoft.json/index.json", nil)
-	req.Host = "localhost:8888"
+	req.Host = "localhost:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
@@ -151,14 +151,14 @@ func TestNuGetHandler_RegistrationRewritesPackageContentURL(t *testing.T) {
 	h.Mount(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/nuget/v3/registration5-semver1/newtonsoft.json/index.json", nil)
-	req.Host = "localhost:8888"
+	req.Host = "localhost:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	body, _ := io.ReadAll(rr.Body)
 	// packageContent URL should be rewritten to our proxy
-	assert.Contains(t, string(body), "localhost:8888/nuget/v3-flatcontainer/")
+	assert.Contains(t, string(body), "localhost:7888/nuget/v3-flatcontainer/")
 	assert.NotContains(t, string(body), "api.nuget.org")
 }
 
@@ -181,7 +181,7 @@ func TestNuGetHandler_VersionListFiltered(t *testing.T) {
 	h.Mount(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/nuget/v3-flatcontainer/mypkg/index.json", nil)
-	req.Host = "localhost:8888"
+	req.Host = "localhost:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 

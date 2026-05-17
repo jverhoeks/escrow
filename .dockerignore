@@ -1,0 +1,10 @@
+escrow-cache/
+escrow-darwin-*
+escrow-linux-*
+escrow-windows-*
+escrow
+sentinel.toml
+*.jsonl
+.git/
+.superpowers/
+docs/superpowers/

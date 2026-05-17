@@ -90,7 +90,7 @@ func (h *Handler) Mount(r chi.Router) {
 func (h *Handler) serveConfig(w http.ResponseWriter, r *http.Request) {
 	host := r.Host
 	if host == "" {
-		host = "localhost:8888"
+		host = "localhost:7888"
 	}
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {

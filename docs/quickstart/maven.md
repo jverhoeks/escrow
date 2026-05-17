@@ -18,7 +18,7 @@ Maven Central Search API and cached for 1 hour.
   # maven_upstream = "https://repo1.maven.org/maven2"  # optional override
 ```
 
-Restart escrow. The proxy is available at `http://localhost:8888/maven2/`.
+Restart escrow. The proxy is available at `http://localhost:7888/maven2/`.
 
 ---
 
@@ -30,7 +30,7 @@ Restart escrow. The proxy is available at `http://localhost:8888/maven2/`.
     <mirror>
       <id>escrow</id>
       <name>Escrow Proxy</name>
-      <url>http://localhost:8888/maven2</url>
+      <url>http://localhost:7888/maven2</url>
       <mirrorOf>central</mirrorOf>
       <checksumPolicy>fail</checksumPolicy>
     </mirror>
@@ -61,7 +61,7 @@ Commit `settings.xml` so CI and team members use escrow automatically.
 mvn dependency:resolve -s settings.xml 2>&1 | head -20
 ```
 
-Open `http://localhost:8888/dashboard` — artifacts younger than 7 days show
+Open `http://localhost:7888/dashboard` — artifacts younger than 7 days show
 a **Blocked** badge with an **Approve** button.
 
 ---

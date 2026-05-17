@@ -15,7 +15,7 @@ func TestLoadDefaults_NoFile(t *testing.T) {
 	cfg, err := config.Load("/nonexistent/path/sentinel.toml")
 	require.NoError(t, err)
 	assert.Equal(t, "127.0.0.1", cfg.Server.Host)
-	assert.Equal(t, 8888, cfg.Server.Port)
+	assert.Equal(t, 7888, cfg.Server.Port)
 	assert.Equal(t, "disk", cfg.Storage.Backend)
 	assert.Nil(t, cfg.Policy)
 }

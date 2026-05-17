@@ -18,14 +18,14 @@ OSV vulnerability policy server-side.
   # nuget_upstream = "https://api.nuget.org/v3"  # optional override
 ```
 
-Restart escrow. The proxy is now available at `http://localhost:8888/nuget/index.json`.
+Restart escrow. The proxy is now available at `http://localhost:7888/nuget/index.json`.
 
 ---
 
 ## 2. 🌐 Global setup (all projects on this machine)
 
 ```bash
-dotnet nuget add source http://localhost:8888/nuget/index.json --name escrow
+dotnet nuget add source http://localhost:7888/nuget/index.json --name escrow
 dotnet nuget disable source nuget.org
 ```
 
@@ -33,7 +33,7 @@ Verify:
 ```bash
 dotnet nuget list source
 # escrow [Enabled]
-#   http://localhost:8888/nuget/index.json
+#   http://localhost:7888/nuget/index.json
 ```
 
 ---
@@ -47,7 +47,7 @@ Create `nuget.config` in your project root:
 <configuration>
   <packageSources>
     <clear />
-    <add key="escrow" value="http://localhost:8888/nuget/index.json" />
+    <add key="escrow" value="http://localhost:7888/nuget/index.json" />
   </packageSources>
 </configuration>
 ```
@@ -63,7 +63,7 @@ Commit `nuget.config` so the whole team uses escrow automatically.
 dotnet restore
 ```
 
-Open `http://localhost:8888/dashboard` — packages younger than 7 days show
+Open `http://localhost:7888/dashboard` — packages younger than 7 days show
 a red **Blocked** badge with an **Approve** button.
 
 ---

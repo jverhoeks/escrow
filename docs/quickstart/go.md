@@ -15,7 +15,7 @@ age gate server-side on every module fetch from the Go module mirror.
 ## 1. 🌐 Global setup
 
 ```bash
-go env -w GOPROXY=http://localhost:8888/go,off
+go env -w GOPROXY=http://localhost:7888/go,off
 go env -w GONOSUMCHECK=localhost
 go env -w GOFLAGS=-mod=mod
 ```
@@ -25,7 +25,7 @@ responses. Verify:
 
 ```bash
 go env GOPROXY
-# → http://localhost:8888/go,off
+# → http://localhost:7888/go,off
 ```
 
 ---
@@ -37,7 +37,7 @@ convention with `direnv` or set variables in your CI pipeline:
 
 ```bash
 # .envrc (direnv) or CI environment
-export GOPROXY=http://localhost:8888/go,off
+export GOPROXY=http://localhost:7888/go,off
 export GONOSUMCHECK=localhost
 ```
 
@@ -45,7 +45,7 @@ Alternatively, point `GOENV` at a project-level file:
 
 ```bash
 # create project-level goenv file
-echo 'GOPROXY=http://localhost:8888/go,off' > .goenv
+echo 'GOPROXY=http://localhost:7888/go,off' > .goenv
 echo 'GONOSUMCHECK=localhost' >> .goenv
 export GOENV=$PWD/.goenv
 ```
@@ -61,7 +61,7 @@ go get golang.org/x/text@latest 2>&1
 Open the dashboard:
 
 ```
-http://localhost:8888/dashboard
+http://localhost:7888/dashboard
 ```
 
 Module fetches appear in the log. Modules published less than 7 days ago show a

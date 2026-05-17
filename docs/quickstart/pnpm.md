@@ -16,14 +16,14 @@ server-side and blocks packages published less than a week ago.
 ## 1. 🌐 Global setup
 
 ```bash
-pnpm config set registry http://localhost:8888
+pnpm config set registry http://localhost:7888
 ```
 
 Writes to the global `.npmrc` (usually `~/.config/pnpm/rc` or `~/.npmrc`). Verify:
 
 ```bash
 pnpm config get registry
-# → http://localhost:8888
+# → http://localhost:7888
 ```
 
 ---
@@ -33,7 +33,7 @@ pnpm config get registry
 ### pnpm v10 and v11 — `.npmrc` in project root
 
 ```ini
-registry=http://localhost:8888
+registry=http://localhost:7888
 ```
 
 ### pnpm v11 only — `pnpm-workspace.yaml` (build script control)
@@ -55,7 +55,7 @@ pnpm install --dry-run 2>&1 | head -5
 Open the dashboard to confirm the request appeared:
 
 ```
-http://localhost:8888/dashboard
+http://localhost:7888/dashboard
 ```
 
 Packages younger than 7 days show a **Blocked** badge with an **Approve** button.

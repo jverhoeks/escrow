@@ -30,14 +30,14 @@ func TestCargoHandler_ServeConfig_HTTP(t *testing.T) {
 	h.Mount(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/cargo/config.json", nil)
-	req.Host = "localhost:8888"
+	req.Host = "localhost:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	var cfg map[string]string
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&cfg))
-	assert.Contains(t, cfg["dl"], "http://localhost:8888/cargo/crates/{crate}/{version}/download")
+	assert.Contains(t, cfg["dl"], "http://localhost:7888/cargo/crates/{crate}/{version}/download")
 }
 
 func TestCargoHandler_ServeConfig_HTTPSViaForwardedProto(t *testing.T) {
@@ -65,7 +65,7 @@ func TestCargoHandler_ServeConfig_HTTPSViaFallback(t *testing.T) {
 
 	// No X-Forwarded-Proto and no r.TLS → should produce http://
 	req := httptest.NewRequest(http.MethodGet, "/cargo/config.json", nil)
-	req.Host = "localhost:8888"
+	req.Host = "localhost:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 

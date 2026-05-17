@@ -12,7 +12,7 @@ Routes all Composer package installs through the escrow proxy, which enforces a
 
 ```bash
 composer config --global repositories.escrow \
-  '{"type":"composer","url":"http://localhost:8888/composer"}'
+  '{"type":"composer","url":"http://localhost:7888/composer"}'
 composer config --global repo.packagist false
 ```
 
@@ -35,7 +35,7 @@ Add the repository to your project's `composer.json`:
     "repositories": [
         {
             "type": "composer",
-            "url": "http://localhost:8888/composer"
+            "url": "http://localhost:7888/composer"
         },
         {
             "packagist.org": false
@@ -57,7 +57,7 @@ composer require --dry-run monolog/monolog 2>&1 | head -10
 Open the dashboard:
 
 ```
-http://localhost:8888/dashboard
+http://localhost:7888/dashboard
 ```
 
 Packages younger than 7 days show a **Blocked** badge with an **Approve** button.

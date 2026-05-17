@@ -108,14 +108,14 @@ func TestCargoHandler_ServeConfig_ReturnsHost(t *testing.T) {
 	h.Mount(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/cargo/config.json", nil)
-	req.Host = "proxy.example.com:8888"
+	req.Host = "proxy.example.com:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	var cfg map[string]string
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&cfg))
-	assert.Contains(t, cfg["dl"], "proxy.example.com:8888", "dl field must contain the request host")
+	assert.Contains(t, cfg["dl"], "proxy.example.com:7888", "dl field must contain the request host")
 	assert.Contains(t, cfg["dl"], "/cargo/crates/", "dl field must contain cargo crates path")
 }
 

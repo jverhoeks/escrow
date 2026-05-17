@@ -74,7 +74,7 @@ func TestRegistrationRewritesPackageContentWithCustomUpstreamFC(t *testing.T) {
 	h.Mount(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/nuget/v3/registration5-semver1/mypkg/index.json", nil)
-	req.Host = "escrow.corp:8888"
+	req.Host = "escrow.corp:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
@@ -82,7 +82,7 @@ func TestRegistrationRewritesPackageContentWithCustomUpstreamFC(t *testing.T) {
 	body := rr.Body.String()
 	assert.NotContains(t, body, customFCBase,
 		"packageContent URL should be rewritten away from the custom upstream flatcontainer")
-	assert.Contains(t, body, "escrow.corp:8888/nuget/v3-flatcontainer/",
+	assert.Contains(t, body, "escrow.corp:7888/nuget/v3-flatcontainer/",
 		"packageContent URL should point at the escrow proxy")
 }
 
@@ -127,7 +127,7 @@ func TestNuGetHandler_PagedRegistrationRewritesPackageContentURLs(t *testing.T) 
 	h.Mount(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/nuget/v3/registration5-semver1/mypkg/index.json", nil)
-	req.Host = "localhost:8888"
+	req.Host = "localhost:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
@@ -135,7 +135,7 @@ func TestNuGetHandler_PagedRegistrationRewritesPackageContentURLs(t *testing.T) 
 	body := rr.Body.String()
 	assert.NotContains(t, body, "api.nuget.org",
 		"packageContent from paged page should be rewritten away from api.nuget.org")
-	assert.Contains(t, body, "localhost:8888/nuget/v3-flatcontainer/",
+	assert.Contains(t, body, "localhost:7888/nuget/v3-flatcontainer/",
 		"packageContent from paged page should point at the escrow proxy")
 }
 
@@ -162,7 +162,7 @@ func TestNuGetHandler_VersionListFetchesCorrectRegistrationPath(t *testing.T) {
 	h.Mount(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/nuget/v3-flatcontainer/specificpkg/index.json", nil)
-	req.Host = "localhost:8888"
+	req.Host = "localhost:7888"
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 

@@ -164,7 +164,7 @@ type DashboardConfig struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Server:     ServerConfig{Host: "127.0.0.1", Port: 8888, LogLevel: "info"},
+		Server:     ServerConfig{Host: "127.0.0.1", Port: 7888, LogLevel: "info"},
 		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "./sentinel-cache"}},
 		Ecosystems: EcosystemConfig{NPM: true, PyPI: true, Go: false, Cargo: false, Composer: false},
 		Dashboard:  DashboardConfig{Enabled: true, Path: "/dashboard"},

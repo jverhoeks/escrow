@@ -14,7 +14,7 @@ client (npm/pip/go/cargo/composer)
          │
          ▼
 ┌──────────────────────────────────┐
-│  HTTP Server (chi, port 8888)    │
+│  HTTP Server (chi, port 7888)    │
 │  Security headers, recovery MW   │
 │  /healthz  /metrics  /dashboard  │
 └───────┬──────────────────────────┘

@@ -62,7 +62,7 @@ New `[dashboard]` section in `sentinel.toml`:
 Generated sentinel.toml — dashboard credentials:
   username: admin
   password: <random 12-char password>
-  url:      http://0.0.0.0:8888/dashboard
+  url:      http://0.0.0.0:7888/dashboard
 ```
 
 The generated file is written once and never overwritten.

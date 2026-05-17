@@ -92,7 +92,7 @@ func (h *Handler) serveIndex(w http.ResponseWriter, r *http.Request) {
 
 // regCacheKey returns a host-aware cache key for the NuGet registration.
 // The key is host-specific because filterRegistration rewrites packageContent URLs
-// to include the proxy's host — cached data for localhost:8888 would be wrong
+// to include the proxy's host — cached data for localhost:7888 would be wrong
 // if served under escrow.corp.internal.
 func regCacheKey(id, host string) string {
 	return "nuget/reg/" + host + "/" + id
@@ -230,7 +230,7 @@ func (h *Handler) serveDownload(w http.ResponseWriter, r *http.Request) {
 
 // filterRegistration parses the NuGet registration JSON, runs the trust engine on each
 // version, removes blocked entries, and rewrites packageContent URLs to our proxy.
-// base is the proxy's nuget prefix (e.g. "http://localhost:8888/nuget").
+// base is the proxy's nuget prefix (e.g. "http://localhost:7888/nuget").
 func (h *Handler) filterRegistration(ctx context.Context, pkgID string, data []byte, base string) []byte {
 	// Determine the upstream flatcontainer URL so packageContent URLs can be rewritten to our proxy.
 	upstreamFC := h.flatcontainerURL
@@ -399,7 +399,7 @@ func (h *Handler) fetchRegistrationPage(ctx context.Context, pageURL string) ([]
 
 // rewritePackageContent replaces the upstream flatcontainer base URL with our proxy base.
 // upstreamFC is the upstream's flatcontainer base (e.g. "https://api.nuget.org/v3-flatcontainer").
-// proxyBase is the escrow proxy's nuget prefix (e.g. "http://localhost:8888/nuget").
+// proxyBase is the escrow proxy's nuget prefix (e.g. "http://localhost:7888/nuget").
 func rewritePackageContent(original, upstreamFC, proxyBase string) string {
 	// Try the upstream's own flatcontainer URL first (handles custom upstreams).
 	if upstreamFC != "" {
@@ -428,7 +428,7 @@ func proxyBase(r *http.Request) string {
 	}
 	host := r.Host
 	if host == "" {
-		host = "localhost:8888" // fallback for HTTP/1.0 requests without Host header
+		host = "localhost:7888" // fallback for HTTP/1.0 requests without Host header
 	}
 	return scheme + "://" + host + "/nuget"
 }

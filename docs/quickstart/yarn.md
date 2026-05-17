@@ -13,14 +13,14 @@ Yarn Berry does not have a single user-wide config file the same way npm does.
 Set the registry globally with:
 
 ```bash
-yarn config set npmRegistryServer http://localhost:8888
+yarn config set npmRegistryServer http://localhost:7888
 ```
 
 This writes to the global Yarn config (usually `~/.yarnrc.yml`). Verify:
 
 ```bash
 yarn config get npmRegistryServer
-# → http://localhost:8888
+# → http://localhost:7888
 ```
 
 ---
@@ -30,7 +30,7 @@ yarn config get npmRegistryServer
 Create `.yarnrc.yml` in your project root:
 
 ```yaml
-npmRegistryServer: "http://localhost:8888"
+npmRegistryServer: "http://localhost:7888"
 
 # Optional: disable postinstall scripts
 enableScripts: false
@@ -49,7 +49,7 @@ yarn install --dry-run 2>&1 | head -5
 Open the dashboard:
 
 ```
-http://localhost:8888/dashboard
+http://localhost:7888/dashboard
 ```
 
 Any package fetch appears in the log. Packages younger than 7 days show a
@@ -82,7 +82,7 @@ point elsewhere and add escrow there too:
 ```yaml
 npmScopes:
   myorg:
-    npmRegistryServer: "http://localhost:8888"
+    npmRegistryServer: "http://localhost:7888"
 ```
 
 **`enableScripts: false` breaks a build** — a package relies on a postinstall

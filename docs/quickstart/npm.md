@@ -12,7 +12,7 @@ server-side and blocks packages published less than a week ago.
 ## 1. 🌐 Global setup (all projects on this machine)
 
 ```bash
-npm config set registry http://localhost:8888
+npm config set registry http://localhost:7888
 npm config set ignore-scripts true
 ```
 
@@ -20,7 +20,7 @@ This writes to `~/.npmrc`. Verify:
 
 ```bash
 npm config get registry
-# → http://localhost:8888
+# → http://localhost:7888
 ```
 
 ---
@@ -30,7 +30,7 @@ npm config get registry
 Create `.npmrc` in your project root:
 
 ```ini
-registry=http://localhost:8888
+registry=http://localhost:7888
 ignore-scripts=true
 ```
 
@@ -48,7 +48,7 @@ npm install --dry-run 2>&1 | head -5
 Then open the dashboard:
 
 ```
-http://localhost:8888/dashboard
+http://localhost:7888/dashboard
 ```
 
 Any request that hit the proxy appears there. Packages younger than 7 days show
@@ -76,7 +76,7 @@ registry=https://registry.npmjs.org
 **`npm ERR! code ETIMEDOUT`** — escrow is not running. Start it with `./escrow` or
 check `docker compose up -d` if you use the Docker image.
 
-**Package blocked but you need it now** — open `http://localhost:8888/dashboard`,
+**Package blocked but you need it now** — open `http://localhost:7888/dashboard`,
 find the package, and click **Approve**. The approval is cached; re-run `npm install`.
 
 **Scripts still run despite `ignore-scripts=true`** — check that no nested `.npmrc`

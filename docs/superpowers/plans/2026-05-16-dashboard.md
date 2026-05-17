@@ -368,7 +368,7 @@ Add `Dashboard DashboardConfig` to the `Config` struct and update `DefaultConfig
 ```go
 func DefaultConfig() Config {
 	return Config{
-		Server:     ServerConfig{Host: "0.0.0.0", Port: 8888, LogLevel: "info"},
+		Server:     ServerConfig{Host: "0.0.0.0", Port: 7888, LogLevel: "info"},
 		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "./escrow-cache"}},
 		Ecosystems: EcosystemConfig{NPM: true, PyPI: true},
 		Dashboard:  DashboardConfig{Enabled: true, Path: "/dashboard"},
@@ -1499,7 +1499,7 @@ sleep 1
 kill %1
 ```
 
-Expected: startup prints `Generated ... username: admin  password: <random>  url: http://localhost:8888/dashboard`
+Expected: startup prints `Generated ... username: admin  password: <random>  url: http://localhost:7888/dashboard`
 
 - [ ] **Step 5: Build release binaries and push v0.2.0**
 
@@ -1534,7 +1534,7 @@ gh release create v0.2.0 \
 ./escrow                          # generates sentinel.toml on first run
 # or:
 ./escrow /path/to/sentinel.toml
-# then open http://localhost:8888/dashboard
+# then open http://localhost:7888/dashboard
 ```
 EOF
 )" \

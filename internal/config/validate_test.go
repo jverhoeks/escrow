@@ -42,7 +42,7 @@ func TestValidate_PortTooLarge(t *testing.T) {
 
 func TestValidate_ValidPort(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cfg.Server.Port = 8888
+	cfg.Server.Port = 7888
 	assert.Empty(t, cfg.Validate())
 }
 

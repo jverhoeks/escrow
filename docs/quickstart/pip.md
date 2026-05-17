@@ -14,7 +14,7 @@ Edit (or create) `~/.config/pip/pip.conf` (Linux/macOS) or
 
 ```ini
 [global]
-index-url = http://localhost:8888/pypi/simple/
+index-url = http://localhost:7888/pypi/simple/
 trusted-host = localhost
 ```
 
@@ -23,12 +23,12 @@ trusted-host = localhost
 Verify:
 ```bash
 pip config list
-# → global.index-url='http://localhost:8888/pypi/simple/'
+# → global.index-url='http://localhost:7888/pypi/simple/'
 ```
 
 You can also set it via environment variable for one-off use:
 ```bash
-PIP_INDEX_URL=http://localhost:8888/pypi/simple/ pip install requests
+PIP_INDEX_URL=http://localhost:7888/pypi/simple/ pip install requests
 ```
 
 ---
@@ -39,7 +39,7 @@ Create `pip.conf` in your project root (or `pip.ini` on Windows):
 
 ```ini
 [global]
-index-url = http://localhost:8888/pypi/simple/
+index-url = http://localhost:7888/pypi/simple/
 trusted-host = localhost
 ```
 
@@ -61,7 +61,7 @@ pip install --dry-run requests 2>&1 | head -10
 Open the dashboard:
 
 ```
-http://localhost:8888/dashboard
+http://localhost:7888/dashboard
 ```
 
 Packages younger than 7 days show a **Blocked** badge with an **Approve** button.
@@ -83,7 +83,7 @@ index-url = https://pypi.org/simple/
 ## 5. 🔧 Troubleshooting
 
 **`WARNING: Retrying ... Could not find a version that satisfies`** — escrow is
-not running, or the package name is wrong. Check `http://localhost:8888/dashboard`.
+not running, or the package name is wrong. Check `http://localhost:7888/dashboard`.
 
 **SSL / certificate error** — add `trusted-host = localhost` to pip.conf; pip
 treats HTTP hosts as untrusted unless explicitly listed.

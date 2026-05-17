@@ -1,6 +1,6 @@
 [server]
   host      = "127.0.0.1"     # bind to localhost only; use 0.0.0.0 for all interfaces or --host flag
-  port      = 8888
+  port      = 7888
   log_level = "info"           # debug | info | warn | error
 
   # write_timeout_seconds      = 120  # default 120; increase for slow clients downloading large archives

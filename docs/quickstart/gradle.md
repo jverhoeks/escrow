@@ -17,7 +17,7 @@ same Maven 2 layout as Maven Central, so Gradle and Maven share the same proxy e
   # maven_upstream = "https://repo1.maven.org/maven2"  # optional override
 ```
 
-Restart escrow. The proxy is available at `http://localhost:8888/maven2/`.
+Restart escrow. The proxy is available at `http://localhost:7888/maven2/`.
 
 ---
 
@@ -27,7 +27,7 @@ Restart escrow. The proxy is available at `http://localhost:8888/maven2/`.
 // settings.gradle.kts
 dependencyResolutionManagement {
     repositories {
-        maven(url = "http://localhost:8888/maven2")
+        maven(url = "http://localhost:7888/maven2")
         // Do NOT add mavenCentral() — that bypasses the proxy
     }
 }
@@ -36,7 +36,7 @@ dependencyResolutionManagement {
 ```kotlin
 // build.gradle.kts
 repositories {
-    maven(url = "http://localhost:8888/maven2")
+    maven(url = "http://localhost:7888/maven2")
 }
 ```
 
@@ -50,11 +50,11 @@ Create `~/.gradle/init.d/escrow.gradle`:
 allprojects {
     buildscript {
         repositories {
-            maven { url 'http://localhost:8888/maven2' }
+            maven { url 'http://localhost:7888/maven2' }
         }
     }
     repositories {
-        maven { url 'http://localhost:8888/maven2' }
+        maven { url 'http://localhost:7888/maven2' }
     }
 }
 ```
@@ -90,7 +90,7 @@ git add gradle/verification-metadata.xml
 ./gradlew dependencies 2>&1 | head -20
 ```
 
-Open `http://localhost:8888/dashboard` — artifacts younger than 7 days show
+Open `http://localhost:7888/dashboard` — artifacts younger than 7 days show
 a **Blocked** badge with an **Approve** button.
 
 ---

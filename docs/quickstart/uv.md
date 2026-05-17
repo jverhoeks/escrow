@@ -13,10 +13,10 @@ Edit (or create) `~/.config/uv/uv.toml`:
 
 ```toml
 [pip]
-index-url = "http://localhost:8888/pypi/simple/"
+index-url = "http://localhost:7888/pypi/simple/"
 
 [[index]]
-url = "http://localhost:8888/pypi/simple/"
+url = "http://localhost:7888/pypi/simple/"
 default = true
 ```
 
@@ -33,10 +33,10 @@ Create `uv.toml` in your project root:
 
 ```toml
 [pip]
-index-url = "http://localhost:8888/pypi/simple/"
+index-url = "http://localhost:7888/pypi/simple/"
 
 [[index]]
-url = "http://localhost:8888/pypi/simple/"
+url = "http://localhost:7888/pypi/simple/"
 default = true
 ```
 
@@ -44,10 +44,10 @@ uv also reads `tool.uv` from `pyproject.toml`:
 
 ```toml
 [tool.uv]
-index-url = "http://localhost:8888/pypi/simple/"
+index-url = "http://localhost:7888/pypi/simple/"
 
 [[tool.uv.index]]
-url = "http://localhost:8888/pypi/simple/"
+url = "http://localhost:7888/pypi/simple/"
 default = true
 ```
 
@@ -64,7 +64,7 @@ uv pip install --dry-run requests 2>&1 | head -5
 Open the dashboard:
 
 ```
-http://localhost:8888/dashboard
+http://localhost:7888/dashboard
 ```
 
 Packages younger than 7 days show a **Blocked** badge with an **Approve** button.

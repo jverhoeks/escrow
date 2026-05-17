@@ -19,7 +19,7 @@ Packages that fail policy are **blocked at the proxy level** — they never reac
 ### Docker
 
 ```bash
-docker run -p 8888:8888 -p 8889:8889 ghcr.io/jverhoeks/escrow:latest
+docker run -p 7888:7888 -p 8889:8889 ghcr.io/jverhoeks/escrow:latest
 ```
 
 ### Binary
@@ -46,7 +46,7 @@ On first boot escrow generates `sentinel.toml` with a random dashboard password 
 ### Flags
 
 ```bash
-./escrow                              # binds to 127.0.0.1:8888 (localhost only)
+./escrow                              # binds to 127.0.0.1:7888 (localhost only)
 ./escrow --host=0.0.0.0               # listen on all interfaces (team/CI use)
 ./escrow --config=/etc/escrow/sentinel.toml
 ./escrow --host=0.0.0.0 sentinel.toml # flag + positional config path
@@ -60,13 +60,13 @@ On first boot escrow generates `sentinel.toml` with a random dashboard password 
 
 | Ecosystem | Tools | Proxy URL | Config key |
 |-----------|-------|-----------|------------|
-| npm | npm, pnpm, yarn, bun | `http://localhost:8888/` | `npm = true` |
-| PyPI | pip, uv | `http://localhost:8888/pypi/simple/` | `pypi = true` |
-| Go modules | go | `http://localhost:8888/go/` | `go = true` |
-| Cargo | cargo | `http://localhost:8888/cargo/` | `cargo = true` |
-| Composer | composer | `http://localhost:8888/composer/` | `composer = true` |
-| NuGet | dotnet, nuget | `http://localhost:8888/nuget/index.json` | `nuget = true` |
-| Maven / Gradle | mvn, gradle | `http://localhost:8888/maven2/` | `maven = true` |
+| npm | npm, pnpm, yarn, bun | `http://localhost:7888/` | `npm = true` |
+| PyPI | pip, uv | `http://localhost:7888/pypi/simple/` | `pypi = true` |
+| Go modules | go | `http://localhost:7888/go/` | `go = true` |
+| Cargo | cargo | `http://localhost:7888/cargo/` | `cargo = true` |
+| Composer | composer | `http://localhost:7888/composer/` | `composer = true` |
+| NuGet | dotnet, nuget | `http://localhost:7888/nuget/index.json` | `nuget = true` |
+| Maven / Gradle | mvn, gradle | `http://localhost:7888/maven2/` | `maven = true` |
 
 ---
 
@@ -117,7 +117,7 @@ Step-by-step guides for global setup, per-project setup, verify, and remove for 
 
 ```ini
 # .npmrc
-registry=http://localhost:8888
+registry=http://localhost:7888
 ignore-scripts=true
 ```
 
@@ -126,13 +126,13 @@ ignore-scripts=true
 ```toml
 # uv.toml
 [pip]
-index-url = "http://localhost:8888/pypi/simple/"
+index-url = "http://localhost:7888/pypi/simple/"
 ```
 
 ### Go modules
 
 ```bash
-export GOPROXY=http://localhost:8888/go,off   # use ,off not ,direct
+export GOPROXY=http://localhost:7888/go,off   # use ,off not ,direct
 ```
 
 > ⚠️ **`,off` vs `,direct`:** Using `direct` as fallback means Go silently downloads from the original VCS if escrow is unreachable — bypassing all controls. Use `off` so the build fails loudly instead.
@@ -145,7 +145,7 @@ export GOPROXY=http://localhost:8888/go,off   # use ,off not ,direct
 replace-with = "escrow"
 
 [source.escrow]
-registry = "sparse+http://localhost:8888/cargo/"
+registry = "sparse+http://localhost:7888/cargo/"
 ```
 
 ### Composer (PHP)
@@ -153,7 +153,7 @@ registry = "sparse+http://localhost:8888/cargo/"
 ```json
 {
   "repositories": [
-    {"type": "composer", "url": "http://localhost:8888/composer"},
+    {"type": "composer", "url": "http://localhost:7888/composer"},
     {"packagist.org": false}
   ]
 }
@@ -166,7 +166,7 @@ registry = "sparse+http://localhost:8888/cargo/"
 <configuration>
   <packageSources>
     <clear />
-    <add key="escrow" value="http://localhost:8888/nuget/index.json" />
+    <add key="escrow" value="http://localhost:7888/nuget/index.json" />
   </packageSources>
 </configuration>
 ```
@@ -181,7 +181,7 @@ Must enable in config: `nuget = true` under `[ecosystems]`.
   <mirrors>
     <mirror>
       <id>escrow</id>
-      <url>http://localhost:8888/maven2</url>
+      <url>http://localhost:7888/maven2</url>
       <mirrorOf>central</mirrorOf>
       <checksumPolicy>fail</checksumPolicy>
     </mirror>
@@ -194,7 +194,7 @@ Must enable in config: `nuget = true` under `[ecosystems]`.
 ```kotlin
 // settings.gradle.kts
 dependencyResolutionManagement {
-    repositories { maven(url = "http://localhost:8888/maven2") }
+    repositories { maven(url = "http://localhost:7888/maven2") }
 }
 ```
 
@@ -220,7 +220,7 @@ Real-time package event stream with approve/block controls.
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Access at `http://localhost:8888/dashboard`. Credentials are printed on first boot.
+Access at `http://localhost:7888/dashboard`. Credentials are printed on first boot.
 
 **Approve a blocked package:** click ✓ next to any blocked event. Added to
 `escrow-allowlist.json` immediately. No restart needed.
@@ -601,7 +601,7 @@ go test ./...
 ```toml
 [server]
   host                     = "127.0.0.1"  # 0.0.0.0 or --host flag for all interfaces
-  port                     = 8888
+  port                     = 7888
   log_level                = "info"        # debug | info | warn | error
   write_timeout_seconds       = 120  # increase for slow clients downloading large archives
   read_header_timeout_seconds = 10   # time to receive full HTTP request headers (Slowloris defense)

@@ -16,7 +16,7 @@ Edit (or create) `~/.cargo/config.toml`:
 replace-with = "escrow"
 
 [source.escrow]
-registry = "sparse+http://localhost:8888/cargo/"
+registry = "sparse+http://localhost:7888/cargo/"
 ```
 
 The `sparse+` prefix tells Cargo to use the HTTP sparse index protocol (requires
@@ -39,7 +39,7 @@ global config, with the project file taking precedence):
 replace-with = "escrow"
 
 [source.escrow]
-registry = "sparse+http://localhost:8888/cargo/"
+registry = "sparse+http://localhost:7888/cargo/"
 ```
 
 Commit `.cargo/config.toml` so team members use escrow automatically.
@@ -55,7 +55,7 @@ cargo fetch 2>&1 | head -10
 Open the dashboard:
 
 ```
-http://localhost:8888/dashboard
+http://localhost:7888/dashboard
 ```
 
 Crates younger than 7 days show a **Blocked** badge with an **Approve** button.

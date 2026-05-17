@@ -13,7 +13,7 @@ Edit (or create) `~/.bunfig.toml`:
 
 ```toml
 [install]
-registry = "http://localhost:8888"
+registry = "http://localhost:7888"
 ```
 
 Verify:
@@ -29,7 +29,7 @@ Create `bunfig.toml` in your project root:
 
 ```toml
 [install]
-registry = "http://localhost:8888"
+registry = "http://localhost:7888"
 ```
 
 Per-project `bunfig.toml` overrides the global config. Commit it so team members
@@ -39,7 +39,7 @@ For scoped packages, add per-scope overrides:
 
 ```toml
 [install.scopes]
-"@myorg" = { registry = "http://localhost:8888" }
+"@myorg" = { registry = "http://localhost:7888" }
 ```
 
 ---
@@ -53,7 +53,7 @@ bun install --dry-run 2>&1 | head -5
 Then open the dashboard:
 
 ```
-http://localhost:8888/dashboard
+http://localhost:7888/dashboard
 ```
 
 Any fetch that hit the proxy appears there. Packages younger than 7 days show a
