@@ -1,0 +1,18 @@
+services:
+  escrow:
+    image: ghcr.io/jverhoeks/escrow:latest
+    container_name: escrow
+    ports:
+      - "7888:7888"
+    volumes:
+      # All runtime data (config, cache, allow/block lists, event log) lives in ./data/
+      # First run: cp sentinel.debug.toml data/sentinel.toml
+      - ./data:/data
+    command: ["--config=/data/sentinel.toml", "--host=0.0.0.0"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7888/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
