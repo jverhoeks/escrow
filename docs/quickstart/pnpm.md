@@ -1,4 +1,4 @@
-# pnpm → Escrow Quickstart
+# 🚀 pnpm → Escrow Quickstart
 
 Routes all pnpm installs through the escrow proxy, which enforces a 7-day age gate
 server-side and blocks packages published less than a week ago.
@@ -13,7 +13,7 @@ server-side and blocks packages published less than a week ago.
 
 ---
 
-## 1. Global setup
+## 1. 🌐 Global setup
 
 ```bash
 pnpm config set registry http://localhost:8888
@@ -28,7 +28,7 @@ pnpm config get registry
 
 ---
 
-## 2. Per-project setup
+## 2. 📁 Per-project setup
 
 ### pnpm v10 and v11 — `.npmrc` in project root
 
@@ -46,7 +46,7 @@ Commit both files so team members use escrow automatically.
 
 ---
 
-## 3. Verify it works
+## 3. ✅ Verify it works
 
 ```bash
 pnpm install --dry-run 2>&1 | head -5
@@ -62,7 +62,7 @@ Packages younger than 7 days show a **Blocked** badge with an **Approve** button
 
 ---
 
-## 4. Remove escrow
+## 4. 🗑️ Remove escrow
 
 **Global:**
 ```bash
@@ -78,7 +78,7 @@ registry=https://registry.npmjs.org
 
 ---
 
-## 5. Troubleshooting
+## 5. 🔧 Troubleshooting
 
 **`ERR_PNPM_META_FETCH_FAIL`** — escrow is not running. Start the proxy first.
 

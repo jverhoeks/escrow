@@ -1,4 +1,4 @@
-# Go modules → Escrow Quickstart
+# 🚀 Go modules → Escrow Quickstart
 
 Routes all Go module downloads through the escrow proxy, which enforces a 7-day
 age gate server-side on every module fetch from the Go module mirror.
@@ -12,7 +12,7 @@ age gate server-side on every module fetch from the Go module mirror.
 
 ---
 
-## 1. Global setup
+## 1. 🌐 Global setup
 
 ```bash
 go env -w GOPROXY=http://localhost:8888/go,off
@@ -30,7 +30,7 @@ go env GOPROXY
 
 ---
 
-## 2. Per-project setup
+## 2. 📁 Per-project setup
 
 Go does not load per-project env files automatically, but you can use a `.env`
 convention with `direnv` or set variables in your CI pipeline:
@@ -52,7 +52,7 @@ export GOENV=$PWD/.goenv
 
 ---
 
-## 3. Verify it works
+## 3. ✅ Verify it works
 
 ```bash
 go get golang.org/x/text@latest 2>&1
@@ -69,7 +69,7 @@ Module fetches appear in the log. Modules published less than 7 days ago show a
 
 ---
 
-## 4. Remove escrow
+## 4. 🗑️ Remove escrow
 
 ```bash
 go env -u GOPROXY
@@ -80,7 +80,7 @@ This restores the default `GOPROXY=https://proxy.golang.org,direct`.
 
 ---
 
-## 5. Troubleshooting
+## 5. 🔧 Troubleshooting
 
 **`GOPROXY list is exhausted`** — escrow is not running and `,off` prevented
 fallback. Start the proxy and retry.

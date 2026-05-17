@@ -1,4 +1,4 @@
-# uv → Escrow Quickstart
+# 🚀 uv → Escrow Quickstart
 
 Routes all uv package installs through the escrow proxy's PEP 503 simple index,
 which enforces a 7-day age gate server-side on every PyPI package fetch.
@@ -7,7 +7,7 @@ which enforces a 7-day age gate server-side on every PyPI package fetch.
 
 ---
 
-## 1. Global setup
+## 1. 🌐 Global setup
 
 Edit (or create) `~/.config/uv/uv.toml`:
 
@@ -27,7 +27,7 @@ uv pip install --dry-run requests 2>&1 | head -5
 
 ---
 
-## 2. Per-project setup
+## 2. 📁 Per-project setup
 
 Create `uv.toml` in your project root:
 
@@ -55,7 +55,7 @@ Commit either file so team members use escrow automatically.
 
 ---
 
-## 3. Verify it works
+## 3. ✅ Verify it works
 
 ```bash
 uv pip install --dry-run requests 2>&1 | head -5
@@ -71,7 +71,7 @@ Packages younger than 7 days show a **Blocked** badge with an **Approve** button
 
 ---
 
-## 4. Remove escrow
+## 4. 🗑️ Remove escrow
 
 **Global** (`~/.config/uv/uv.toml`): delete `index-url` and `[[index]]` entries,
 or replace the URL with `https://pypi.org/simple/`.
@@ -81,7 +81,7 @@ or replace the URL with `https://pypi.org/simple/`.
 
 ---
 
-## 5. Troubleshooting
+## 5. 🔧 Troubleshooting
 
 **`No solution found`** — escrow is not running. Start the proxy, then retry.
 

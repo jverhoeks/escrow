@@ -1,4 +1,4 @@
-# Gradle → Escrow Quickstart
+# 🚀 Gradle → Escrow Quickstart
 
 Routes all Gradle dependency downloads through escrow (`/maven2/`). Escrow uses the
 same Maven 2 layout as Maven Central, so Gradle and Maven share the same proxy endpoint.
@@ -8,7 +8,7 @@ same Maven 2 layout as Maven Central, so Gradle and Maven share the same proxy e
 
 ---
 
-## 1. Enable Maven in escrow (shared with Gradle)
+## 1. ⚙️ Enable Maven in escrow (shared with Gradle)
 
 ```toml
 # sentinel.toml
@@ -21,7 +21,7 @@ Restart escrow. The proxy is available at `http://localhost:8888/maven2/`.
 
 ---
 
-## 2. Per-project setup (Kotlin DSL)
+## 2. 📁 Per-project setup (Kotlin DSL)
 
 ```kotlin
 // settings.gradle.kts
@@ -42,7 +42,7 @@ repositories {
 
 ---
 
-## 3. Global setup (init script — affects all Gradle projects)
+## 3. 🌐 Global setup (init script — affects all Gradle projects)
 
 Create `~/.gradle/init.d/escrow.gradle`:
 
@@ -61,7 +61,7 @@ allprojects {
 
 ---
 
-## 4. Add dependency verification (recommended)
+## 4. 🔐 Add dependency verification (recommended)
 
 ```kotlin
 // build.gradle.kts
@@ -84,7 +84,7 @@ git add gradle/verification-metadata.xml
 
 ---
 
-## 5. Verify it works
+## 5. ✅ Verify it works
 
 ```bash
 ./gradlew dependencies 2>&1 | head -20
@@ -95,7 +95,7 @@ a **Blocked** badge with an **Approve** button.
 
 ---
 
-## 6. Remove escrow
+## 6. 🗑️ Remove escrow
 
 **Per-project:** add `mavenCentral()` back to the repositories block and remove
 the escrow maven URL.
@@ -104,7 +104,7 @@ the escrow maven URL.
 
 ---
 
-## 7. Troubleshooting
+## 7. 🔧 Troubleshooting
 
 **`Could not resolve ...`** — escrow not running or `maven = true` missing in config.
 

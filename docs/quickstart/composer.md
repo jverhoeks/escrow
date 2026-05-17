@@ -1,4 +1,4 @@
-# Composer → Escrow Quickstart
+# 🚀 Composer → Escrow Quickstart
 
 Routes all Composer package installs through the escrow proxy, which enforces a
 7-day age gate server-side on every Packagist package fetch.
@@ -8,7 +8,7 @@ Routes all Composer package installs through the escrow proxy, which enforces a
 
 ---
 
-## 1. Global setup
+## 1. 🌐 Global setup
 
 ```bash
 composer config --global repositories.escrow \
@@ -26,7 +26,7 @@ composer config --global --list | grep repositories
 
 ---
 
-## 2. Per-project setup
+## 2. 📁 Per-project setup
 
 Add the repository to your project's `composer.json`:
 
@@ -48,7 +48,7 @@ Commit `composer.json` so team members use escrow automatically.
 
 ---
 
-## 3. Verify it works
+## 3. ✅ Verify it works
 
 ```bash
 composer require --dry-run monolog/monolog 2>&1 | head -10
@@ -64,7 +64,7 @@ Packages younger than 7 days show a **Blocked** badge with an **Approve** button
 
 ---
 
-## 4. Remove escrow
+## 4. 🗑️ Remove escrow
 
 **Global:**
 ```bash
@@ -77,7 +77,7 @@ composer config --global repo.packagist true
 
 ---
 
-## 5. Troubleshooting
+## 5. 🔧 Troubleshooting
 
 **`[Composer\Downloader\TransportException] ... Connection refused`** — escrow is
 not running. Start the proxy before running `composer install`.

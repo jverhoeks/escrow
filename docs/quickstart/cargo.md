@@ -1,4 +1,4 @@
-# Cargo → Escrow Quickstart
+# 🚀 Cargo → Escrow Quickstart
 
 Routes all Cargo crate downloads through the escrow proxy using the sparse
 registry protocol, which enforces a 7-day age gate server-side on every crate fetch.
@@ -7,7 +7,7 @@ registry protocol, which enforces a 7-day age gate server-side on every crate fe
 
 ---
 
-## 1. Global setup
+## 1. 🌐 Global setup
 
 Edit (or create) `~/.cargo/config.toml`:
 
@@ -29,7 +29,7 @@ cargo search serde 2>&1 | head -5
 
 ---
 
-## 2. Per-project setup
+## 2. 📁 Per-project setup
 
 Create `.cargo/config.toml` in your project root (Cargo merges this with the
 global config, with the project file taking precedence):
@@ -46,7 +46,7 @@ Commit `.cargo/config.toml` so team members use escrow automatically.
 
 ---
 
-## 3. Verify it works
+## 3. ✅ Verify it works
 
 ```bash
 cargo fetch 2>&1 | head -10
@@ -62,7 +62,7 @@ Crates younger than 7 days show a **Blocked** badge with an **Approve** button.
 
 ---
 
-## 4. Remove escrow
+## 4. 🗑️ Remove escrow
 
 **Global** (`~/.cargo/config.toml`): delete or comment out the `[source.crates-io]`
 and `[source.escrow]` blocks.
@@ -71,7 +71,7 @@ and `[source.escrow]` blocks.
 
 ---
 
-## 5. Troubleshooting
+## 5. 🔧 Troubleshooting
 
 **`error: failed to get `...` as a dependency`** — escrow is not running. Start
 the proxy and retry `cargo build`.

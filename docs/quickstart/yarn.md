@@ -1,4 +1,4 @@
-# Yarn Berry → Escrow Quickstart
+# 🚀 Yarn Berry → Escrow Quickstart
 
 Routes all Yarn Berry (>= 4.10) installs through the escrow proxy, which enforces
 a 7-day age gate server-side on every package fetch.
@@ -7,7 +7,7 @@ a 7-day age gate server-side on every package fetch.
 
 ---
 
-## 1. Global setup
+## 1. 🌐 Global setup
 
 Yarn Berry does not have a single user-wide config file the same way npm does.
 Set the registry globally with:
@@ -25,7 +25,7 @@ yarn config get npmRegistryServer
 
 ---
 
-## 2. Per-project setup
+## 2. 📁 Per-project setup
 
 Create `.yarnrc.yml` in your project root:
 
@@ -40,7 +40,7 @@ Commit `.yarnrc.yml` so all team members automatically use escrow.
 
 ---
 
-## 3. Verify it works
+## 3. ✅ Verify it works
 
 ```bash
 yarn install --dry-run 2>&1 | head -5
@@ -57,7 +57,7 @@ Any package fetch appears in the log. Packages younger than 7 days show a
 
 ---
 
-## 4. Remove escrow
+## 4. 🗑️ Remove escrow
 
 **Global:**
 ```bash
@@ -72,7 +72,7 @@ or delete the key entirely to fall back to the default.
 
 ---
 
-## 5. Troubleshooting
+## 5. 🔧 Troubleshooting
 
 **`YN0001: Couldn't connect to proxy`** — escrow is not running. Start it first.
 

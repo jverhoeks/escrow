@@ -1,4 +1,4 @@
-# Bun → Escrow Quickstart
+# 🚀 Bun → Escrow Quickstart
 
 Routes all Bun (>= 1.3) package installs through the escrow proxy, which enforces
 a 7-day age gate server-side on every npm package fetch.
@@ -7,7 +7,7 @@ a 7-day age gate server-side on every npm package fetch.
 
 ---
 
-## 1. Global setup
+## 1. 🌐 Global setup
 
 Edit (or create) `~/.bunfig.toml`:
 
@@ -23,7 +23,7 @@ bun pm ls 2>&1 || bun install --dry-run 2>&1 | head -3
 
 ---
 
-## 2. Per-project setup
+## 2. 📁 Per-project setup
 
 Create `bunfig.toml` in your project root:
 
@@ -44,7 +44,7 @@ For scoped packages, add per-scope overrides:
 
 ---
 
-## 3. Verify it works
+## 3. ✅ Verify it works
 
 ```bash
 bun install --dry-run 2>&1 | head -5
@@ -61,7 +61,7 @@ Any fetch that hit the proxy appears there. Packages younger than 7 days show a
 
 ---
 
-## 4. Remove escrow
+## 4. 🗑️ Remove escrow
 
 **Global** (`~/.bunfig.toml`): delete the `registry` line or set it back:
 ```toml
@@ -73,7 +73,7 @@ registry = "https://registry.npmjs.org"
 
 ---
 
-## 5. Troubleshooting
+## 5. 🔧 Troubleshooting
 
 **`error: Failed to fetch registry metadata`** — escrow is not running. Start
 the proxy before running `bun install`.

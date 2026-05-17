@@ -1,4 +1,4 @@
-# NuGet (.NET) → Escrow Quickstart
+# 🚀 NuGet (.NET) → Escrow Quickstart
 
 Routes all NuGet package restores through escrow, which enforces the age gate and
 OSV vulnerability policy server-side.
@@ -9,7 +9,7 @@ OSV vulnerability policy server-side.
 
 ---
 
-## 1. Enable NuGet in escrow
+## 1. ⚙️ Enable NuGet in escrow
 
 ```toml
 # sentinel.toml
@@ -22,7 +22,7 @@ Restart escrow. The proxy is now available at `http://localhost:8888/nuget/index
 
 ---
 
-## 2. Global setup (all projects on this machine)
+## 2. 🌐 Global setup (all projects on this machine)
 
 ```bash
 dotnet nuget add source http://localhost:8888/nuget/index.json --name escrow
@@ -38,7 +38,7 @@ dotnet nuget list source
 
 ---
 
-## 3. Per-project setup
+## 3. 📁 Per-project setup
 
 Create `nuget.config` in your project root:
 
@@ -57,7 +57,7 @@ Commit `nuget.config` so the whole team uses escrow automatically.
 
 ---
 
-## 4. Verify it works
+## 4. ✅ Verify it works
 
 ```bash
 dotnet restore
@@ -68,7 +68,7 @@ a red **Blocked** badge with an **Approve** button.
 
 ---
 
-## 5. Remove escrow
+## 5. 🗑️ Remove escrow
 
 **Global:**
 ```bash
@@ -80,7 +80,7 @@ dotnet nuget enable source nuget.org
 
 ---
 
-## 6. Troubleshooting
+## 6. 🔧 Troubleshooting
 
 **`Unable to load the service index`** — escrow is not running or NuGet is not
 enabled (`nuget = true` in `[ecosystems]`).

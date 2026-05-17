@@ -1,4 +1,4 @@
-# npm → Escrow Quickstart
+# 🚀 npm → Escrow Quickstart
 
 Routes all npm installs through the escrow proxy, which enforces a 7-day age gate
 server-side and blocks packages published less than a week ago.
@@ -9,7 +9,7 @@ server-side and blocks packages published less than a week ago.
 
 ---
 
-## 1. Global setup (all projects on this machine)
+## 1. 🌐 Global setup (all projects on this machine)
 
 ```bash
 npm config set registry http://localhost:8888
@@ -25,7 +25,7 @@ npm config get registry
 
 ---
 
-## 2. Per-project setup
+## 2. 📁 Per-project setup
 
 Create `.npmrc` in your project root:
 
@@ -39,7 +39,7 @@ developer on the project uses escrow automatically.
 
 ---
 
-## 3. Verify it works
+## 3. ✅ Verify it works
 
 ```bash
 npm install --dry-run 2>&1 | head -5
@@ -56,7 +56,7 @@ a red **Blocked** badge with an **Approve** button you can click to allow throug
 
 ---
 
-## 4. Remove escrow
+## 4. 🗑️ Remove escrow
 
 **Global:**
 ```bash
@@ -71,7 +71,7 @@ registry=https://registry.npmjs.org
 
 ---
 
-## 5. Troubleshooting
+## 5. 🔧 Troubleshooting
 
 **`npm ERR! code ETIMEDOUT`** — escrow is not running. Start it with `./escrow` or
 check `docker compose up -d` if you use the Docker image.

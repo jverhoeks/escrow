@@ -1,4 +1,4 @@
-# Maven → Escrow Quickstart
+# 🚀 Maven → Escrow Quickstart
 
 Routes all Maven dependency downloads through escrow (`/maven2/`), which enforces
 the age gate and OSV policy server-side. Publish timestamps are looked up from the
@@ -9,7 +9,7 @@ Maven Central Search API and cached for 1 hour.
 
 ---
 
-## 1. Enable Maven in escrow
+## 1. ⚙️ Enable Maven in escrow
 
 ```toml
 # sentinel.toml
@@ -22,7 +22,7 @@ Restart escrow. The proxy is available at `http://localhost:8888/maven2/`.
 
 ---
 
-## 2. Global setup (`~/.m2/settings.xml`)
+## 2. 🌐 Global setup (`~/.m2/settings.xml`)
 
 ```xml
 <settings>
@@ -38,12 +38,12 @@ Restart escrow. The proxy is available at `http://localhost:8888/maven2/`.
 </settings>
 ```
 
-> **`checksumPolicy=fail`** — default is `warn`, which lets tampered artifacts
+> ⚠️ **`checksumPolicy=fail`** — default is `warn`, which lets tampered artifacts
 > install silently. Always set `fail`.
 
 ---
 
-## 3. Per-project setup
+## 3. 📁 Per-project setup
 
 Create `settings.xml` in your project root with the same mirror block, then run:
 
@@ -55,7 +55,7 @@ Commit `settings.xml` so CI and team members use escrow automatically.
 
 ---
 
-## 4. Verify it works
+## 4. ✅ Verify it works
 
 ```bash
 mvn dependency:resolve -s settings.xml 2>&1 | head -20
@@ -66,7 +66,7 @@ a **Blocked** badge with an **Approve** button.
 
 ---
 
-## 5. Remove escrow
+## 5. 🗑️ Remove escrow
 
 **Global** (`~/.m2/settings.xml`): delete the `<mirror>` block.
 
@@ -74,7 +74,7 @@ a **Blocked** badge with an **Approve** button.
 
 ---
 
-## 6. Troubleshooting
+## 6. 🔧 Troubleshooting
 
 **`Could not transfer artifact ... Connection refused`** — escrow not running
 or `maven = true` missing from `[ecosystems]`.

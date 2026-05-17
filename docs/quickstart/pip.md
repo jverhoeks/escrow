@@ -1,4 +1,4 @@
-# pip → Escrow Quickstart
+# 🚀 pip → Escrow Quickstart
 
 Routes all pip installs through the escrow proxy's PEP 503 simple index, which
 enforces a 7-day age gate server-side on every PyPI package fetch.
@@ -7,7 +7,7 @@ enforces a 7-day age gate server-side on every PyPI package fetch.
 
 ---
 
-## 1. Global setup
+## 1. 🌐 Global setup
 
 Edit (or create) `~/.config/pip/pip.conf` (Linux/macOS) or
 `%APPDATA%\pip\pip.ini` (Windows):
@@ -33,7 +33,7 @@ PIP_INDEX_URL=http://localhost:8888/pypi/simple/ pip install requests
 
 ---
 
-## 2. Per-project setup
+## 2. 📁 Per-project setup
 
 Create `pip.conf` in your project root (or `pip.ini` on Windows):
 
@@ -52,7 +52,7 @@ Or set `PIP_CONFIG_FILE=pip.conf` in your `.env` / shell profile for the project
 
 ---
 
-## 3. Verify it works
+## 3. ✅ Verify it works
 
 ```bash
 pip install --dry-run requests 2>&1 | head -10
@@ -68,7 +68,7 @@ Packages younger than 7 days show a **Blocked** badge with an **Approve** button
 
 ---
 
-## 4. Remove escrow
+## 4. 🗑️ Remove escrow
 
 **Global:** delete `~/.config/pip/pip.conf` or reset the value:
 ```ini
@@ -80,7 +80,7 @@ index-url = https://pypi.org/simple/
 
 ---
 
-## 5. Troubleshooting
+## 5. 🔧 Troubleshooting
 
 **`WARNING: Retrying ... Could not find a version that satisfies`** — escrow is
 not running, or the package name is wrong. Check `http://localhost:8888/dashboard`.
