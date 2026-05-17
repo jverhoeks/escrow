@@ -19,17 +19,18 @@ RUN apk add --no-cache ca-certificates tzdata && \
 
 COPY --from=build /escrow /usr/local/bin/escrow
 
-# Default cache directory (mount a volume here for persistence across restarts)
-RUN mkdir -p /data/escrow-cache && chown escrow:escrow /data/escrow-cache
+# /data is the working directory: sentinel.toml, escrow-cache/, allow/block lists live here.
+# chown -R ensures the escrow user can write sentinel.toml on first boot.
+RUN mkdir -p /data/escrow-cache && chown -R escrow:escrow /data
 
 USER escrow
 WORKDIR /data
 
-EXPOSE 8888
+EXPOSE 7888
 
 # Probe the health endpoint every 30s; fail after 3 consecutive misses
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost:8888/healthz || exit 1
+    CMD wget -qO- http://localhost:7888/healthz || exit 1
 
 ENTRYPOINT ["escrow"]
 CMD ["--host=0.0.0.0"]
