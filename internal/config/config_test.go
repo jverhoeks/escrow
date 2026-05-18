@@ -12,7 +12,7 @@ import (
 )
 
 func TestLoadDefaults_NoFile(t *testing.T) {
-	cfg, err := config.Load("/nonexistent/path/sentinel.toml")
+	cfg, err := config.Load("/nonexistent/path/escrow.toml")
 	require.NoError(t, err)
 	assert.Equal(t, "127.0.0.1", cfg.Server.Host)
 	assert.Equal(t, 7888, cfg.Server.Port)
@@ -21,7 +21,7 @@ func TestLoadDefaults_NoFile(t *testing.T) {
 }
 
 func TestLoad_ParsesFile(t *testing.T) {
-	f := filepath.Join(t.TempDir(), "sentinel.toml")
+	f := filepath.Join(t.TempDir(), "escrow.toml")
 	os.WriteFile(f, []byte(`
 [server]
   port = 9999
@@ -74,7 +74,7 @@ func TestWarnings_MemoryBackend(t *testing.T) {
 }
 
 func TestGenerateIfMissing_CreatesFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sentinel.toml")
+	path := filepath.Join(t.TempDir(), "escrow.toml")
 	generated, msg, err := config.GenerateIfMissing(path)
 	require.NoError(t, err)
 	assert.True(t, generated)
@@ -87,7 +87,7 @@ func TestGenerateIfMissing_CreatesFile(t *testing.T) {
 }
 
 func TestGenerateIfMissing_SkipsExisting(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sentinel.toml")
+	path := filepath.Join(t.TempDir(), "escrow.toml")
 	os.WriteFile(path, []byte("[server]\n  port = 9999\n"), 0o644)
 	generated, _, err := config.GenerateIfMissing(path)
 	require.NoError(t, err)

@@ -12,7 +12,7 @@ Maven Central Search API and cached for 1 hour.
 ## 1. ⚙️ Enable Maven in escrow
 
 ```toml
-# sentinel.toml
+# escrow.toml
 [ecosystems]
   maven = true
   # maven_upstream = "https://repo1.maven.org/maven2"  # optional override

@@ -11,7 +11,7 @@ same Maven 2 layout as Maven Central, so Gradle and Maven share the same proxy e
 ## 1. ⚙️ Enable Maven in escrow (shared with Gradle)
 
 ```toml
-# sentinel.toml
+# escrow.toml
 [ecosystems]
   maven = true
   # maven_upstream = "https://repo1.maven.org/maven2"  # optional override

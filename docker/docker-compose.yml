@@ -6,9 +6,9 @@ services:
       - "7888:7888"
     volumes:
       # All runtime data (config, cache, allow/block lists, event log) lives in ./data/
-      # First run: cp sentinel.debug.toml data/sentinel.toml
+      # First run: cp escrow.debug.toml data/escrow.toml
       - ./data:/data
-    command: ["--config=/data/sentinel.toml", "--host=0.0.0.0"]
+    command: ["--config=/data/escrow.toml", "--host=0.0.0.0"]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:7888/healthz"]

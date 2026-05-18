@@ -19,8 +19,8 @@ RUN apk add --no-cache ca-certificates tzdata && \
 
 COPY --from=build /escrow /usr/local/bin/escrow
 
-# /data is the working directory: sentinel.toml, escrow-cache/, allow/block lists live here.
-# chown -R ensures the escrow user can write sentinel.toml on first boot.
+# /data is the working directory: escrow.toml, escrow-cache/, allow/block lists live here.
+# chown -R ensures the escrow user can write escrow.toml on first boot.
 RUN mkdir -p /data/escrow-cache && chown -R escrow:escrow /data
 
 USER escrow

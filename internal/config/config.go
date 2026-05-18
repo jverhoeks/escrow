@@ -165,7 +165,7 @@ type DashboardConfig struct {
 func DefaultConfig() Config {
 	return Config{
 		Server:     ServerConfig{Host: "127.0.0.1", Port: 7888, LogLevel: "info"},
-		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "./sentinel-cache"}},
+		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "./escrow-cache"}},
 		Ecosystems: EcosystemConfig{NPM: true, PyPI: true, Go: false, Cargo: false, Composer: false},
 		Dashboard:  DashboardConfig{Enabled: true, Path: "/dashboard"},
 	}
@@ -281,7 +281,7 @@ func (c Config) Validate() []error {
 func (c Config) Warnings() []string {
 	var w []string
 	if c.Policy == nil {
-		w = append(w, "no policy configured — escrow is proxying transparently without age gate, OSV scanning, or trust checks. Add a [policy] section to sentinel.toml.")
+		w = append(w, "no policy configured — escrow is proxying transparently without age gate, OSV scanning, or trust checks. Add a [policy] section to escrow.toml.")
 	} else {
 		noSignals := c.Policy.Age == nil && c.Policy.OSV == nil && c.Policy.Publisher == nil && c.Policy.Popularity == nil
 		if noSignals {
@@ -297,7 +297,7 @@ func (c Config) Warnings() []string {
 		w = append(w, "storage backend is 'memory' — blobs are written to OS temp dir and grow unboundedly for the process lifetime. Use 'disk' or 's3' for production deployments.")
 	}
 	if c.Storage.Backend == "disk" && c.Storage.Disk.Path == "" {
-		w = append(w, "storage.disk.path is empty — using default path './sentinel-cache'. Set an explicit path for production.")
+		w = append(w, "storage.disk.path is empty — using default path './escrow-cache'. Set an explicit path for production.")
 	}
 	if c.Alerts.WebhookURL != "" &&
 		(strings.Contains(c.Alerts.WebhookURL, "localhost") || strings.Contains(c.Alerts.WebhookURL, "127.0.0.1")) {
@@ -320,7 +320,7 @@ func (c Config) Warnings() []string {
 		w = append(w, "eventlog_path is the same as allowlist_path or blocklist_path — JSONL appends will corrupt the list file")
 	}
 	if c.Dashboard.Enabled && c.Dashboard.Secret == "" {
-		w = append(w, "dashboard.secret is empty — session cookies are signed with an empty key, making them forgeable. Set a random secret in sentinel.toml.")
+		w = append(w, "dashboard.secret is empty — session cookies are signed with an empty key, making them forgeable. Set a random secret in escrow.toml.")
 	}
 	if c.Policy != nil && c.Policy.Age != nil && c.Policy.Age.MinDays == 0 {
 		w = append(w, "policy.age.min_days is 0 — all packages pass the age gate regardless of publish time. Set min_days >= 1 for meaningful protection.")

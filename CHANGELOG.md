@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.1.0] — 2026-05-18
+
+### Changed
+
+- Config file renamed from `sentinel.toml` → `escrow.toml` everywhere — default flag value, generated filename, Docker volume mount, Homebrew formula, and all documentation.
+- Default disk cache path renamed from `./sentinel-cache` → `./escrow-cache`.
+- Docker debug config renamed from `sentinel.debug.toml` → `escrow.debug.toml`.
+
+> **Migration:** rename your existing config file: `mv sentinel.toml escrow.toml`
+
+---
+
 ## [1.0.0] — 2026-05-17 🎉
 
 First production-ready release. Covers all 7 major package ecosystems with age gating, vulnerability scanning, file caching, and a real-time operator dashboard.
@@ -109,7 +121,7 @@ First production-ready release. Covers all 7 major package ecosystems with age g
 - Request body limits (64 KB) on dashboard API endpoints
 - Security headers on all responses (CSP, X-Frame-Options, X-Content-Type-Options)
 - `Secure` cookie flag when behind TLS proxy
-- `.gitignore` excludes `sentinel.toml` and built binaries
+- `.gitignore` excludes `escrow.toml` and built binaries
 
 ### Changed
 
@@ -150,7 +162,7 @@ Dashboard, metrics, and first-boot config generation.
 ### Added
 - Go modules proxy at `/go/` (GOPROXY protocol) with age gate and OSV
 - Dashboard with real-time SSE event stream and approve controls
-- First-boot config generation: `sentinel.toml` with random password and HMAC secret
+- First-boot config generation: `escrow.toml` with random password and HMAC secret
 - npm package allowlist: config-driven override of blocked packages
 - Dashboard allowlist UI: approve blocked packages from the web interface
 - OSV vulnerability scanning with 24h cache
@@ -177,5 +189,5 @@ Initial release.
 - Disk and memory cache backends
 - Policy engine: `allowlist → blocklist → signals`
 - Webhook alerts on block events
-- Configuration via TOML (`sentinel.toml`)
+- Configuration via TOML (`escrow.toml`)
 - Health check endpoint (`/healthz`)

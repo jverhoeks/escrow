@@ -1,8 +1,8 @@
 class Escrow < Formula
   desc "Supply-chain package proxy — age gate, OSV scan, and file caching for 7 ecosystems"
   homepage "https://github.com/jverhoeks/escrow"
-  url "https://github.com/jverhoeks/escrow/archive/refs/tags/v1.0.2.tar.gz"
-  sha256 "beab45eeac36450cfae4afbe92837b7ca47f2926199ea3e3c113aa9b7f7ded7e"
+  url "https://github.com/jverhoeks/escrow/archive/refs/tags/v1.1.0.tar.gz"
+  sha256 "" # update after release
   license "MIT"
   head "https://github.com/jverhoeks/escrow.git", branch: "main"
 
@@ -14,14 +14,14 @@ class Escrow < Formula
            "-trimpath",
            "./cmd/escrow"
 
-    # Install default config to $(brew --prefix)/etc/escrow/sentinel.toml
+    # Install default config to $(brew --prefix)/etc/escrow/escrow.toml
     (etc/"escrow").mkpath
-    (etc/"escrow"/"sentinel.toml").write default_config unless (etc/"escrow"/"sentinel.toml").exist?
+    (etc/"escrow"/"escrow.toml").write default_config unless (etc/"escrow"/"escrow.toml").exist?
   end
 
   # Runs as a background service via `brew services start escrow`
   service do
-    run [opt_bin/"escrow", "--config=#{etc}/escrow/sentinel.toml"]
+    run [opt_bin/"escrow", "--config=#{etc}/escrow/escrow.toml"]
     keep_alive true
     log_path     var/"log/escrow.log"
     error_log_path var/"log/escrow.log"
@@ -35,7 +35,7 @@ class Escrow < Formula
   def caveats
     <<~EOS
       Escrow config is at:
-        #{etc}/escrow/sentinel.toml
+        #{etc}/escrow/escrow.toml
 
       Edit it to enable ecosystems and set your policy, then start the service:
         brew services start escrow
@@ -56,7 +56,7 @@ class Escrow < Formula
   test do
     # Start escrow in background and verify it responds
     port = free_port
-    config = testpath/"sentinel.toml"
+    config = testpath/"escrow.toml"
     config.write <<~TOML
       [server]
         host = "127.0.0.1"

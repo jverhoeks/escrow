@@ -35,7 +35,7 @@ import (
 func main() {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
-	cfgPath := flag.String("config", "sentinel.toml", "config file path")
+	cfgPath := flag.String("config", "escrow.toml", "config file path")
 	hostFlag := flag.String("host", "", "listen host (overrides config; use 0.0.0.0 for all interfaces, default 127.0.0.1)")
 	flag.Parse()
 	if flag.NArg() > 0 { // backward-compat: escrow [config-path]

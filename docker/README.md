@@ -3,7 +3,7 @@
 Pre-configured escrow instance with all 7 ecosystems enabled and full policy active.
 
 > ⚠️ **Not for production.** Credentials are `admin` / `escrow` and the HMAC secret is hardcoded.
-> Run `./escrow` directly with a generated `sentinel.toml` for production.
+> Run `./escrow` directly with a generated `escrow.toml` for production.
 
 ---
 
@@ -14,7 +14,7 @@ cd docker/
 
 # 1. Create the data directory and copy the debug config
 mkdir -p data
-cp sentinel.debug.toml data/sentinel.toml
+cp escrow.debug.toml data/escrow.toml
 
 # 2. Start escrow
 docker compose up -d
@@ -95,12 +95,12 @@ registry = "sparse+http://localhost:7888/cargo/"
 ```
 docker/
 ├── data/                        ← mounted as /data in the container
-│   ├── sentinel.toml            ← config (copied from sentinel.debug.toml)
+│   ├── escrow.toml            ← config (copied from escrow.debug.toml)
 │   ├── escrow-cache/            ← blob + manifest cache
 │   ├── escrow-allowlist.json    ← approved packages
 │   ├── escrow-blocklist.json    ← manually blocked packages
 │   └── escrow-events.jsonl      ← persistent event log
-├── sentinel.debug.toml          ← source config (edit this, then re-copy)
+├── escrow.debug.toml          ← source config (edit this, then re-copy)
 ├── docker-compose.yml
 └── README.md
 ```

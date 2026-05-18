@@ -12,7 +12,7 @@ OSV vulnerability policy server-side.
 ## 1. ⚙️ Enable NuGet in escrow
 
 ```toml
-# sentinel.toml
+# escrow.toml
 [ecosystems]
   nuget = true
   # nuget_upstream = "https://api.nuget.org/v3"  # optional override

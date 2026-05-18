@@ -3,7 +3,7 @@ escrow-darwin-*
 escrow-linux-*
 escrow-windows-*
 escrow
-sentinel.toml
+escrow.toml
 *.jsonl
 .git/
 .superpowers/

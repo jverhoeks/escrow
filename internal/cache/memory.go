@@ -21,7 +21,7 @@ type Memory struct {
 }
 
 func NewMemory() *Memory {
-	dir, _ := os.MkdirTemp("", "sentinel-memory-*")
+	dir, _ := os.MkdirTemp("", "escrow-memory-*")
 	return &Memory{meta: make(map[string]memEntry), tempDir: dir}
 }
 

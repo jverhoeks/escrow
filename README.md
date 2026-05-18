@@ -36,7 +36,7 @@ brew services stop escrow      # stop
 brew services restart escrow   # reload config
 ```
 
-Config lives at `$(brew --prefix)/etc/escrow/sentinel.toml` — edit it to enable more ecosystems, then restart the service.
+Config lives at `$(brew --prefix)/etc/escrow/escrow.toml` — edit it to enable more ecosystems, then restart the service.
 
 ### 🐳 Docker
 
@@ -48,7 +48,7 @@ docker run -p 7888:7888 ghcr.io/jverhoeks/escrow:latest
 
 ```bash
 cd docker/
-mkdir -p data && cp sentinel.debug.toml data/sentinel.toml
+mkdir -p data && cp escrow.debug.toml data/escrow.toml
 docker compose up -d
 # → http://localhost:7888/dashboard
 ```
@@ -69,18 +69,18 @@ curl -L https://github.com/jverhoeks/escrow/releases/latest/download/escrow-linu
 chmod +x escrow && ./escrow
 ```
 
-On first boot escrow generates `sentinel.toml` with a random dashboard password and prints credentials to stdout.
+On first boot escrow generates `escrow.toml` with a random dashboard password and prints credentials to stdout.
 
 ### ⚙️ Flags
 
 ```bash
 ./escrow                              # binds to 127.0.0.1:7888 (localhost only)
 ./escrow --host=0.0.0.0               # listen on all interfaces (team/CI use)
-./escrow --config=/etc/escrow/sentinel.toml
-./escrow --host=0.0.0.0 sentinel.toml # flag + positional config path
+./escrow --config=/etc/escrow/escrow.toml
+./escrow --host=0.0.0.0 escrow.toml # flag + positional config path
 ```
 
-> 💡 On first boot, credentials are printed to stdout. Save them — or find them in the generated `sentinel.toml`.
+> 💡 On first boot, credentials are printed to stdout. Save them — or find them in the generated `escrow.toml`.
 
 ---
 
@@ -262,7 +262,7 @@ All changes are recorded in the live feed with the operator's username.
 
 ## ⚙️ Policy Configuration
 
-All policy lives in `sentinel.toml`. Without a `[policy]` section escrow proxies
+All policy lives in `escrow.toml`. Without a `[policy]` section escrow proxies
 transparently (with a startup warning).
 
 ### 🗓️ Age gate
@@ -464,7 +464,7 @@ Description=Escrow package proxy
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/escrow --config=/etc/escrow/sentinel.toml
+ExecStart=/usr/local/bin/escrow --config=/etc/escrow/escrow.toml
 Restart=on-failure
 RestartSec=5s
 
