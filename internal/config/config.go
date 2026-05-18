@@ -166,7 +166,7 @@ func DefaultConfig() Config {
 	return Config{
 		Server:     ServerConfig{Host: "127.0.0.1", Port: 7888, LogLevel: "info"},
 		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "./escrow-cache"}},
-		Ecosystems: EcosystemConfig{NPM: true, PyPI: true, Go: false, Cargo: false, Composer: false},
+		Ecosystems: EcosystemConfig{NPM: true, PyPI: true, Go: true, Cargo: true, Composer: true, NuGet: true, Maven: true},
 		Dashboard:  DashboardConfig{Enabled: true, Path: "/dashboard"},
 	}
 }
@@ -215,11 +215,11 @@ func GenerateIfMissing(path string) (bool, string, error) {
 [ecosystems]
   npm      = true
   pypi     = true
-  go       = false
-  cargo    = false
-  composer = false
-  nuget    = false
-  maven    = false  # also covers Gradle via /maven2/
+  go       = true
+  cargo    = true
+  composer = true
+  nuget    = true
+  maven    = true   # also covers Gradle via /maven2/
 
 [dashboard]
   enabled  = true
