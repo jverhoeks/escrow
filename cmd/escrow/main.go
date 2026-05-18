@@ -32,12 +32,22 @@ import (
 	"github.com/jverhoeks/escrow/internal/upstream"
 )
 
+// version is set at build time via -ldflags "-X main.version=vX.Y.Z"
+var version = "dev"
+
 func main() {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
 	cfgPath := flag.String("config", "escrow.toml", "config file path")
 	hostFlag := flag.String("host", "", "listen host (overrides config; use 0.0.0.0 for all interfaces, default 127.0.0.1)")
+	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("escrow %s\n", version)
+		return
+	}
+
 	if flag.NArg() > 0 { // backward-compat: escrow [config-path]
 		*cfgPath = flag.Arg(0)
 	}
@@ -57,6 +67,7 @@ func main() {
 	if *hostFlag != "" {
 		cfg.Server.Host = *hostFlag
 	}
+	log.Info().Str("version", version).Msg("escrow starting")
 	for _, err := range cfg.Validate() {
 		log.Fatal().Err(err).Msg("invalid configuration")
 	}
@@ -177,6 +188,7 @@ func main() {
 		cacheDir = cfg.Storage.Disk.Path
 	}
 	srv := server.New(server.Options{
+		Version:                  version,
 		Host:                     cfg.Server.Host,
 		Port:                     cfg.Server.Port,
 		StorageBackend:           cfg.Storage.Backend,

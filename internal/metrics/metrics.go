@@ -44,6 +44,7 @@ var (
 var startTime = time.Now()
 
 type HealthResponse struct {
+	Version        string          `json:"version"`
 	Status         string          `json:"status"`
 	Uptime         string          `json:"uptime"`
 	Backend        string          `json:"storage_backend"`
@@ -54,7 +55,7 @@ type HealthResponse struct {
 // HealthHandler returns a health check handler that probes each upstream and the cache.
 // upstreams maps ecosystem name → base URL (e.g. "npm" → "https://registry.npmjs.org").
 // cacheDir is the disk cache root directory; empty means cache is non-disk (memory/S3).
-func HealthHandler(backend string, upstreams map[string]string, cacheDir string) http.HandlerFunc {
+func HealthHandler(version, backend string, upstreams map[string]string, cacheDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		upstreamStatus := make(map[string]bool, len(upstreams))
 		for eco, url := range upstreams {
@@ -79,6 +80,7 @@ func HealthHandler(backend string, upstreams map[string]string, cacheDir string)
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 		json.NewEncoder(w).Encode(HealthResponse{
+			Version:        version,
 			Status:         status,
 			Uptime:         time.Since(startTime).Round(time.Second).String(),
 			Backend:        backend,

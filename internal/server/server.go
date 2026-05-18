@@ -14,6 +14,7 @@ import (
 
 // Options configures the HTTP server.
 type Options struct {
+	Version                  string
 	Host                     string
 	Port                     int
 	StorageBackend           string
@@ -71,7 +72,7 @@ func New(opts Options, log zerolog.Logger) *Server {
 		r.Use(s.rl.middleware())
 		log.Info().Int("limit_per_min", opts.ProxyRateLimitPerMin).Msg("proxy rate limiting enabled")
 	}
-	r.Get("/healthz", metrics.HealthHandler(opts.StorageBackend, opts.UpstreamURLs, opts.CacheDir))
+	r.Get("/healthz", metrics.HealthHandler(opts.Version, opts.StorageBackend, opts.UpstreamURLs, opts.CacheDir))
 	r.Handle("/metrics", metrics.MetricsHandler())
 
 	writeTimeout := time.Duration(opts.WriteTimeoutSeconds) * time.Second

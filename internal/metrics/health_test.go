@@ -15,7 +15,7 @@ import (
 
 func TestHealthHandler_CacheWritable(t *testing.T) {
 	dir := t.TempDir()
-	h := metrics.HealthHandler("disk", nil, dir)
+	h := metrics.HealthHandler("dev", "disk", nil, dir)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -25,15 +25,15 @@ func TestHealthHandler_CacheWritable(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
 	assert.True(t, resp.CacheWritable, "writable temp dir should report cache_writable: true")
 	assert.Equal(t, "ok", resp.Status)
+	assert.Equal(t, "dev", resp.Version)
 }
 
 func TestHealthHandler_CacheNotWritable(t *testing.T) {
 	dir := t.TempDir()
-	// Make the directory read-only
 	require.NoError(t, os.Chmod(dir, 0o555))
-	defer os.Chmod(dir, 0o755) // restore for cleanup
+	defer os.Chmod(dir, 0o755)
 
-	h := metrics.HealthHandler("disk", nil, dir)
+	h := metrics.HealthHandler("dev", "disk", nil, dir)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -49,8 +49,7 @@ func TestHealthHandler_CacheNotWritable(t *testing.T) {
 }
 
 func TestHealthHandler_EmptyCacheDir_NonDisk(t *testing.T) {
-	// For non-disk backends, cacheDir is "" and cache_writable should always be true
-	h := metrics.HealthHandler("memory", nil, "")
+	h := metrics.HealthHandler("dev", "memory", nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -63,7 +62,7 @@ func TestHealthHandler_EmptyCacheDir_NonDisk(t *testing.T) {
 
 func TestHealthHandler_NonExistentCacheDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nonexistent")
-	h := metrics.HealthHandler("disk", nil, dir)
+	h := metrics.HealthHandler("dev", "disk", nil, dir)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	h(rr, req)

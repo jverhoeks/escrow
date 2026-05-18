@@ -84,7 +84,7 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 </head>
 <body>
 <div class="topbar">
-  <div><span class="logo">ESCROW<span>package proxy</span></span></div>
+  <div><span class="logo">ESCROW<span>package proxy</span></span><span id="app-version" style="color:#334155;font-size:10px;margin-left:10px;letter-spacing:1px;"></span></div>
   <div class="topbar-right">
     <span id="live-badge">● LIVE</span>
     <span class="user-info">admin</span>
@@ -460,6 +460,9 @@ function setEco(eco) {
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
+
+// Fetch version from healthz on load
+fetch('/healthz').then(r=>r.json()).then(h=>{ const v=document.getElementById('app-version'); if(v&&h.version) v.textContent=h.version; }).catch(()=>{});
 
 fetch(BASE + '/api/events?n=100')
   .then(r => r.json())
