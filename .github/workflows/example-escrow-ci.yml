@@ -1,0 +1,51 @@
+# Example: use escrow as a supply-chain proxy in your CI pipeline.
+#
+# Copy this to YOUR repo's .github/workflows/ and adjust to your stack.
+# The escrow package cache is stored in GitHub Actions cache and shared
+# across runs — cold miss fetches from upstream and warms the cache,
+# subsequent runs are served entirely from cache.
+
+name: CI with escrow proxy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Start escrow proxy and restore its package cache
+      - name: Setup escrow
+        uses: jverhoeks/escrow/.github/actions/setup-escrow@v1.3.1
+        with:
+          ecosystems: 'npm,pypi,go,cargo'
+          min-days: '7'
+          osv-severity: 'HIGH'
+
+      # Your normal build steps — no changes needed below this line.
+      # escrow sets NPM_CONFIG_REGISTRY, PIP_INDEX_URL, GOPROXY, etc.
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm ci
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r requirements.txt
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - run: go build ./...
+
+      - run: npm test
