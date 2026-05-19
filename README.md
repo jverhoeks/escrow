@@ -98,6 +98,35 @@ On first boot escrow generates `escrow.toml` with a random dashboard password an
 
 ---
 
+## ⚡ GitHub Actions
+
+Use escrow as a one-step supply-chain gate in any CI pipeline:
+
+```yaml
+- uses: jverhoeks/escrow@v1
+  with:
+    ecosystems: 'npm,pypi,go,cargo'   # enable only what your project uses
+    min-days: '7'                      # block packages < 7 days old
+    osv-severity: 'HIGH'               # block HIGH/CRITICAL CVEs
+```
+
+That's it — all subsequent `npm ci`, `pip install`, `go build`, `cargo build` steps transparently use the proxy. The package cache is stored in GitHub Actions cache and restored on every run.
+
+| Input | Default | Description |
+|---|---|---|
+| `ecosystems` | `npm,pypi,go,cargo` | Comma-separated list to enable |
+| `min-days` | `7` | Age gate threshold |
+| `osv-severity` | `HIGH` | Minimum CVE severity to block (`off` to disable) |
+| `version` | `v1.4.1` | Escrow binary version |
+| `port` | `7888` | Local proxy port |
+| `cache-key-suffix` | `` | Append to cache key for manual busting |
+
+**Output**: `proxy-url` — the base URL (`http://127.0.0.1:7888`).
+
+→ Full guide: [docs/github-actions.md](docs/github-actions.md)
+
+---
+
 ## 📖 Per-Tool Quickstarts
 
 Step-by-step guides for global setup, per-project setup, verify, and remove for each tool:
@@ -116,6 +145,7 @@ Step-by-step guides for global setup, per-project setup, verify, and remove for 
 | dotnet / NuGet | [docs/quickstart/dotnet.md](docs/quickstart/dotnet.md) |
 | maven | [docs/quickstart/maven.md](docs/quickstart/maven.md) |
 | gradle | [docs/quickstart/gradle.md](docs/quickstart/gradle.md) |
+| **GitHub Actions** | [docs/github-actions.md](docs/github-actions.md) |
 
 ---
 
