@@ -6,7 +6,7 @@ description: >
 inputs:
   version:
     description: 'Escrow release tag to install (e.g. v1.3.1)'
-    default: 'v1.4.0'
+    default: 'v1.4.1'
     required: false
   port:
     description: 'Port for the escrow proxy'
