@@ -100,17 +100,30 @@ On first boot escrow generates `escrow.toml` with a random dashboard password an
 
 ## ⚡ GitHub Actions
 
-Use escrow as a one-step supply-chain gate in any CI pipeline:
+Use escrow as a one-step supply-chain gate in any CI pipeline. Add it before your install steps — no other changes needed:
 
 ```yaml
-- uses: jverhoeks/escrow@v1
-  with:
-    ecosystems: 'npm,pypi,go,cargo'   # enable only what your project uses
-    min-days: '7'                      # block packages < 7 days old
-    osv-severity: 'HIGH'               # block HIGH/CRITICAL CVEs
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jverhoeks/escrow@v1
+        with:
+          ecosystems: 'npm'
+          min-days: '7'
+          osv-severity: 'HIGH'
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - run: npm install --ignore-scripts
+      # npm automatically uses the escrow registry — no other changes needed
 ```
 
-That's it — all subsequent `npm ci`, `pip install`, `go build`, `cargo build` steps transparently use the proxy. The package cache is stored in GitHub Actions cache and restored on every run.
+Escrow sets `NPM_CONFIG_REGISTRY`, `PIP_INDEX_URL`, `GOPROXY`, etc. automatically so every install command routes through the proxy. The package cache is stored in GitHub Actions cache and restored on every run — warm cache runs require zero upstream calls.
 
 | Input | Default | Description |
 |---|---|---|
