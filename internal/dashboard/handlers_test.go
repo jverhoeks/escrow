@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jverhoeks/escrow/internal/allow"
@@ -211,4 +213,49 @@ func TestHandleAllow_UnauthenticatedRejected(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	// Auth middleware redirects to login (302) or returns 401 — either way, not 200
 	assert.NotEqual(t, http.StatusOK, rec.Code, "unauthenticated request should not succeed")
+}
+
+func TestHandleEvents_Since(t *testing.T) {
+	evLog := eventlog.New(50)
+	old := time.Now().Add(-2 * time.Hour)
+	recent := time.Now().Add(-10 * time.Minute)
+	evLog.Record(eventlog.PackageEvent{Package: "old@1.0.0", Action: "allow", Timestamp: old})
+	evLog.Record(eventlog.PackageEvent{Package: "recent@1.0.0", Action: "allow", Timestamp: recent})
+
+	cfg := config.DashboardConfig{Enabled: true, Path: "/dashboard",
+		Username: "admin", Password: "pass",
+		Secret: "aabbccddeeff00112233445566778899"}
+	auth := dashboard.NewAuth("admin", "pass", "aabbccddeeff00112233445566778899")
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil)
+	r := chi.NewRouter()
+	dash.Mount(r)
+
+	since := time.Now().Add(-30 * time.Minute).Format(time.RFC3339)
+	req := authenticatedRequestWith(auth, http.MethodGet,
+		"/dashboard/api/events?since="+url.QueryEscape(since), nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	var events []eventlog.PackageEvent
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&events))
+	require.Len(t, events, 1, "only the recent event should be returned")
+	assert.Equal(t, "recent@1.0.0", events[0].Package)
+}
+
+// authenticatedRequestWith mirrors authenticatedRequest but takes an explicit Auth.
+func authenticatedRequestWith(auth *dashboard.Auth, method, path string, body []byte) *http.Request {
+	rec := httptest.NewRecorder()
+	auth.SetCookie(rec, httptest.NewRequest(http.MethodGet, "/", nil), "admin")
+	cookie := rec.Result().Cookies()[0]
+	var req *http.Request
+	if body != nil {
+		req = httptest.NewRequest(method, path, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		req = httptest.NewRequest(method, path, nil)
+	}
+	req.AddCookie(cookie)
+	req.Header.Set("Origin", "http://"+req.Host)
+	return req
 }
