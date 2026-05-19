@@ -75,3 +75,54 @@
 allowlist_path = "escrow-allowlist.json"
 blocklist_path = "escrow-blocklist.json"
 # eventlog_path = "escrow-events.jsonl"  # persist events across restarts; empty = in-memory only
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Client configuration snippets  (replace localhost:7888 with your escrow host)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# npm / pnpm / yarn  →  .npmrc
+#   registry=http://localhost:7888
+#
+# uv  →  uv.toml  (project or ~/.config/uv/uv.toml)
+#   [pip]
+#   index-url = "http://localhost:7888/pypi/simple/"
+#
+#   [[index]]
+#   url = "http://localhost:7888/pypi/simple/"
+#   default = true
+#
+# pip  →  pip.conf / pip.ini
+#   [global]
+#   index-url = http://localhost:7888/pypi/simple/
+#
+# Go  →  environment
+#   GOPROXY=http://localhost:7888/go,direct
+#
+# Cargo (Rust)  →  .cargo/config.toml
+#   [source.crates-io]
+#   replace-with = "escrow"
+#
+#   [source.escrow]
+#   registry = "sparse+http://localhost:7888/cargo/"
+#
+# NuGet (.NET)  →  nuget.config
+#   <configuration>
+#     <packageSources>
+#       <clear />
+#       <add key="escrow" value="http://localhost:7888/nuget/index.json"
+#            allowInsecureConnections="true" />
+#     </packageSources>
+#   </configuration>
+#   Note: allowInsecureConnections is required for HTTP sources (NuGet >= 6.8).
+#         Use TLS (tls_cert_file / tls_key_file above) to avoid it in production.
+#
+# Maven / Gradle  →  settings.xml
+#   <settings>
+#     <mirrors>
+#       <mirror>
+#         <id>escrow</id>
+#         <mirrorOf>central</mirrorOf>
+#         <url>http://localhost:7888/maven2</url>
+#       </mirror>
+#     </mirrors>
+#   </settings>

@@ -25,7 +25,8 @@ Restart escrow. The proxy is now available at `http://localhost:7888/nuget/index
 ## 2. 🌐 Global setup (all projects on this machine)
 
 ```bash
-dotnet nuget add source http://localhost:7888/nuget/index.json --name escrow
+dotnet nuget add source http://localhost:7888/nuget/index.json \
+  --name escrow --allow-insecure-connections
 dotnet nuget disable source nuget.org
 ```
 
@@ -35,6 +36,9 @@ dotnet nuget list source
 # escrow [Enabled]
 #   http://localhost:7888/nuget/index.json
 ```
+
+> **TLS in production**: use `tls_cert_file` / `tls_key_file` in `escrow.toml` to enable
+> HTTPS and drop the `--allow-insecure-connections` flag.
 
 ---
 
@@ -47,12 +51,14 @@ Create `nuget.config` in your project root:
 <configuration>
   <packageSources>
     <clear />
-    <add key="escrow" value="http://localhost:7888/nuget/index.json" />
+    <add key="escrow" value="http://localhost:7888/nuget/index.json"
+         allowInsecureConnections="true" />
   </packageSources>
 </configuration>
 ```
 
 `<clear />` removes all inherited sources so only escrow is used.
+`allowInsecureConnections="true"` is required for HTTP sources in NuGet >= 6.8.
 Commit `nuget.config` so the whole team uses escrow automatically.
 
 ---
@@ -82,8 +88,13 @@ dotnet nuget enable source nuget.org
 
 ## 6. 🔧 Troubleshooting
 
-**`Unable to load the service index`** — escrow is not running or NuGet is not
-enabled (`nuget = true` in `[ecosystems]`).
+**`Unable to load the service index`** — escrow is not running, NuGet is not
+enabled (`nuget = true` in `[ecosystems]`), or the service index is returning
+an unexpected format (verify with `curl http://localhost:7888/nuget/index.json`).
+
+**`NU1302: You are running the 'restore' operation with an 'HTTP' source`** —
+add `allowInsecureConnections="true"` to the `<add>` element in `nuget.config`,
+or switch to HTTPS by enabling TLS in `escrow.toml`.
 
 **Package not found** — the age gate may be blocking it. Check the dashboard
 and click **Approve** to allow it through.

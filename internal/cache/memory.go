@@ -91,6 +91,17 @@ func (m *Memory) HasBlob(_ context.Context, key string) bool {
 	return err == nil
 }
 
+func (m *Memory) Flush() error {
+	m.mu.Lock()
+	m.meta = make(map[string]memEntry)
+	m.mu.Unlock()
+	// Remove and recreate the blob temp dir.
+	if err := os.RemoveAll(m.tempDir); err != nil {
+		return err
+	}
+	return os.MkdirAll(m.tempDir, 0o755)
+}
+
 func (m *Memory) Close() error {
 	return os.RemoveAll(m.tempDir)
 }

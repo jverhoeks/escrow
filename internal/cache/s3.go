@@ -135,4 +135,7 @@ func (s *S3Cache) HasBlob(ctx context.Context, key string) bool {
 	return err == nil
 }
 
+// Flush is not implemented for S3; use the AWS console or CLI to clear the bucket.
+func (s *S3Cache) Flush() error { return nil }
+
 func (s *S3Cache) Close() error { return nil }

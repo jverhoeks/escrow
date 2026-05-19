@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -11,6 +12,27 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/jverhoeks/escrow/internal/metrics"
 )
+
+func ecoFromPath(p string) string {
+	switch {
+	case strings.HasPrefix(p, "/pypi/"):
+		return "pypi"
+	case strings.HasPrefix(p, "/go/"):
+		return "go"
+	case strings.HasPrefix(p, "/cargo/"):
+		return "cargo"
+	case strings.HasPrefix(p, "/composer/"):
+		return "composer"
+	case strings.HasPrefix(p, "/nuget/"):
+		return "nuget"
+	case strings.HasPrefix(p, "/maven2/"):
+		return "maven"
+	case strings.HasPrefix(p, "/healthz"), strings.HasPrefix(p, "/metrics"), strings.HasPrefix(p, "/dashboard"):
+		return ""
+	default:
+		return "npm"
+	}
+}
 
 // Options configures the HTTP server.
 type Options struct {
@@ -58,12 +80,16 @@ func New(opts Options, log zerolog.Logger) *Server {
 			start := time.Now()
 			ww := middleware.NewWrapResponseWriter(w, req.ProtoMajor)
 			next.ServeHTTP(ww, req)
-			log.Debug().
+			ev := log.Debug().
 				Str("method", req.Method).
 				Str("path", req.URL.Path).
 				Int("status", ww.Status()).
-				Dur("ms", time.Since(start)).
-				Msg("request")
+				Int("bytes", ww.BytesWritten()).
+				Dur("ms", time.Since(start))
+			if eco := ecoFromPath(req.URL.Path); eco != "" {
+				ev = ev.Str("eco", eco)
+			}
+			ev.Msg("request")
 		})
 	})
 	s := &Server{router: r, log: log, certFile: opts.TLSCertFile, keyFile: opts.TLSKeyFile}

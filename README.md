@@ -194,10 +194,14 @@ registry = "sparse+http://localhost:7888/cargo/"
 <configuration>
   <packageSources>
     <clear />
-    <add key="escrow" value="http://localhost:7888/nuget/index.json" />
+    <add key="escrow" value="http://localhost:7888/nuget/index.json"
+         allowInsecureConnections="true" />
   </packageSources>
 </configuration>
 ```
+
+> `allowInsecureConnections="true"` is required for HTTP sources in NuGet >= 6.8.
+> Use TLS (`tls_cert_file` / `tls_key_file` in `escrow.toml`) to avoid it in production.
 
 Must enable in config: `nuget = true` under `[ecosystems]`.
 

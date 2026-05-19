@@ -124,4 +124,17 @@ func (d *Disk) HasBlob(_ context.Context, key string) bool {
 	return err == nil
 }
 
+func (d *Disk) Flush() error {
+	for _, sub := range []string{"meta", "blobs"} {
+		dir := filepath.Join(d.root, sub)
+		if err := os.RemoveAll(dir); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (d *Disk) Close() error { return nil }

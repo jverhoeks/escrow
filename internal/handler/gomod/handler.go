@@ -25,14 +25,15 @@ const (
 )
 
 type Handler struct {
-	client      *http.Client
-	upstreamURL string
-	engine      *trust.Engine
-	policy      *policy.Engine
-	cache       cache.Cache
-	evlog       *eventlog.Log
-	webhook     *alerts.Webhook // may be nil
-	sfInfo      singleflight.Group
+	client        *http.Client
+	upstreamURL   string
+	engine        *trust.Engine // full engine: age + OSV + publisher (download time)
+	listingEngine *trust.Engine // age-only engine (info/latest listing)
+	policy        *policy.Engine
+	cache         cache.Cache
+	evlog         *eventlog.Log
+	webhook       *alerts.Webhook // may be nil
+	sfInfo        singleflight.Group
 }
 
 func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache, evLog *eventlog.Log) *Handler {
@@ -44,6 +45,11 @@ func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *pol
 
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
 	h.webhook = wh
+	return h
+}
+
+func (h *Handler) WithListingEngine(e *trust.Engine) *Handler {
+	h.listingEngine = e
 	return h
 }
 
@@ -120,7 +126,11 @@ func (h *Handler) serveInfo(w http.ResponseWriter, r *http.Request, escapedModul
 			Version:     info.Version,
 			PublishedAt: info.Time,
 		}
-		result, _ := h.engine.Check(context.Background(), pkg)
+		eng := h.engine
+		if h.listingEngine != nil {
+			eng = h.listingEngine
+		}
+		result, _ := eng.Check(context.Background(), pkg)
 		d := h.policy.Evaluate(result)
 		metrics.RequestsTotal.WithLabelValues(string(pkg.Ecosystem), string(d.Action)).Inc()
 		if d.Action == policy.ActionBlock {
@@ -295,7 +305,11 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 			Version:     info.Version,
 			PublishedAt: info.Time,
 		}
-		result, _ := h.engine.Check(context.Background(), pkg)
+		eng := h.engine
+		if h.listingEngine != nil {
+			eng = h.listingEngine
+		}
+		result, _ := eng.Check(context.Background(), pkg)
 		d := h.policy.Evaluate(result)
 		metrics.RequestsTotal.WithLabelValues(string(pkg.Ecosystem), string(d.Action)).Inc()
 		if d.Action == policy.ActionBlock {

@@ -22,14 +22,15 @@ const manifestTTL = 5 * time.Minute
 
 // Handler is the Composer/Packagist V2 proxy handler.
 type Handler struct {
-	client      *http.Client
-	upstreamURL string // e.g. "https://repo.packagist.org"
-	engine      *trust.Engine
-	policy      *policy.Engine
-	cache       cache.Cache
-	evlog       *eventlog.Log
-	webhook     *alerts.Webhook // may be nil
-	sf          singleflight.Group
+	client        *http.Client
+	upstreamURL   string // e.g. "https://repo.packagist.org"
+	engine        *trust.Engine // full engine: age + OSV + publisher (download time)
+	listingEngine *trust.Engine // age-only engine (package manifest listing)
+	policy        *policy.Engine
+	cache         cache.Cache
+	evlog         *eventlog.Log
+	webhook       *alerts.Webhook // may be nil
+	sf            singleflight.Group
 }
 
 // New creates a new Composer handler.
@@ -47,6 +48,12 @@ func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *pol
 // WithWebhook attaches an alert webhook (optional).
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
 	h.webhook = wh
+	return h
+}
+
+// WithListingEngine sets the age-only engine used during package manifest listing.
+func (h *Handler) WithListingEngine(e *trust.Engine) *Handler {
+	h.listingEngine = e
 	return h
 }
 
@@ -176,7 +183,11 @@ func (h *Handler) versionAllowed(ctx context.Context, name, version string, publ
 		PublishedAt: publishedAt,
 		Author:      author,
 	}
-	result, _ := h.engine.Check(ctx, pkg)
+	eng := h.engine
+	if h.listingEngine != nil {
+		eng = h.listingEngine
+	}
+	result, _ := eng.Check(ctx, pkg)
 	d := h.policy.Evaluate(result)
 
 	metrics.RequestsTotal.WithLabelValues(string(pkg.Ecosystem), string(d.Action)).Inc()

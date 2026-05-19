@@ -25,15 +25,16 @@ const (
 )
 
 type Handler struct {
-	client            *http.Client
-	upstreamURL       string // e.g. "https://api.nuget.org/v3"
-	flatcontainerURL  string // e.g. "https://api.nuget.org/v3-flatcontainer" (derived if empty)
-	engine            *trust.Engine
-	policy            *policy.Engine
-	cache             cache.Cache
-	evlog             *eventlog.Log
-	webhook           *alerts.Webhook // may be nil
-	sf                singleflight.Group
+	client           *http.Client
+	upstreamURL      string // e.g. "https://api.nuget.org/v3"
+	flatcontainerURL string // e.g. "https://api.nuget.org/v3-flatcontainer" (derived if empty)
+	engine           *trust.Engine // full engine: age + OSV + publisher (download time)
+	listingEngine    *trust.Engine // age-only engine (registration/version listing)
+	policy           *policy.Engine
+	cache            cache.Cache
+	evlog            *eventlog.Log
+	webhook          *alerts.Webhook // may be nil
+	sf               singleflight.Group
 }
 
 func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache, evLog *eventlog.Log) *Handler {
@@ -59,6 +60,12 @@ func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
 	return h
 }
 
+// WithListingEngine sets the age-only engine used during registration/version listing.
+func (h *Handler) WithListingEngine(e *trust.Engine) *Handler {
+	h.listingEngine = e
+	return h
+}
+
 func (h *Handler) Mount(r chi.Router) {
 	r.Route("/nuget", func(r chi.Router) {
 		r.Get("/index.json", h.serveIndex)
@@ -72,7 +79,7 @@ func (h *Handler) Mount(r chi.Router) {
 func (h *Handler) serveIndex(w http.ResponseWriter, r *http.Request) {
 	base := proxyBase(r)
 	index := map[string]any{
-		"@version": "3.0.0",
+		"version": "3.0.0",
 		"resources": []map[string]any{
 			{
 				"@id":     base + "/v3/registration5-semver1/",
@@ -298,7 +305,11 @@ func (h *Handler) filterRegistration(ctx context.Context, pkgID string, data []b
 				Version:     version,
 				PublishedAt: publishedAt,
 			}
-			result, _ := h.engine.Check(ctx, pkg)
+			eng := h.engine
+			if h.listingEngine != nil {
+				eng = h.listingEngine
+			}
+			result, _ := eng.Check(ctx, pkg)
 			d := h.policy.Evaluate(result)
 
 			metrics.RequestsTotal.WithLabelValues(string(pkg.Ecosystem), string(d.Action)).Inc()

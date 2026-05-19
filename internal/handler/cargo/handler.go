@@ -35,15 +35,16 @@ type versionMeta struct {
 
 // Handler proxies the Cargo sparse registry protocol.
 type Handler struct {
-	client      *http.Client
-	upstreamURL string // "https://index.crates.io"
-	downloadURL string // "https://static.crates.io"
-	apiURL      string // "https://crates.io"
-	engine      *trust.Engine
-	policy      *policy.Engine
-	cache       cache.Cache
-	evlog       *eventlog.Log
-	webhook     *alerts.Webhook // may be nil
+	client        *http.Client
+	upstreamURL   string // "https://index.crates.io"
+	downloadURL   string // "https://static.crates.io"
+	apiURL        string // "https://crates.io"
+	engine        *trust.Engine // full engine: age + OSV + publisher (download time)
+	listingEngine *trust.Engine // age-only engine (index listing)
+	policy        *policy.Engine
+	cache         cache.Cache
+	evlog         *eventlog.Log
+	webhook       *alerts.Webhook // may be nil
 }
 
 // New creates a Cargo handler with the given dependencies.
@@ -63,6 +64,12 @@ func New(client *http.Client, engine *trust.Engine, pol *policy.Engine, c cache.
 // WithWebhook sets the alert webhook and returns the handler for chaining.
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
 	h.webhook = wh
+	return h
+}
+
+// WithListingEngine sets the age-only engine used during index listing.
+func (h *Handler) WithListingEngine(e *trust.Engine) *Handler {
+	h.listingEngine = e
 	return h
 }
 
@@ -296,7 +303,11 @@ func (h *Handler) checkTrust(r *http.Request, w http.ResponseWriter, name, versi
 		PublishedAt: publishedAt,
 		Author:      author,
 	}
-	result, _ := h.engine.Check(r.Context(), pkg)
+	eng := h.engine
+	if h.listingEngine != nil {
+		eng = h.listingEngine
+	}
+	result, _ := eng.Check(r.Context(), pkg)
 	d := h.policy.Evaluate(result)
 
 	metrics.RequestsTotal.WithLabelValues(string(pkg.Ecosystem), string(d.Action)).Inc()

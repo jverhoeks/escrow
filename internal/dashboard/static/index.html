@@ -21,7 +21,7 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 .nav-tab { padding: 0 16px; color: #64748b; font-size: 11px; cursor: pointer; border-bottom: 2px solid transparent; display: flex; align-items: center; letter-spacing: 0.5px; }
 .nav-tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
 .eco-filters { display: flex; align-items: center; gap: 6px; }
-.eco-label { color: #334155; font-size: 10px; margin-right: 2px; }
+.eco-label { color: #475569; font-size: 10px; margin-right: 2px; }
 .eco-chip { padding: 2px 10px; border-radius: 3px; font-size: 10px; cursor: pointer; border: 1px solid #1e3a5f; color: #64748b; background: none; font-family: inherit; letter-spacing: 0.5px; text-transform: uppercase; }
 .eco-chip.sel-all      { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
 .eco-chip.sel-npm      { background: #14532d22; color: #4ade80; border-color: #16a34a55; }
@@ -31,20 +31,20 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 .main { display: flex; flex: 1; overflow: hidden; }
 .feed-panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #1e3a5f; overflow: hidden; }
 .panel-header { padding: 8px 16px; border-bottom: 1px solid #1e3a5f; color: #64748b; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
-.col-headers { display: flex; align-items: baseline; gap: 10px; padding: 5px 16px 4px; border-bottom: 1px solid #0f1929; font-size: 9px; color: #334155; letter-spacing: 0.5px; text-transform: uppercase; flex-shrink: 0; }
+.col-headers { display: flex; align-items: baseline; gap: 10px; padding: 5px 16px 4px; border-bottom: 1px solid #0f1929; font-size: 9px; color: #475569; letter-spacing: 0.5px; text-transform: uppercase; flex-shrink: 0; }
 #feed { flex: 1; overflow-y: auto; }
 .feed-item { padding: 7px 16px; border-bottom: 1px solid #0f1929; display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
 .feed-item:hover { background: #0f1929; }
-.ts { color: #334155; font-size: 10px; min-width: 56px; }
+.ts { color: #64748b; font-size: 10px; min-width: 56px; }
 .eco-tag { font-size: 9px; padding: 1px 5px; border-radius: 2px; min-width: 54px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
 .eco-tag.npm      { background: #14532d22; color: #4ade80; border: 1px solid #16a34a33; }
 .eco-tag.pypi     { background: #1e3a8a22; color: #93c5fd; border: 1px solid #3b82f633; }
 .eco-tag.go       { background: #083344aa; color: #67e8f9; border: 1px solid #0891b233; }
 .eco-tag.cargo    { background: #431407aa; color: #fb923c; border: 1px solid #ea580c33; }
 .eco-tag.composer { background: #1e1b4b22; color: #a5b4fc; border: 1px solid #6366f133; }
-.pkg { color: #cbd5e1; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sig { color: #475569; font-size: 10px; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st { font-weight: bold; min-width: 54px; font-size: 11px; }
+.pkg { color: #cbd5e1; flex: 1; min-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sig { color: #64748b; font-size: 10px; min-width: 120px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st { font-size: 14px; min-width: 24px; text-align: center; }
 .st.block { color: #ef4444; }
 .st.warn  { color: #f59e0b; }
 .st.allow { color: #22c55e; }
@@ -67,8 +67,8 @@ body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','
 .block-btn { background: none; border: 1px solid #334155; color: #64748b; font-size: 9px; padding: 1px 6px; border-radius: 2px; cursor: pointer; letter-spacing: 0.5px; font-family: inherit; }
 .block-btn:hover { border-color: #ef4444; color: #ef4444; }
 .block-btn.blocked { border-color: #334155; color: #334155; cursor: default; }
-.status-manual-block { color: #f97316; font-weight: bold; min-width: 54px; font-size: 11px; }
-.status-override { color: #a78bfa; font-weight: bold; min-width: 54px; font-size: 11px; }
+.status-manual-block { color: #f97316; font-size: 14px; min-width: 24px; text-align: center; }
+.status-override { color: #a78bfa; font-size: 14px; min-width: 24px; text-align: center; }
 /* packages view */
 .refresh-btn { background: none; border: 1px solid #1e3a5f; color: #64748b; font-size: 10px; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-family: inherit; letter-spacing: 0.5px; }
 .refresh-btn:hover { border-color: #3b82f6; color: #60a5fa; }
@@ -205,9 +205,11 @@ function makeRow(e) {
   sig.title = sigText;
   sig.textContent = sigText;
   const stClass = e.action === 'block' ? 'block' : e.action === 'warn' ? 'warn' : 'allow';
+  const stIcon  = e.action === 'block' ? '✕' : e.action === 'warn' ? '⚠' : '✓';
   const st = document.createElement('span');
   st.className = 'st ' + stClass;
-  st.textContent = (e.action || 'allow').toUpperCase();
+  st.title = (e.action || 'allow').toUpperCase();
+  st.textContent = stIcon;
   row.append(ts, eco, pkg, sig, st);
   if (e.action === 'block') {
     const approveBtn = document.createElement('button');
@@ -301,7 +303,7 @@ async function approvePackage(event, btn, statusEl) {
     });
     if (resp.ok) {
       btn.textContent = '✓ Approved'; btn.classList.add('approved'); btn.disabled = true;
-      statusEl.textContent = 'OVERRIDE'; statusEl.className = 'status-override';
+      statusEl.textContent = '✓'; statusEl.title = 'OVERRIDE'; statusEl.className = 'status-override';
     } else { btn.textContent = 'Error'; }
   } catch(e) { btn.textContent = 'Error'; }
 }
@@ -320,7 +322,7 @@ async function blockPackage(event, btn, statusEl) {
     });
     if (resp.ok) {
       btn.textContent = '✓ Blocked'; btn.classList.add('blocked'); btn.disabled = true;
-      statusEl.textContent = 'BLOCK'; statusEl.className = 'st block';
+      statusEl.textContent = '✕'; statusEl.title = 'BLOCK'; statusEl.className = 'st block';
     } else { btn.textContent = 'Error'; }
   } catch(e) { btn.textContent = 'Error'; }
 }
@@ -335,7 +337,7 @@ async function blockPkgEntry(p, btn, statusEl) {
     });
     if (resp.ok) {
       btn.textContent = '✓ Blocked'; btn.classList.add('blocked'); btn.disabled = true;
-      statusEl.textContent = 'BLOCK'; statusEl.className = 'st block';
+      statusEl.textContent = '✕'; statusEl.title = 'BLOCK'; statusEl.className = 'st block';
     } else { btn.textContent = 'Error'; }
   } catch(e) { btn.textContent = 'Error'; }
 }
@@ -379,9 +381,11 @@ function renderPackages(pkgs) {
     sig.title = sigText;
 
     const stClass = p.action === 'block' ? 'block' : p.action === 'warn' ? 'warn' : 'allow';
+    const stIcon  = p.action === 'block' ? '✕' : p.action === 'warn' ? '⚠' : '✓';
     const st = document.createElement('span');
     st.className = 'st ' + stClass;
-    st.textContent = (p.action || 'allow').toUpperCase();
+    st.title = (p.action || 'allow').toUpperCase();
+    st.textContent = stIcon;
 
     const hits = document.createElement('span');
     hits.className = 'pkg-hits';
@@ -428,7 +432,7 @@ async function approvePkgEntry(p, btn, statusEl) {
     });
     if (resp.ok) {
       btn.textContent = '✓ Approved'; btn.classList.add('approved'); btn.disabled = true;
-      statusEl.textContent = 'OVERRIDE'; statusEl.className = 'status-override';
+      statusEl.textContent = '✓'; statusEl.title = 'OVERRIDE'; statusEl.className = 'status-override';
     } else { btn.textContent = 'Error'; }
   } catch(e) { btn.textContent = 'Error'; }
 }

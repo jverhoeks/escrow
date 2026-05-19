@@ -38,8 +38,14 @@ var version = "dev"
 func main() {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
-	cfgPath := flag.String("config", "escrow.toml", "config file path")
-	hostFlag := flag.String("host", "", "listen host (overrides config; use 0.0.0.0 for all interfaces, default 127.0.0.1)")
+	cfgPath    := flag.String("config", "escrow.toml", "config file path")
+	hostFlag   := flag.String("host", "", "listen host (overrides config; use 0.0.0.0 for all interfaces, default 127.0.0.1)")
+	clearCache := flag.Bool("clear-cache", false, "flush all cached metadata and blobs on startup before serving")
+	// Signal overrides — each flag disables the corresponding policy check regardless of config.
+	noAge       := flag.Bool("no-age",       false, "disable the age gate (ignore policy.age in config)")
+	noOSV       := flag.Bool("no-osv",       false, "disable OSV vulnerability scan (ignore policy.osv in config)")
+	noPublisher := flag.Bool("no-publisher", false, "disable publisher account age check (ignore policy.publisher in config)")
+	noPopularity:= flag.Bool("no-popularity",false, "disable popularity spike detection (ignore policy.popularity in config)")
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -92,6 +98,13 @@ func main() {
 	}
 	defer c.Close()
 
+	if *clearCache {
+		if err := c.Flush(); err != nil {
+			log.Fatal().Err(err).Msg("failed to flush cache")
+		}
+		log.Info().Msg("cache flushed")
+	}
+
 	httpClient := upstream.New()
 	polEngine := policy.New(cfg.Policy)
 
@@ -127,30 +140,47 @@ func main() {
 
 	var signals []trust.Signal
 	if cfg.Policy != nil {
-		if cfg.Policy.Age != nil {
+		if cfg.Policy.Age != nil && !*noAge {
 			signals = append(signals, trust.NewAgeSignal(cfg.Policy.Age.MinDays, nil))
 			log.Info().Int("min_days", cfg.Policy.Age.MinDays).Str("action", cfg.Policy.Age.Action).
 				Msg("age gate enabled")
+		} else if *noAge {
+			log.Warn().Msg("age gate disabled via --no-age flag")
 		}
-		if cfg.Policy.OSV != nil {
+		if cfg.Policy.OSV != nil && !*noOSV {
 			signals = append(signals, trust.NewOSVSignal(cfg.Policy.OSV.MinSeverity, httpClient, c, ""))
 			log.Info().Str("min_severity", cfg.Policy.OSV.MinSeverity).Str("action", cfg.Policy.OSV.Action).
 				Msg("OSV vulnerability scan enabled")
+		} else if *noOSV {
+			log.Warn().Msg("OSV vulnerability scan disabled via --no-osv flag")
 		}
-		if cfg.Policy.Publisher != nil {
+		if cfg.Policy.Publisher != nil && !*noPublisher {
 			signals = append(signals, trust.NewPublisherSignal(cfg.Policy.Publisher.MaxAccountAgeDays, httpClient, c, "", ""))
 			log.Info().Int("max_account_age_days", cfg.Policy.Publisher.MaxAccountAgeDays).Str("action", cfg.Policy.Publisher.Action).
 				Msg("publisher account age check enabled")
+		} else if *noPublisher {
+			log.Warn().Msg("publisher check disabled via --no-publisher flag")
 		}
-		if cfg.Policy.Popularity != nil {
+		if cfg.Policy.Popularity != nil && !*noPopularity {
 			signals = append(signals, trust.NewPopularitySignal(cfg.Policy.Popularity.SpikeFactor, httpClient, c, "", ""))
 			log.Info().Float64("spike_factor", cfg.Policy.Popularity.SpikeFactor).Str("action", cfg.Policy.Popularity.Action).
 				Msg("popularity spike detection enabled")
+		} else if *noPopularity {
+			log.Warn().Msg("popularity check disabled via --no-popularity flag")
 		}
 	} else {
 		log.Warn().Msg("no policy configured — proxying transparently (no age gate, no vulnerability scan)")
 	}
 	trustEngine := trust.NewEngine(signals...)
+
+	// Age-only engine for index listing — avoids per-version OSV/publisher network
+	// calls when building the Simple API for large packages (starlette, pydantic-core, etc.).
+	// OSV and publisher checks still run at download time via the full trustEngine.
+	var listingSignals []trust.Signal
+	if cfg.Policy != nil && cfg.Policy.Age != nil && !*noAge {
+		listingSignals = append(listingSignals, trust.NewAgeSignal(cfg.Policy.Age.MinDays, nil))
+	}
+	listingEngine := trust.NewEngine(listingSignals...)
 
 	var wh *alerts.Webhook
 	if cfg.Alerts.WebhookURL != "" {
@@ -204,7 +234,8 @@ func main() {
 	r := srv.Router()
 
 	if cfg.Ecosystems.NPM {
-		h := npm.New(httpClient, cfg.Ecosystems.EffectiveNPMUpstream(), trustEngine, polEngine, c, evLog)
+		h := npm.New(httpClient, cfg.Ecosystems.EffectiveNPMUpstream(), trustEngine, polEngine, c, evLog).
+			WithListingEngine(listingEngine)
 		if wh != nil {
 			h.WithWebhook(wh)
 		}
@@ -212,14 +243,16 @@ func main() {
 	}
 	if cfg.Ecosystems.PyPI {
 		blockSdist := cfg.Policy != nil && cfg.Policy.PyPI != nil && cfg.Policy.PyPI.BlockSdist
-		h := pypi.New(httpClient, cfg.Ecosystems.EffectivePyPIUpstream(), trustEngine, polEngine, c, blockSdist, evLog)
+		h := pypi.New(httpClient, cfg.Ecosystems.EffectivePyPIUpstream(), trustEngine, polEngine, c, blockSdist, evLog).
+			WithListingEngine(listingEngine)
 		if wh != nil {
 			h.WithWebhook(wh)
 		}
 		h.Mount(r)
 	}
 	if cfg.Ecosystems.Go {
-		h := gomod.New(httpClient, cfg.Ecosystems.EffectiveGoUpstream(), trustEngine, polEngine, c, evLog)
+		h := gomod.New(httpClient, cfg.Ecosystems.EffectiveGoUpstream(), trustEngine, polEngine, c, evLog).
+			WithListingEngine(listingEngine)
 		if wh != nil {
 			h.WithWebhook(wh)
 		}
@@ -227,7 +260,8 @@ func main() {
 		log.Info().Msg("go modules proxy enabled at /go/")
 	}
 	if cfg.Ecosystems.Cargo {
-		h := cargo.New(httpClient, trustEngine, polEngine, c, evLog)
+		h := cargo.New(httpClient, trustEngine, polEngine, c, evLog).
+			WithListingEngine(listingEngine)
 		if wh != nil {
 			h.WithWebhook(wh)
 		}
@@ -235,7 +269,8 @@ func main() {
 		log.Info().Msg("cargo sparse registry enabled at /cargo/")
 	}
 	if cfg.Ecosystems.Composer {
-		h := composer.New(httpClient, cfg.Ecosystems.EffectiveComposerUpstream(), trustEngine, polEngine, c, evLog)
+		h := composer.New(httpClient, cfg.Ecosystems.EffectiveComposerUpstream(), trustEngine, polEngine, c, evLog).
+			WithListingEngine(listingEngine)
 		if wh != nil {
 			h.WithWebhook(wh)
 		}
@@ -243,7 +278,8 @@ func main() {
 		log.Info().Msg("composer proxy enabled at /composer/")
 	}
 	if cfg.Ecosystems.NuGet {
-		h := nuget.New(httpClient, cfg.Ecosystems.EffectiveNuGetUpstream(), trustEngine, polEngine, c, evLog)
+		h := nuget.New(httpClient, cfg.Ecosystems.EffectiveNuGetUpstream(), trustEngine, polEngine, c, evLog).
+			WithListingEngine(listingEngine)
 		if cfg.Ecosystems.NuGetFlatcontainerURL != "" {
 			h.SetFlatcontainerURL(cfg.Ecosystems.NuGetFlatcontainerURL)
 		}
@@ -254,7 +290,8 @@ func main() {
 		log.Info().Msg("nuget proxy enabled at /nuget/")
 	}
 	if cfg.Ecosystems.Maven {
-		h := maven.New(httpClient, cfg.Ecosystems.EffectiveMavenUpstream(), trustEngine, polEngine, c, evLog)
+		h := maven.New(httpClient, cfg.Ecosystems.EffectiveMavenUpstream(), trustEngine, polEngine, c, evLog).
+			WithListingEngine(listingEngine)
 		if wh != nil {
 			h.WithWebhook(wh)
 		}

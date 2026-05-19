@@ -37,18 +37,24 @@ func extractAuthor(versionData map[string]any) string {
 }
 
 type Handler struct {
-	client      *http.Client
-	upstreamURL string
-	engine      *trust.Engine
-	policy      *policy.Engine
-	cache       cache.Cache
-	webhook     *alerts.Webhook // may be nil
-	evlog       *eventlog.Log
-	sf          singleflight.Group
+	client         *http.Client
+	upstreamURL    string
+	engine         *trust.Engine // full engine: age + OSV + publisher (download time)
+	listingEngine  *trust.Engine // age-only engine (manifest filtering)
+	policy         *policy.Engine
+	cache          cache.Cache
+	webhook        *alerts.Webhook // may be nil
+	evlog          *eventlog.Log
+	sf             singleflight.Group
 }
 
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
 	h.webhook = wh
+	return h
+}
+
+func (h *Handler) WithListingEngine(e *trust.Engine) *Handler {
+	h.listingEngine = e
 	return h
 }
 
@@ -135,7 +141,11 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 			PublishedAt: publishedAt,
 			Author:      extractAuthor(versionData),
 		}
-		result, _ := h.engine.Check(ctx, pkg)
+		eng := h.engine
+		if h.listingEngine != nil {
+			eng = h.listingEngine
+		}
+		result, _ := eng.Check(ctx, pkg)
 		decision := h.policy.Evaluate(result)
 		metrics.RequestsTotal.WithLabelValues(string(pkg.Ecosystem), string(decision.Action)).Inc()
 		if decision.Action == policy.ActionBlock {

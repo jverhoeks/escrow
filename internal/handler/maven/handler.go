@@ -1,6 +1,7 @@
 package maven
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -27,16 +28,17 @@ const (
 )
 
 type Handler struct {
-	client      *http.Client
-	upstreamURL string // e.g. "https://repo1.maven.org/maven2"
-	snapshotURL string // snapshot upstream; falls back to upstreamURL if empty
-	searchURL   string // Maven Central Search API base
-	engine      *trust.Engine
-	policy      *policy.Engine
-	cache       cache.Cache
-	evlog       *eventlog.Log
-	webhook     *alerts.Webhook // may be nil
-	sf          singleflight.Group
+	client        *http.Client
+	upstreamURL   string // e.g. "https://repo1.maven.org/maven2"
+	snapshotURL   string // snapshot upstream; falls back to upstreamURL if empty
+	searchURL     string // Maven Central Search API base
+	engine        *trust.Engine // full engine: age + OSV + publisher (artifact download time)
+	listingEngine *trust.Engine // age-only engine (metadata/version listing)
+	policy        *policy.Engine
+	cache         cache.Cache
+	evlog         *eventlog.Log
+	webhook       *alerts.Webhook // may be nil
+	sf            singleflight.Group
 }
 
 func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache, evLog *eventlog.Log) *Handler {
@@ -59,6 +61,12 @@ func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
 	return h
 }
 
+// WithListingEngine sets the age-only engine used during metadata/version listing.
+func (h *Handler) WithListingEngine(e *trust.Engine) *Handler {
+	h.listingEngine = e
+	return h
+}
+
 // SetSearchURL overrides the Maven Central Search API URL (used in tests).
 func (h *Handler) SetSearchURL(u string) { h.searchURL = u }
 
@@ -68,7 +76,59 @@ func (h *Handler) SetSnapshotURL(u string) { h.snapshotURL = u }
 func (h *Handler) Mount(r chi.Router) {
 	r.Route("/maven2", func(r chi.Router) {
 		r.Get("/*", h.serve)
+		r.Head("/*", h.serveHead)
 	})
+}
+
+// serveHead handles Maven HEAD probes (artifact existence checks).
+// For uncached POMs, fetches and caches the full content so repeated HEAD and
+// subsequent GET requests are served from cache — preventing 429 rate-limits
+// from Maven Central caused by rapid-fire HEAD probes.
+func (h *Handler) serveHead(w http.ResponseWriter, r *http.Request) {
+	path := chi.URLParam(r, "*")
+	upstream := h.upstreamURL
+	if h.snapshotURL != "" && strings.Contains(path, "SNAPSHOT") {
+		upstream = h.snapshotURL
+	}
+	// POMs and metadata XMLs: serve from meta cache or fetch+cache on miss.
+	if strings.HasSuffix(path, ".pom") || strings.HasSuffix(path, "maven-metadata.xml") {
+		cacheKey := "maven/meta/" + upstream + "/" + path
+		if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Fetch full content and cache it — eliminates follow-up GET round-trips
+		// and prevents Maven Central from rate-limiting repeated HEAD probes.
+		resp, err := h.client.Get(upstream + "/" + path)
+		if err != nil {
+			http.Error(w, "upstream error", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			w.WriteHeader(resp.StatusCode)
+			return
+		}
+		body, _ := io.ReadAll(resp.Body)
+		h.cache.SetMeta(r.Context(), cacheKey, body, metaTTL)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	// Blobs (JARs, checksums): check blob cache, fall back to a HEAD probe.
+	if h.cache.HasBlob(r.Context(), "maven/artifacts/"+upstream+"/"+path) {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	resp, err := h.client.Head(upstream + "/" + path)
+	if err != nil {
+		http.Error(w, "upstream error", http.StatusBadGateway)
+		return
+	}
+	resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.WriteHeader(resp.StatusCode)
 }
 
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
@@ -118,12 +178,19 @@ func (h *Handler) serveMetadataFrom(w http.ResponseWriter, r *http.Request, path
 		if err != nil {
 			return nil, err
 		}
-		if groupID == "" || artifactID == "" {
+		// Group-level metadata (e.g. org/apache/maven/plugins/maven-metadata.xml) lists
+		// plugin prefixes via <plugins> — pass through unfiltered so Maven can resolve
+		// short plugin names like "dependency" → maven-dependency-plugin.
+		if groupID == "" || artifactID == "" || bytes.Contains(body, []byte("<plugins>")) {
 			h.cache.SetMeta(context.Background(), cacheKey, body, metaTTL)
 			return body, nil
 		}
 		timestamps, _ := h.fetchVersionTimestamps(context.Background(), groupID, artifactID)
-		filtered := filterMetadata(context.Background(), body, groupID, artifactID, timestamps, h.engine, h.policy, h.evlog, h.webhook)
+		eng := h.engine
+		if h.listingEngine != nil {
+			eng = h.listingEngine
+		}
+		filtered := filterMetadata(context.Background(), body, groupID, artifactID, timestamps, eng, h.policy, h.evlog, h.webhook)
 		h.cache.SetMeta(context.Background(), cacheKey, filtered, metaTTL)
 		return filtered, nil
 	})

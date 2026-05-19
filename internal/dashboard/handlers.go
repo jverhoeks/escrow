@@ -76,6 +76,7 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Delete("/api/block", d.handleBlockRemove)
 	protected.Get("/api/blocklist", d.handleBlockList)
 	protected.Get("/api/packages", d.handlePackages)
+	protected.Post("/api/cache/flush", d.handleCacheFlush)
 	r.Mount(base, protected)
 }
 
@@ -492,4 +493,24 @@ func (d *Dashboard) handleBlockList(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(d.blockList.Entries())
+}
+
+func (d *Dashboard) handleCacheFlush(w http.ResponseWriter, r *http.Request) {
+	if !d.originOK(r) {
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		return
+	}
+	if d.cache == nil {
+		http.Error(w, `{"error":"no cache configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	if err := d.cache.Flush(); err != nil {
+		d.logger.Error().Err(err).Msg("cache flush failed")
+		http.Error(w, `{"error":"flush failed"}`, http.StatusInternalServerError)
+		return
+	}
+	username, _ := d.auth.Username(r)
+	d.logger.Info().Str("operator", username).Msg("cache flushed via API")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }

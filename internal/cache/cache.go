@@ -16,5 +16,7 @@ type Cache interface {
 	SetBlob(ctx context.Context, key string, r io.Reader) error
 	// HasBlob returns true if the blob is present in cache (no download needed).
 	HasBlob(ctx context.Context, key string) bool
+	// Flush removes all cached entries (metadata and blobs).
+	Flush() error
 	Close() error
 }

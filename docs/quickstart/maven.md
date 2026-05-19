@@ -79,8 +79,18 @@ a **Blocked** badge with an **Approve** button.
 **`Could not transfer artifact ... Connection refused`** — escrow not running
 or `maven = true` missing from `[ecosystems]`.
 
-**Snapshots not resolving** — change `<mirrorOf>central</mirrorOf>` to
-`<mirrorOf>*</mirrorOf>` only if you need to proxy snapshot repos too. Generally
-keep it scoped to `central`.
+**`No plugin found for prefix 'X'`** — do **not** change `<mirrorOf>` to `*`.
+Use `central` only. Using `*` routes Maven plugin group metadata through escrow,
+which can confuse plugin prefix resolution. If you see this error, clear the
+escrow disk cache (`escrow --clear-cache`) and retry.
+
+**Snapshots not resolving** — configure `maven_snapshot_upstream` in `escrow.toml`
+and set `<mirrorOf>central</mirrorOf>` (not `*`). Snapshot repos are separate
+upstreams and should not share the `central` mirror.
+
+**Maven Central rate-limits (HTTP 429)** — Maven fires many rapid HEAD probes for
+POM existence checks. Escrow fetches and caches POMs on the first HEAD to prevent
+this. If you still see 429s on a cold cache, wait 60 s and retry; subsequent
+runs are served from cache.
 
 **Local cache stale** — `mvn dependency:purge-local-repository` clears `~/.m2/repository`.
