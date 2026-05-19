@@ -27,8 +27,18 @@ echo "→ Release ${VERSION}  (mode: ${MODE:-direct})"
 if git tag | grep -q "^${VERSION}$"; then
   echo "ERROR: tag ${VERSION} already exists" >&2; exit 1
 fi
-if [[ -n "$(git status --porcelain | grep -v '^?? ')" ]]; then
-  echo "ERROR: working tree has uncommitted changes (run git status)" >&2; exit 1
+# Check for uncommitted source changes — ignore binaries and cache files
+# (binaries are built fresh by this script; cache files are runtime artefacts)
+DIRTY=$(git status --porcelain \
+  | grep -v '^??' \
+  | grep -vE '^.M (escrow$|escrow-darwin|escrow-linux|escrow-windows|escrow-cache/)' \
+  | grep -vE '^ D escrow-cache/' \
+  || true)
+if [[ -n "$DIRTY" ]]; then
+  echo "ERROR: working tree has uncommitted source changes:" >&2
+  echo "$DIRTY" >&2
+  echo "Commit or stash them before releasing." >&2
+  exit 1
 fi
 
 # ── 1. Build all binaries ─────────────────────────────────────────────────────
