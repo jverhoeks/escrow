@@ -1,0 +1,130 @@
+name: Test setup-escrow action
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/actions/setup-escrow/**'
+      - '.github/workflows/test-action.yml'
+  workflow_dispatch:
+
+jobs:
+  # ── npm + PyPI ───────────────────────────────────────────────────────────────
+  test-npm-pypi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup escrow
+        id: escrow
+        uses: ./.github/actions/setup-escrow
+        with:
+          ecosystems: 'npm,pypi'
+          min-days: '1'
+          osv-severity: 'off'
+
+      - name: Verify proxy is up
+        env:
+          PROXY_URL: ${{ steps.escrow.outputs.proxy-url }}
+        run: |
+          curl -sf "${PROXY_URL}/healthz" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status'] in ('ok','degraded'), d"
+          echo "✅ healthz ok"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: npm install through escrow
+        run: |
+          mkdir /tmp/npm-test && cd /tmp/npm-test
+          npm init -y
+          npm install once --ignore-scripts
+          echo "✅ npm install OK"
+
+      - name: Verify npm registry env var
+        run: |
+          echo "NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY"
+          [[ -n "$NPM_CONFIG_REGISTRY" ]] && echo "✅ registry set" || (echo "❌ missing"; exit 1)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: pip install through escrow
+        run: pip install requests --quiet && echo "✅ pip install OK"
+
+      - name: Verify pip index env var
+        run: |
+          echo "PIP_INDEX_URL=$PIP_INDEX_URL"
+          [[ -n "$PIP_INDEX_URL" ]] && echo "✅ index set" || (echo "❌ missing"; exit 1)
+
+  # ── Go + Cargo ───────────────────────────────────────────────────────────────
+  test-go-cargo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup escrow
+        id: escrow
+        uses: ./.github/actions/setup-escrow
+        with:
+          ecosystems: 'go,cargo'
+          min-days: '1'
+          osv-severity: 'off'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: go get through escrow
+        run: |
+          mkdir /tmp/go-test && cd /tmp/go-test
+          go mod init test
+          go get golang.org/x/text@v0.14.0
+          echo "✅ go get OK"
+
+      - name: Verify GOPROXY env var
+        run: |
+          echo "GOPROXY=$GOPROXY"
+          [[ "$GOPROXY" == *"7888"* ]] && echo "✅ GOPROXY points at escrow" || (echo "❌ wrong"; exit 1)
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: cargo fetch through escrow
+        run: |
+          mkdir /tmp/cargo-test && cd /tmp/cargo-test
+          cargo init --name test-escrow
+          cat >> Cargo.toml <<'EOF'
+          [dependencies]
+          once_cell = "1"
+          EOF
+          cargo fetch
+          echo "✅ cargo fetch OK"
+
+  # ── Age gate enforcement ─────────────────────────────────────────────────────
+  test-age-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup escrow (block-all)
+        uses: ./.github/actions/setup-escrow
+        with:
+          ecosystems: 'npm'
+          min-days: '99999'
+          osv-severity: 'off'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: npm install should be blocked by age gate
+        run: |
+          mkdir /tmp/npm-block && cd /tmp/npm-block
+          npm init -y
+          if npm install once --ignore-scripts 2>/dev/null; then
+            echo "❌ Expected age gate to block install"
+            exit 1
+          fi
+          echo "✅ Age gate blocked install correctly"
