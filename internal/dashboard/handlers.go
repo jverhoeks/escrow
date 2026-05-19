@@ -187,15 +187,18 @@ func (d *Dashboard) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	events := d.log.Events(eco)
 	if s := r.URL.Query().Get("since"); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			var filtered []eventlog.PackageEvent
-			for _, e := range events {
-				if e.Timestamp.After(t) {
-					filtered = append(filtered, e)
-				}
-			}
-			events = filtered
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			http.Error(w, `{"error":"since must be RFC3339"}`, http.StatusBadRequest)
+			return
 		}
+		var filtered []eventlog.PackageEvent
+		for _, e := range events {
+			if e.Timestamp.After(t) {
+				filtered = append(filtered, e)
+			}
+		}
+		events = filtered
 	}
 	if len(events) > n {
 		events = events[:n]

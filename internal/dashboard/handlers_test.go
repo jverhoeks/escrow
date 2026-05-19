@@ -225,13 +225,12 @@ func TestHandleEvents_Since(t *testing.T) {
 	cfg := config.DashboardConfig{Enabled: true, Path: "/dashboard",
 		Username: "admin", Password: "pass",
 		Secret: "aabbccddeeff00112233445566778899"}
-	auth := dashboard.NewAuth("admin", "pass", "aabbccddeeff00112233445566778899")
 	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
 	since := time.Now().Add(-30 * time.Minute).Format(time.RFC3339)
-	req := authenticatedRequestWith(auth, http.MethodGet,
+	req := authenticatedRequest(t, http.MethodGet,
 		"/dashboard/api/events?since="+url.QueryEscape(since), nil)
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
@@ -243,19 +242,11 @@ func TestHandleEvents_Since(t *testing.T) {
 	assert.Equal(t, "recent@1.0.0", events[0].Package)
 }
 
-// authenticatedRequestWith mirrors authenticatedRequest but takes an explicit Auth.
-func authenticatedRequestWith(auth *dashboard.Auth, method, path string, body []byte) *http.Request {
-	rec := httptest.NewRecorder()
-	auth.SetCookie(rec, httptest.NewRequest(http.MethodGet, "/", nil), "admin")
-	cookie := rec.Result().Cookies()[0]
-	var req *http.Request
-	if body != nil {
-		req = httptest.NewRequest(method, path, bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-	} else {
-		req = httptest.NewRequest(method, path, nil)
-	}
-	req.AddCookie(cookie)
-	req.Header.Set("Origin", "http://"+req.Host)
-	return req
+func TestHandleEvents_Since_BadFormat(t *testing.T) {
+	handler, _ := newTestDashboard(t)
+	req := authenticatedRequest(t, http.MethodGet,
+		"/dashboard/api/events?since=yesterday", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
