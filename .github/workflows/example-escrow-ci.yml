@@ -21,7 +21,7 @@ jobs:
 
       # Start escrow proxy and restore its package cache
       - name: Setup escrow
-        uses: jverhoeks/escrow/.github/actions/setup-escrow@v1.3.1
+        uses: jverhoeks/escrow/.github/actions/setup-escrow@v1.4.0
         with:
           ecosystems: 'npm,pypi,go,cargo'
           min-days: '7'
