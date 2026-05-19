@@ -1,0 +1,237 @@
+name: 'Setup Escrow Proxy'
+description: >
+  Start the escrow supply-chain proxy, restore the package cache, and
+  configure npm / pip / uv / Go / Cargo / NuGet / Maven to route all
+  installs through age-gate and OSV vulnerability policy enforcement.
+
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  version:
+    description: 'Escrow release tag to install (e.g. v1.4.0)'
+    default: 'v1.4.0'
+    required: false
+  port:
+    description: 'Port for the escrow proxy'
+    default: '7888'
+    required: false
+  ecosystems:
+    description: 'Comma-separated ecosystems to enable: npm,pypi,go,cargo,nuget,maven,composer'
+    default: 'npm,pypi,go,cargo'
+    required: false
+  min-days:
+    description: 'Age gate — block packages published fewer than N days ago'
+    default: '7'
+    required: false
+  osv-severity:
+    description: 'Block packages with OSV vulnerabilities at this severity or above (LOW|MEDIUM|HIGH|CRITICAL|off)'
+    default: 'HIGH'
+    required: false
+  cache-key-suffix:
+    description: 'Extra string appended to the cache key for manual busting'
+    default: ''
+    required: false
+
+outputs:
+  proxy-url:
+    description: 'Escrow proxy base URL (e.g. http://127.0.0.1:7888)'
+    value: ${{ steps.start.outputs.proxy-url }}
+
+runs:
+  using: composite
+  steps:
+
+    # ── 1. Restore package cache ───────────────────────────────────────────────
+    - name: Restore escrow package cache
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.escrow-cache
+        key: escrow-${{ runner.os }}-days${{ inputs.min-days }}-${{ hashFiles('**/package.json', '**/package-lock.json', '**/requirements*.txt', '**/pyproject.toml', '**/go.sum', '**/Cargo.lock', '**/pom.xml', '**/build.gradle*') }}${{ inputs.cache-key-suffix && format('-{0}', inputs.cache-key-suffix) || '' }}
+        restore-keys: |
+          escrow-${{ runner.os }}-days${{ inputs.min-days }}-
+          escrow-${{ runner.os }}-
+
+    # ── 2. Install escrow binary ───────────────────────────────────────────────
+    - name: Install escrow
+      shell: bash
+      env:
+        ESCROW_VERSION: ${{ inputs.version }}
+      run: |
+        ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        BINARY="escrow-${OS}-${ARCH}"
+
+        echo "→ Installing escrow ${ESCROW_VERSION} (${BINARY})"
+        curl -fsSL \
+          "https://raw.githubusercontent.com/jverhoeks/escrow/${ESCROW_VERSION}/${BINARY}" \
+          -o /usr/local/bin/escrow
+        chmod +x /usr/local/bin/escrow
+        escrow --version
+
+    # ── 3. Write config ────────────────────────────────────────────────────────
+    - name: Write escrow config
+      shell: bash
+      env:
+        ESCROW_PORT:       ${{ inputs.port }}
+        ESCROW_ECOSYSTEMS: ${{ inputs.ecosystems }}
+        ESCROW_MIN_DAYS:   ${{ inputs.min-days }}
+        ESCROW_OSV:        ${{ inputs.osv-severity }}
+      run: |
+        npm_en=false; pypi_en=false; go_en=false
+        cargo_en=false; nuget_en=false; maven_en=false; composer_en=false
+        IFS=',' read -ra ECOS <<< "$ESCROW_ECOSYSTEMS"
+        for eco in "${ECOS[@]}"; do
+          case "${eco// /}" in
+            npm)      npm_en=true ;;
+            pypi)     pypi_en=true ;;
+            go)       go_en=true ;;
+            cargo)    cargo_en=true ;;
+            nuget)    nuget_en=true ;;
+            maven)    maven_en=true ;;
+            composer) composer_en=true ;;
+          esac
+        done
+
+        mkdir -p ~/.escrow-cache
+
+        cat > ~/.escrow.toml <<TOML
+        [server]
+          host      = "127.0.0.1"
+          port      = ${ESCROW_PORT}
+          log_level = "info"
+
+        [storage]
+          backend = "disk"
+          [storage.disk]
+            path = "${HOME}/.escrow-cache"
+
+        [ecosystems]
+          npm      = ${npm_en}
+          pypi     = ${pypi_en}
+          go       = ${go_en}
+          cargo    = ${cargo_en}
+          nuget    = ${nuget_en}
+          maven    = ${maven_en}
+          composer = ${composer_en}
+
+        [policy]
+          [policy.age]
+            min_days = ${ESCROW_MIN_DAYS}
+            action   = "block"
+        TOML
+
+        if [[ "$ESCROW_OSV" != "off" ]]; then
+          cat >> ~/.escrow.toml <<TOML
+
+          [policy.osv]
+            min_severity = "${ESCROW_OSV}"
+            action       = "block"
+        TOML
+        fi
+
+        cat >> ~/.escrow.toml <<TOML
+
+        [dashboard]
+          enabled = false
+        TOML
+
+    # ── 4. Start escrow ────────────────────────────────────────────────────────
+    - name: Start escrow proxy
+      id: start
+      shell: bash
+      env:
+        ESCROW_PORT: ${{ inputs.port }}
+      run: |
+        escrow --config ~/.escrow.toml >> ~/.escrow.log 2>&1 &
+        echo "ESCROW_PID=$!" >> "$GITHUB_ENV"
+
+        for i in $(seq 1 30); do
+          curl -sf "http://127.0.0.1:${ESCROW_PORT}/healthz" >/dev/null 2>&1 && break
+          sleep 0.5
+        done
+
+        STATUS=$(curl -sf "http://127.0.0.1:${ESCROW_PORT}/healthz" \
+          | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])" 2>/dev/null || echo "unreachable")
+
+        if [[ "$STATUS" != "ok" && "$STATUS" != "degraded" ]]; then
+          echo "::error::Escrow failed to start (status=${STATUS}). Log:"
+          cat ~/.escrow.log
+          exit 1
+        fi
+
+        echo "✅ Escrow proxy running — status=${STATUS}"
+        echo "proxy-url=http://127.0.0.1:${ESCROW_PORT}" >> "$GITHUB_OUTPUT"
+
+    # ── 5. Configure package managers ─────────────────────────────────────────
+    - name: Configure package managers
+      shell: bash
+      env:
+        ESCROW_PORT:       ${{ inputs.port }}
+        ESCROW_ECOSYSTEMS: ${{ inputs.ecosystems }}
+      run: |
+        PROXY="http://127.0.0.1:${ESCROW_PORT}"
+        IFS=',' read -ra ECOS <<< "$ESCROW_ECOSYSTEMS"
+        for eco in "${ECOS[@]}"; do
+          case "${eco// /}" in
+            npm)
+              echo "npm_config_registry=${PROXY}" >> "$GITHUB_ENV"
+              echo "NPM_CONFIG_REGISTRY=${PROXY}"  >> "$GITHUB_ENV"
+              echo "  npm  → ${PROXY}"
+              ;;
+            pypi)
+              echo "UV_INDEX_URL=${PROXY}/pypi/simple/"     >> "$GITHUB_ENV"
+              echo "UV_NO_CONFIG=1"                          >> "$GITHUB_ENV"
+              echo "PIP_INDEX_URL=${PROXY}/pypi/simple/"    >> "$GITHUB_ENV"
+              echo "PIP_EXTRA_INDEX_URL="                    >> "$GITHUB_ENV"
+              echo "  pypi → ${PROXY}/pypi/simple/"
+              ;;
+            go)
+              echo "GOPROXY=${PROXY}/go,direct" >> "$GITHUB_ENV"
+              echo "  go   → ${PROXY}/go"
+              ;;
+            cargo)
+              mkdir -p ~/.cargo
+              cat >> ~/.cargo/config.toml <<CARGO
+
+        [source.crates-io]
+        replace-with = "escrow"
+
+        [source.escrow]
+        registry = "sparse+${PROXY}/cargo/"
+        CARGO
+              echo "  cargo → ${PROXY}/cargo/"
+              ;;
+            nuget)
+              mkdir -p ~/.nuget
+              cat > ~/.nuget/NuGet.Config <<XML
+        <?xml version="1.0" encoding="utf-8"?>
+        <configuration>
+          <packageSources>
+            <clear />
+            <add key="escrow" value="${PROXY}/nuget/index.json"
+                 allowInsecureConnections="true" />
+          </packageSources>
+        </configuration>
+        XML
+              echo "  nuget → ${PROXY}/nuget/index.json"
+              ;;
+            maven)
+              mkdir -p ~/.m2
+              cat > ~/.m2/settings.xml <<XML
+        <settings>
+          <mirrors>
+            <mirror>
+              <id>escrow</id>
+              <mirrorOf>central</mirrorOf>
+              <url>${PROXY}/maven2</url>
+            </mirror>
+          </mirrors>
+        </settings>
+        XML
+              echo "  maven → ${PROXY}/maven2"
+              ;;
+          esac
+        done
