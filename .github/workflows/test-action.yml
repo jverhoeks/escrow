@@ -13,7 +13,7 @@ jobs:
   test-npm-pypi:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup escrow
         id: escrow
@@ -31,7 +31,7 @@ jobs:
             | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status'] in ('ok','degraded'), d"
           echo "✅ healthz ok"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
 
@@ -47,7 +47,7 @@ jobs:
           echo "NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY"
           [[ -n "$NPM_CONFIG_REGISTRY" ]] && echo "✅ registry set" || (echo "❌ missing"; exit 1)
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -63,7 +63,7 @@ jobs:
   test-go-cargo:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup escrow
         id: escrow
@@ -73,7 +73,7 @@ jobs:
           min-days: '1'
           osv-severity: 'off'
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.22'
 
@@ -106,7 +106,7 @@ jobs:
   test-age-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup escrow (block-all)
         uses: ./.github/actions/setup-escrow
@@ -115,7 +115,7 @@ jobs:
           min-days: '99999'
           osv-severity: 'off'
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
 

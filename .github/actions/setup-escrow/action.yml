@@ -41,7 +41,7 @@ runs:
     # ── 1. Restore package cache ───────────────────────────────────────────────
     - name: Restore escrow package cache
       id: cache
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.escrow-cache
         key: escrow-${{ runner.os }}-days${{ inputs.min-days }}-${{ hashFiles('**/package.json', '**/package-lock.json', '**/requirements*.txt', '**/pyproject.toml', '**/go.sum', '**/Cargo.lock', '**/pom.xml', '**/build.gradle*') }}${{ inputs.cache-key-suffix && format('-{0}', inputs.cache-key-suffix) || '' }}
