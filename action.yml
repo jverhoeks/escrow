@@ -236,3 +236,21 @@ runs:
               ;;
           esac
         done
+
+    # ── 6. Register post-job supply chain report ──────────────────────────────
+    # Composite actions don't support native post-steps, so we register a script
+    # via ACTIONS_RUNNER_HOOK_JOB_COMPLETED which the runner executes after all
+    # job steps finish (success or failure). Any existing hook is chained.
+    - name: Register supply chain report
+      shell: bash
+      env:
+        ESCROW_PORT: ${{ inputs.port }}
+      run: |
+        REPORT=$(mktemp /tmp/escrow-ci-report-XXXX.sh)
+        PREV="${ACTIONS_RUNNER_HOOK_JOB_COMPLETED:-}"
+        printf '#!/bin/bash\n' > "$REPORT"
+        printf 'escrow ci-report --port %s 2>&1 | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}" || true\n' \
+          "${ESCROW_PORT}" >> "$REPORT"
+        [ -n "$PREV" ] && printf '%s\n' "$PREV" >> "$REPORT"
+        chmod +x "$REPORT"
+        echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=$REPORT" >> "$GITHUB_ENV"
