@@ -186,6 +186,17 @@ func (d *Dashboard) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	events := d.log.Events(eco)
+	if s := r.URL.Query().Get("since"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			var filtered []eventlog.PackageEvent
+			for _, e := range events {
+				if e.Timestamp.After(t) {
+					filtered = append(filtered, e)
+				}
+			}
+			events = filtered
+		}
+	}
 	if len(events) > n {
 		events = events[:n]
 	}

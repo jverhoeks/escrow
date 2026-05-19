@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,6 +17,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/allow"
 	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/cache"
+	"github.com/jverhoeks/escrow/internal/cireport"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dashboard"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -36,6 +38,12 @@ import (
 var version = "dev"
 
 func main() {
+	// Handle subcommands before flag parsing so they get their own flags.
+	if len(os.Args) > 1 && os.Args[1] == "ci-report" {
+		runCIReport(os.Args[2:])
+		return
+	}
+
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
 	cfgPath    := flag.String("config", "escrow.toml", "config file path")
@@ -303,6 +311,8 @@ func main() {
 		log.Info().Msg("maven/gradle proxy enabled at /maven2/")
 	}
 
+	cireport.New(evLog).Mount(r)
+
 	if cfg.Dashboard.Enabled {
 		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c)
 		dash.Mount(r)
@@ -321,4 +331,22 @@ func main() {
 	if err := srv.Start(); err != nil && err != http.ErrServerClosed {
 		log.Fatal().Err(err).Msg("server stopped unexpectedly")
 	}
+}
+
+// runCIReport fetches the CI report from a running escrow proxy and prints it to stdout.
+// Intended for use in GitHub Actions: `escrow ci-report >> $GITHUB_STEP_SUMMARY`
+func runCIReport(args []string) {
+	fs := flag.NewFlagSet("ci-report", flag.ExitOnError)
+	port := fs.Int("port", 7888, "escrow proxy port")
+	n := fs.Int("n", 200, "max packages to show in the table")
+	fs.Parse(args) //nolint:errcheck
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/ci-report?n=%d", *port, *n)
+	resp, err := http.Get(url) //nolint:gosec — localhost only
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "escrow ci-report: could not reach proxy on port %d: %v\n", *port, err)
+		return
+	}
+	defer resp.Body.Close()
+	io.Copy(os.Stdout, resp.Body) //nolint:errcheck
 }

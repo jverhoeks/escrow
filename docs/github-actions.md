@@ -110,6 +110,57 @@ Lockfiles hashed: `package.json`, `package-lock.json`, `requirements*.txt`,
 
 ---
 
+## CI supply chain report
+
+Add one step at the end of your job (with `if: always()`) to write a
+Markdown summary to the GitHub Actions job summary page — showing every
+package that was allowed, blocked, or warned during the run:
+
+```yaml
+- name: Escrow supply chain report
+  if: always()
+  run: escrow ci-report >> $GITHUB_STEP_SUMMARY
+```
+
+The report looks like this in the GitHub Actions UI:
+
+```
+## Escrow Supply Chain Report
+
+|                | Count |
+|----------------|-------|
+| ✅ Allowed     |    42 |
+| 🚫 Blocked     |     2 |
+
+### 🚫 Blocked packages
+
+| Ecosystem | Package           | Reason           |
+|-----------|-------------------|------------------|
+| npm       | `malware@0.0.1`   | age gate: 0 days |
+| pypi      | `evil@1.0.0`      | CVE-2024-1234    |
+
+### All packages (44)
+
+| # | Ecosystem | Package              | Status | Reason |
+|---|-----------|----------------------|--------|--------|
+| 1 | npm       | `express@4.18.2`     | ✅     | —      |
+| 2 | pypi      | `requests@2.31.0`    | ✅     | —      |
+...
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--port` | `7888` | Escrow proxy port |
+| `--n` | `200` | Max packages in the table |
+
+```yaml
+- run: escrow ci-report --n 500 >> $GITHUB_STEP_SUMMARY
+```
+
+---
+
 ## Age gate enforcement
 
 Set `min-days: '99999'` to block **all** packages (useful in a dedicated

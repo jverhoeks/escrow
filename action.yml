@@ -147,6 +147,7 @@ runs:
       run: |
         escrow --config ~/.escrow.toml >> ~/.escrow.log 2>&1 &
         echo "ESCROW_PID=$!" >> "$GITHUB_ENV"
+        echo "ESCROW_PORT=${ESCROW_PORT}" >> "$GITHUB_ENV"
 
         for i in $(seq 1 30); do
           curl -sf "http://127.0.0.1:${ESCROW_PORT}/healthz" >/dev/null 2>&1 && break
