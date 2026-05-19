@@ -250,3 +250,28 @@ func TestHandleEvents_Since_BadFormat(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
+
+func TestHandleStats_Window(t *testing.T) {
+	evLog := eventlog.New(50)
+	old := time.Now().Add(-2 * time.Hour)
+	recent := time.Now().Add(-10 * time.Minute)
+	evLog.Record(eventlog.PackageEvent{Package: "old@1", Action: "block", Timestamp: old})
+	evLog.Record(eventlog.PackageEvent{Package: "recent@1", Action: "allow", Timestamp: recent})
+
+	cfg := config.DashboardConfig{Enabled: true, Path: "/dashboard",
+		Username: "admin", Password: "pass",
+		Secret: "aabbccddeeff00112233445566778899"}
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil)
+	r := chi.NewRouter()
+	dash.Mount(r)
+
+	req := authenticatedRequest(t, http.MethodGet, "/dashboard/api/stats?window=1h", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	var s eventlog.Stats
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&s))
+	assert.Equal(t, 0, s.Blocked, "old block outside 1h window should not count")
+	assert.Equal(t, 1, s.Allowed)
+}

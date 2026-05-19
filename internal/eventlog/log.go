@@ -178,12 +178,21 @@ func (l *Log) Subscribe() (<-chan PackageEvent, func()) {
 	}
 }
 
-func (l *Log) Stats() Stats {
+// Stats returns aggregate counts for events within the given window.
+// Pass window=0 for all-time totals.
+func (l *Log) Stats(window time.Duration) Stats {
+	cutoff := time.Time{}
+	if window > 0 {
+		cutoff = time.Now().UTC().Add(-window)
+	}
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	s := Stats{}
 	counts := map[string]int{}
 	for _, e := range l.events {
+		if window > 0 && !e.Timestamp.After(cutoff) {
+			continue
+		}
 		switch e.Action {
 		case "block":
 			s.Blocked++

@@ -61,11 +61,27 @@ func TestLog_Stats(t *testing.T) {
 	l.Record(eventlog.PackageEvent{Package: "axios@1", Action: "block"})
 	l.Record(eventlog.PackageEvent{Package: "once@1", Action: "allow"})
 	l.Record(eventlog.PackageEvent{Package: "ms@1", Action: "warn"})
-	s := l.Stats()
+	s := l.Stats(0)
 	assert.Equal(t, 3, s.Blocked)
 	assert.Equal(t, 1, s.Warned)
 	assert.Equal(t, 1, s.Allowed)
 	require.NotEmpty(t, s.TopBlocked)
 	assert.Equal(t, "lodash", s.TopBlocked[0].Package)
 	assert.Equal(t, 2, s.TopBlocked[0].Count)
+}
+
+func TestLog_Stats_Window(t *testing.T) {
+	l := eventlog.New(10)
+	old := time.Now().Add(-2 * time.Hour)
+	recent := time.Now().Add(-10 * time.Minute)
+	l.Record(eventlog.PackageEvent{Package: "old@1", Action: "block", Timestamp: old})
+	l.Record(eventlog.PackageEvent{Package: "recent@1", Action: "allow", Timestamp: recent})
+
+	s := l.Stats(time.Hour)
+	assert.Equal(t, 0, s.Blocked)
+	assert.Equal(t, 1, s.Allowed)
+
+	sAll := l.Stats(0)
+	assert.Equal(t, 1, sAll.Blocked)
+	assert.Equal(t, 1, sAll.Allowed)
 }

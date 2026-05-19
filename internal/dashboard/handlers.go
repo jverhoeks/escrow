@@ -208,8 +208,15 @@ func (d *Dashboard) handleEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Dashboard) handleStats(w http.ResponseWriter, r *http.Request) {
+	var window time.Duration
+	switch r.URL.Query().Get("window") {
+	case "1h":
+		window = time.Hour
+	case "24h":
+		window = 24 * time.Hour
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(d.log.Stats())
+	json.NewEncoder(w).Encode(d.log.Stats(window))
 }
 
 func (d *Dashboard) handleAllow(w http.ResponseWriter, r *http.Request) {
