@@ -25,18 +25,21 @@ git push origin "$MAJOR" --force
 
 echo "  tagged ${VERSION} and ${MAJOR}"
 
-# GitHub release
+# Write release notes to temp file to avoid heredoc/quoting issues
+NOTES_FILE=$(mktemp /tmp/release-notes-XXXX.md)
+trap "rm -f $NOTES_FILE" EXIT
+{
+  echo "## What's changed"
+  echo ""
+  echo "${CHANGELOG}"
+  echo ""
+  echo "---"
+  echo "**Full changelog**: https://github.com/${REPO}/compare/${PREV}...${VERSION}"
+} > "$NOTES_FILE"
+
 gh release create "$VERSION" \
   --repo "$REPO" \
   --title "$VERSION" \
-  --notes "$(cat <<EOF
-## What's changed
-
-${CHANGELOG}
-
----
-**Full changelog**: https://github.com/${REPO}/compare/${PREV}...${VERSION}
-EOF
-)"
+  --notes-file "$NOTES_FILE"
 
 echo "  release created: https://github.com/${REPO}/releases/tag/${VERSION}"
