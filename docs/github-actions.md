@@ -119,7 +119,7 @@ package that was allowed, blocked, or warned during the run:
 ```yaml
 - name: Escrow supply chain report
   if: always()
-  run: escrow ci-report >> $GITHUB_STEP_SUMMARY
+  run: escrow ci-report 2>&1 | tee -a $GITHUB_STEP_SUMMARY
 ```
 
 The report looks like this in the GitHub Actions UI:
