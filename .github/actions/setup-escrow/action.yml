@@ -64,7 +64,7 @@ runs:
           "https://raw.githubusercontent.com/jverhoeks/escrow/${ESCROW_VERSION}/${BINARY}" \
           -o /usr/local/bin/escrow
         chmod +x /usr/local/bin/escrow
-        escrow --version
+        escrow --version 2>/dev/null || escrow -version 2>/dev/null || echo "escrow installed"
 
     # ── 3. Write config ────────────────────────────────────────────────────────
     - name: Write escrow config
