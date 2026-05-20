@@ -10,11 +10,18 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jellydator/ttlcache/v3"
 )
+
+// metaCacheCapacity is the maximum number of metadata entries held in memory.
+// At ~50 KB average per manifest, 2000 entries ≈ 100 MB worst-case.
+const metaCacheCapacity = 2000
 
 type Disk struct {
 	root     string
 	maxBytes int64
+	mem      *ttlcache.Cache[string, []byte] // in-memory write-through meta layer
 	done     chan struct{}
 }
 
@@ -27,9 +34,9 @@ func NewDisk(root string) (*Disk, error) {
 	return newDisk(root, 0, 0)
 }
 
-// NewDiskWithMax creates a disk cache that runs a background purge goroutine
-// every purgeInterval. On each tick it evicts the oldest blobs (FIFO by mtime)
-// until total blob size is under maxBytes, and removes expired meta entries.
+// NewDiskWithMax creates a disk cache with:
+//   - background FIFO purge goroutine that runs every purgeInterval
+//   - an in-memory write-through meta cache (capacity metaCacheCapacity)
 func NewDiskWithMax(root string, maxBytes int64, purgeInterval time.Duration) (*Disk, error) {
 	return newDisk(root, maxBytes, purgeInterval)
 }
@@ -40,7 +47,13 @@ func newDisk(root string, maxBytes int64, purgeInterval time.Duration) (*Disk, e
 			return nil, err
 		}
 	}
-	d := &Disk{root: root, maxBytes: maxBytes, done: make(chan struct{})}
+	mem := ttlcache.New(
+		ttlcache.WithCapacity[string, []byte](metaCacheCapacity),
+		ttlcache.WithDisableTouchOnHit[string, []byte](), // TTL counts from Set, not last Get
+	)
+	go mem.Start()
+
+	d := &Disk{root: root, maxBytes: maxBytes, mem: mem, done: make(chan struct{})}
 	if purgeInterval > 0 {
 		go d.runPurge(purgeInterval)
 	}
@@ -60,7 +73,7 @@ func (d *Disk) runPurge(interval time.Duration) {
 	}
 }
 
-// purge sweeps expired meta entries and evicts oldest blobs when over the size limit.
+// purge sweeps expired meta entries from disk and evicts oldest blobs when over the size limit.
 func (d *Disk) purge() {
 	d.sweepExpiredMeta()
 	if d.maxBytes > 0 {
@@ -114,7 +127,7 @@ func (d *Disk) evictOldestBlobs() {
 		return
 	}
 
-	// Oldest first — evict until under the limit.
+	// Oldest-accessed first (mtime updated on read, so this is LRU).
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].modTime.Before(files[j].modTime)
 	})
@@ -148,7 +161,13 @@ func sanitize(key string) string {
 }
 
 func (d *Disk) GetMeta(_ context.Context, key string) ([]byte, error) {
-	data, err := os.ReadFile(d.metaPath(key))
+	// Fast path: in-memory hit.
+	if item := d.mem.Get(key); item != nil {
+		return item.Value(), nil
+	}
+
+	// Disk read — also populates memory cache with remaining TTL.
+	raw, err := os.ReadFile(d.metaPath(key))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -156,13 +175,15 @@ func (d *Disk) GetMeta(_ context.Context, key string) ([]byte, error) {
 		return nil, err
 	}
 	var entry metaEntry
-	if err := json.Unmarshal(data, &entry); err != nil {
+	if err := json.Unmarshal(raw, &entry); err != nil {
 		return nil, nil
 	}
-	if time.Now().After(entry.ExpiresAt) {
+	remaining := time.Until(entry.ExpiresAt)
+	if remaining <= 0 {
 		os.Remove(d.metaPath(key))
 		return nil, nil
 	}
+	d.mem.Set(key, entry.Data, remaining)
 	return entry.Data, nil
 }
 
@@ -176,15 +197,28 @@ func (d *Disk) SetMeta(_ context.Context, key string, data []byte, ttl time.Dura
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, encoded, 0o644)
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		return err
+	}
+	if ttl > 0 {
+		d.mem.Set(key, data, ttl)
+	}
+	return nil
 }
 
 func (d *Disk) GetBlob(_ context.Context, key string) (io.ReadCloser, error) {
-	f, err := os.Open(d.blobPath(key))
+	path := d.blobPath(key)
+	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
-	return f, err
+	if err != nil {
+		return nil, err
+	}
+	// Touch mtime on read so the eviction order reflects last access (LRU not FIFO).
+	now := time.Now()
+	os.Chtimes(path, now, now) //nolint:errcheck
+	return f, nil
 }
 
 func (d *Disk) SetBlob(_ context.Context, key string, r io.Reader) error {
@@ -218,6 +252,7 @@ func (d *Disk) HasBlob(_ context.Context, key string) bool {
 }
 
 func (d *Disk) Flush() error {
+	d.mem.DeleteAll()
 	for _, sub := range []string{"meta", "blobs"} {
 		dir := filepath.Join(d.root, sub)
 		if err := os.RemoveAll(dir); err != nil {
@@ -231,6 +266,7 @@ func (d *Disk) Flush() error {
 }
 
 func (d *Disk) Close() error {
+	d.mem.Stop()
 	select {
 	case <-d.done:
 	default:
