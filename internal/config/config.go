@@ -41,8 +41,9 @@ type StorageConfig struct {
 }
 
 type DiskConfig struct {
-	Path      string `toml:"path"`
-	MaxSizeGB int    `toml:"max_size_gb"` // 0 = unlimited
+	Path           string `toml:"path"`
+	MaxSizeGB      int    `toml:"max_size_gb"`      // 0 = unlimited
+	PurgeIntervalM int    `toml:"purge_interval_m"` // minutes between FIFO purge runs; 0 = 60
 }
 
 type S3Config struct {
@@ -167,7 +168,7 @@ type DashboardConfig struct {
 func DefaultConfig() Config {
 	return Config{
 		Server:     ServerConfig{Host: "127.0.0.1", Port: 7888, LogLevel: "info"},
-		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "~/.cache/escrow", MaxSizeGB: 10}},
+		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "~/.cache/escrow", MaxSizeGB: 10, PurgeIntervalM: 60}},
 		Ecosystems: EcosystemConfig{NPM: true, PyPI: true, Go: true, Cargo: true, Composer: true, NuGet: true, Maven: true},
 		Dashboard:  DashboardConfig{Enabled: true, Path: "/dashboard"},
 	}
@@ -224,8 +225,9 @@ func GenerateIfMissing(path string) (bool, string, error) {
 [storage]
   backend = "disk"
   [storage.disk]
-    path       = "~/.cache/escrow"
-    max_size_gb = 10
+    path            = "~/.cache/escrow"
+    max_size_gb     = 10   # FIFO evicts oldest blobs when this limit is reached
+    purge_interval_m = 60  # how often the eviction sweep runs (minutes)
 
 [ecosystems]
   npm      = true

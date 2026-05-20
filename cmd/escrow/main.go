@@ -104,15 +104,20 @@ func main() {
 		if cfg.Storage.Disk.MaxSizeGB > 0 {
 			maxBytes = int64(cfg.Storage.Disk.MaxSizeGB) << 30
 		}
-		c, err = cache.NewDiskWithMax(diskPath, maxBytes)
+		purgeM := cfg.Storage.Disk.PurgeIntervalM
+		if purgeM == 0 {
+			purgeM = 60
+		}
+		purgeInterval := time.Duration(purgeM) * time.Minute
+		c, err = cache.NewDiskWithMax(diskPath, maxBytes, purgeInterval)
 		if err != nil {
 			log.Fatal().Err(err).Msg("failed to init disk cache")
 		}
+		logEvt := log.Info().Str("path", diskPath).Int("purge_interval_m", purgeM)
 		if maxBytes > 0 {
-			log.Info().Str("path", diskPath).Int("max_size_gb", cfg.Storage.Disk.MaxSizeGB).Msg("disk cache initialised")
-		} else {
-			log.Info().Str("path", diskPath).Msg("disk cache initialised (no size limit)")
+			logEvt = logEvt.Int("max_size_gb", cfg.Storage.Disk.MaxSizeGB)
 		}
+		logEvt.Msg("disk cache initialised")
 	}
 	defer c.Close()
 

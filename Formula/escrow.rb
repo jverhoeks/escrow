@@ -92,8 +92,9 @@ class Escrow < Formula
       [storage]
         backend = "disk"
         [storage.disk]
-          path        = "~/.cache/escrow"
-          max_size_gb = 10
+          path             = "~/.cache/escrow"
+          max_size_gb      = 10
+          purge_interval_m = 60
 
       [ecosystems]
         npm  = true

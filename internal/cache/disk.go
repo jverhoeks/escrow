@@ -14,7 +14,8 @@ import (
 
 type Disk struct {
 	root     string
-	maxBytes int64 // 0 = unlimited
+	maxBytes int64
+	done     chan struct{}
 }
 
 type metaEntry struct {
@@ -23,17 +24,108 @@ type metaEntry struct {
 }
 
 func NewDisk(root string) (*Disk, error) {
-	return NewDiskWithMax(root, 0)
+	return newDisk(root, 0, 0)
 }
 
-func NewDiskWithMax(root string, maxBytes int64) (*Disk, error) {
-	if err := os.MkdirAll(filepath.Join(root, "meta"), 0o755); err != nil {
-		return nil, err
+// NewDiskWithMax creates a disk cache that runs a background purge goroutine
+// every purgeInterval. On each tick it evicts the oldest blobs (FIFO by mtime)
+// until total blob size is under maxBytes, and removes expired meta entries.
+func NewDiskWithMax(root string, maxBytes int64, purgeInterval time.Duration) (*Disk, error) {
+	return newDisk(root, maxBytes, purgeInterval)
+}
+
+func newDisk(root string, maxBytes int64, purgeInterval time.Duration) (*Disk, error) {
+	for _, sub := range []string{"meta", "blobs"} {
+		if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
+			return nil, err
+		}
 	}
-	if err := os.MkdirAll(filepath.Join(root, "blobs"), 0o755); err != nil {
-		return nil, err
+	d := &Disk{root: root, maxBytes: maxBytes, done: make(chan struct{})}
+	if purgeInterval > 0 {
+		go d.runPurge(purgeInterval)
 	}
-	return &Disk{root: root, maxBytes: maxBytes}, nil
+	return d, nil
+}
+
+func (d *Disk) runPurge(interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			d.purge()
+		case <-d.done:
+			return
+		}
+	}
+}
+
+// purge sweeps expired meta entries and evicts oldest blobs when over the size limit.
+func (d *Disk) purge() {
+	d.sweepExpiredMeta()
+	if d.maxBytes > 0 {
+		d.evictOldestBlobs()
+	}
+}
+
+func (d *Disk) sweepExpiredMeta() {
+	metaDir := filepath.Join(d.root, "meta")
+	filepath.WalkDir(metaDir, func(p string, e os.DirEntry, err error) error { //nolint:errcheck
+		if err != nil || e.IsDir() || !strings.HasSuffix(p, ".json") {
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		var entry metaEntry
+		if json.Unmarshal(data, &entry) != nil || time.Now().After(entry.ExpiresAt) {
+			os.Remove(p)
+		}
+		return nil
+	})
+}
+
+type blobFile struct {
+	path    string
+	size    int64
+	modTime time.Time
+}
+
+func (d *Disk) evictOldestBlobs() {
+	blobDir := filepath.Join(d.root, "blobs")
+	var files []blobFile
+	var total int64
+
+	filepath.WalkDir(blobDir, func(p string, e os.DirEntry, err error) error { //nolint:errcheck
+		if err != nil || e.IsDir() {
+			return nil
+		}
+		info, err := e.Info()
+		if err != nil {
+			return nil
+		}
+		files = append(files, blobFile{path: p, size: info.Size(), modTime: info.ModTime()})
+		total += info.Size()
+		return nil
+	})
+
+	if total <= d.maxBytes {
+		return
+	}
+
+	// Oldest first — evict until under the limit.
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].modTime.Before(files[j].modTime)
+	})
+	for _, f := range files {
+		if total <= d.maxBytes {
+			break
+		}
+		if err := os.Remove(f.path); err == nil {
+			total -= f.size
+		}
+	}
 }
 
 func (d *Disk) metaPath(key string) string {
@@ -65,7 +157,7 @@ func (d *Disk) GetMeta(_ context.Context, key string) ([]byte, error) {
 	}
 	var entry metaEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
-		return nil, nil // treat corrupt entry as miss
+		return nil, nil
 	}
 	if time.Now().After(entry.ExpiresAt) {
 		os.Remove(d.metaPath(key))
@@ -102,8 +194,6 @@ func (d *Disk) SetBlob(_ context.Context, key string, r io.Reader) error {
 		return err
 	}
 	// Write to a temp file in the same directory, then rename atomically.
-	// This prevents concurrent writers from corrupting the file and prevents
-	// partial reads if a client disconnects mid-download.
 	tmp, err := os.CreateTemp(dir, ".blob-tmp-")
 	if err != nil {
 		return err
@@ -118,9 +208,6 @@ func (d *Disk) SetBlob(_ context.Context, key string, r io.Reader) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		os.Remove(tmpName)
 		return err
-	}
-	if d.maxBytes > 0 {
-		d.trimBlobs() // best-effort; ignore error
 	}
 	return nil
 }
@@ -143,48 +230,11 @@ func (d *Disk) Flush() error {
 	return nil
 }
 
-func (d *Disk) Close() error { return nil }
-
-type blobFile struct {
-	path    string
-	size    int64
-	modTime time.Time
-}
-
-// trimBlobs evicts the oldest blobs until total blob dir size is under maxBytes.
-func (d *Disk) trimBlobs() {
-	blobDir := filepath.Join(d.root, "blobs")
-	var files []blobFile
-	var total int64
-
-	filepath.WalkDir(blobDir, func(p string, e os.DirEntry, err error) error { //nolint:errcheck
-		if err != nil || e.IsDir() {
-			return nil
-		}
-		info, err := e.Info()
-		if err != nil {
-			return nil
-		}
-		files = append(files, blobFile{path: p, size: info.Size(), modTime: info.ModTime()})
-		total += info.Size()
-		return nil
-	})
-
-	if total <= d.maxBytes {
-		return
+func (d *Disk) Close() error {
+	select {
+	case <-d.done:
+	default:
+		close(d.done)
 	}
-
-	// Sort oldest first.
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].modTime.Before(files[j].modTime)
-	})
-
-	for _, f := range files {
-		if total <= d.maxBytes {
-			break
-		}
-		if err := os.Remove(f.path); err == nil {
-			total -= f.size
-		}
-	}
+	return nil
 }
