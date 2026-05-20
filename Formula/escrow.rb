@@ -92,7 +92,8 @@ class Escrow < Formula
       [storage]
         backend = "disk"
         [storage.disk]
-          path = "#{var}/escrow/cache"
+          path        = "~/.cache/escrow"
+          max_size_gb = 10
 
       [ecosystems]
         npm  = true
@@ -120,8 +121,8 @@ class Escrow < Formula
       [alerts]
         webhook_url = ""
 
-      allowlist_path = "#{var}/escrow/allowlist.json"
-      blocklist_path = "#{var}/escrow/blocklist.json"
+      allowlist_path = "~/.cache/escrow/allowlist.json"
+      blocklist_path = "~/.cache/escrow/blocklist.json"
     TOML
   end
 end

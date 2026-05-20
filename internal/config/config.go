@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -40,7 +41,8 @@ type StorageConfig struct {
 }
 
 type DiskConfig struct {
-	Path string `toml:"path"`
+	Path      string `toml:"path"`
+	MaxSizeGB int    `toml:"max_size_gb"` // 0 = unlimited
 }
 
 type S3Config struct {
@@ -165,10 +167,22 @@ type DashboardConfig struct {
 func DefaultConfig() Config {
 	return Config{
 		Server:     ServerConfig{Host: "127.0.0.1", Port: 7888, LogLevel: "info"},
-		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "./escrow-cache"}},
+		Storage:    StorageConfig{Backend: "disk", Disk: DiskConfig{Path: "~/.cache/escrow", MaxSizeGB: 10}},
 		Ecosystems: EcosystemConfig{NPM: true, PyPI: true, Go: true, Cargo: true, Composer: true, NuGet: true, Maven: true},
 		Dashboard:  DashboardConfig{Enabled: true, Path: "/dashboard"},
 	}
+}
+
+// ExpandPath expands a leading ~ to the user home directory.
+func ExpandPath(p string) string {
+	if !strings.HasPrefix(p, "~/") && p != "~" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, p[1:])
 }
 
 func Load(path string) (Config, error) {
@@ -210,7 +224,8 @@ func GenerateIfMissing(path string) (bool, string, error) {
 [storage]
   backend = "disk"
   [storage.disk]
-    path = "./escrow-cache"
+    path       = "~/.cache/escrow"
+    max_size_gb = 10
 
 [ecosystems]
   npm      = true
@@ -231,9 +246,9 @@ func GenerateIfMissing(path string) (bool, string, error) {
 [alerts]
   webhook_url = ""
 
-allowlist_path = "escrow-allowlist.json"
-blocklist_path = "escrow-blocklist.json"
-# eventlog_path = "escrow-events.jsonl"  # persist events across restarts
+allowlist_path = "~/.cache/escrow/allowlist.json"
+blocklist_path = "~/.cache/escrow/blocklist.json"
+# eventlog_path = "~/.cache/escrow/events.jsonl"  # persist events across restarts
 `,
 		cfg.Server.Host, cfg.Server.Port, cfg.Server.LogLevel,
 		password, secret,

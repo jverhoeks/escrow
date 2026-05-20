@@ -99,9 +99,19 @@ func main() {
 			log.Fatal().Err(err).Msg("failed to init S3 cache")
 		}
 	default:
-		c, err = cache.NewDisk(cfg.Storage.Disk.Path)
+		diskPath := config.ExpandPath(cfg.Storage.Disk.Path)
+		var maxBytes int64
+		if cfg.Storage.Disk.MaxSizeGB > 0 {
+			maxBytes = int64(cfg.Storage.Disk.MaxSizeGB) << 30
+		}
+		c, err = cache.NewDiskWithMax(diskPath, maxBytes)
 		if err != nil {
 			log.Fatal().Err(err).Msg("failed to init disk cache")
+		}
+		if maxBytes > 0 {
+			log.Info().Str("path", diskPath).Int("max_size_gb", cfg.Storage.Disk.MaxSizeGB).Msg("disk cache initialised")
+		} else {
+			log.Info().Str("path", diskPath).Msg("disk cache initialised (no size limit)")
 		}
 	}
 	defer c.Close()
@@ -116,7 +126,7 @@ func main() {
 	httpClient := upstream.New()
 	polEngine := policy.New(cfg.Policy)
 
-	allowList, err := allow.New(cfg.AllowlistPath)
+	allowList, err := allow.New(config.ExpandPath(cfg.AllowlistPath))
 	if err != nil {
 		log.Fatal().Err(err).Str("path", cfg.AllowlistPath).Msg("failed to load allowlist")
 	}
@@ -125,7 +135,7 @@ func main() {
 	}
 	polEngine.WithAllowList(allowList)
 
-	blockList, err := block.New(cfg.BlocklistPath)
+	blockList, err := block.New(config.ExpandPath(cfg.BlocklistPath))
 	if err != nil {
 		log.Fatal().Err(err).Str("path", cfg.BlocklistPath).Msg("failed to load blocklist")
 	}
@@ -136,7 +146,7 @@ func main() {
 
 	var evLog *eventlog.Log
 	if cfg.EventLogPath != "" {
-		evLog, err = eventlog.NewWithPath(5000, cfg.EventLogPath)
+		evLog, err = eventlog.NewWithPath(5000, config.ExpandPath(cfg.EventLogPath))
 		if err != nil {
 			log.Fatal().Err(err).Str("path", cfg.EventLogPath).Msg("failed to open event log file")
 		}
@@ -223,7 +233,7 @@ func main() {
 
 	cacheDir := ""
 	if cfg.Storage.Backend == "disk" {
-		cacheDir = cfg.Storage.Disk.Path
+		cacheDir = config.ExpandPath(cfg.Storage.Disk.Path)
 	}
 	srv := server.New(server.Options{
 		Version:                  version,
