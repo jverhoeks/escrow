@@ -62,9 +62,13 @@ class Escrow < Formula
       Edit it to enable ecosystems and set your policy, then start the service:
         brew services start escrow
 
-      The service runs as the _escrow system account.  If you use the companion
-      macOS app, open Settings → Proxy Service User and set it to _escrow so the
-      pf traffic-redirect rules grant the proxy outbound access.
+      The service runs as the _escrow system account.  Creating that account
+      requires root — if you installed without sudo, run this once:
+        sudo brew postinstall escrow
+
+      If you use the companion macOS app, open Settings → Proxy Service User
+      and set it to _escrow so the pf traffic-redirect rules grant the proxy
+      outbound access.
 
       Dashboard (after first start):
         http://localhost:7888/dashboard
