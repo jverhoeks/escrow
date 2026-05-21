@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -62,6 +64,167 @@ func TestDisk_BlobMiss(t *testing.T) {
 	r, err := c.GetBlob(context.Background(), "npm/missing/-/missing-1.0.0.tgz")
 	require.NoError(t, err)
 	assert.Nil(t, r)
+}
+
+// ── eviction / size-limit tests ──────────────────────────────────────────────
+
+// setMtime stamps the mtime of the blob file for a simple (no-slash) key.
+func setBlobMtime(t *testing.T, dir, key string, ts time.Time) {
+	t.Helper()
+	path := filepath.Join(dir, "blobs", key)
+	require.NoError(t, os.Chtimes(path, ts, ts))
+}
+
+func TestDisk_Evict_UnderLimit_NoEviction(t *testing.T) {
+	dir := t.TempDir()
+	c, err := cache.NewDiskWithMax(dir, 1000, 0)
+	require.NoError(t, err)
+	defer c.Close()
+	ctx := context.Background()
+
+	for _, key := range []string{"a", "b", "c"} {
+		require.NoError(t, c.SetBlob(ctx, key, bytes.NewReader(make([]byte, 100))))
+	}
+
+	c.Purge()
+
+	for _, key := range []string{"a", "b", "c"} {
+		r, err := c.GetBlob(ctx, key)
+		require.NoError(t, err)
+		assert.NotNil(t, r, "blob %q should survive when total is under the limit", key)
+		if r != nil {
+			r.Close()
+		}
+	}
+}
+
+func TestDisk_Evict_OverLimit_EvictsOldestFirst(t *testing.T) {
+	// Three 400-byte blobs = 1200 bytes; limit 500 → must delete oldest two.
+	dir := t.TempDir()
+	c, err := cache.NewDiskWithMax(dir, 500, 0)
+	require.NoError(t, err)
+	defer c.Close()
+	ctx := context.Background()
+
+	for _, key := range []string{"oldest", "middle", "newest"} {
+		require.NoError(t, c.SetBlob(ctx, key, bytes.NewReader(make([]byte, 400))))
+	}
+
+	base := time.Now().Add(-time.Hour)
+	setBlobMtime(t, dir, "oldest", base)
+	setBlobMtime(t, dir, "middle", base.Add(10*time.Minute))
+	setBlobMtime(t, dir, "newest", base.Add(20*time.Minute))
+
+	c.Purge()
+
+	r, err := c.GetBlob(ctx, "newest")
+	require.NoError(t, err)
+	assert.NotNil(t, r, "newest blob should survive")
+	if r != nil {
+		r.Close()
+	}
+
+	for _, key := range []string{"oldest", "middle"} {
+		r, err := c.GetBlob(ctx, key)
+		require.NoError(t, err)
+		assert.Nil(t, r, "blob %q should have been evicted", key)
+	}
+}
+
+func TestDisk_Evict_StopsOnceUnderLimit(t *testing.T) {
+	// Three 300-byte blobs = 900 bytes; limit 400.
+	// Evicting oldest (300 bytes) → 600 > 400, evict middle (300) → 300 ≤ 400: stop.
+	// newest must survive.
+	dir := t.TempDir()
+	c, err := cache.NewDiskWithMax(dir, 400, 0)
+	require.NoError(t, err)
+	defer c.Close()
+	ctx := context.Background()
+
+	for _, key := range []string{"first", "second", "third"} {
+		require.NoError(t, c.SetBlob(ctx, key, bytes.NewReader(make([]byte, 300))))
+	}
+
+	base := time.Now().Add(-time.Hour)
+	setBlobMtime(t, dir, "first", base)
+	setBlobMtime(t, dir, "second", base.Add(10*time.Minute))
+	setBlobMtime(t, dir, "third", base.Add(20*time.Minute))
+
+	c.Purge()
+
+	r, err := c.GetBlob(ctx, "third")
+	require.NoError(t, err)
+	assert.NotNil(t, r, "third blob should survive")
+	if r != nil {
+		r.Close()
+	}
+}
+
+func TestDisk_Evict_LRU_RecentAccessSurvives(t *testing.T) {
+	// "old" blob has an old mtime, but we access it — GetBlob touches its mtime.
+	// After the touch "old" is newer than "stale", so "stale" is evicted instead.
+	dir := t.TempDir()
+	c, err := cache.NewDiskWithMax(dir, 500, 0)
+	require.NoError(t, err)
+	defer c.Close()
+	ctx := context.Background()
+
+	require.NoError(t, c.SetBlob(ctx, "old", bytes.NewReader(make([]byte, 400))))
+	require.NoError(t, c.SetBlob(ctx, "stale", bytes.NewReader(make([]byte, 400))))
+
+	base := time.Now().Add(-time.Hour)
+	setBlobMtime(t, dir, "old", base)                           // mtime: T-60m
+	setBlobMtime(t, dir, "stale", base.Add(30*time.Minute))    // mtime: T-30m
+
+	// Access "old" — GetBlob calls os.Chtimes to now, making "old" the newest.
+	r, err := c.GetBlob(ctx, "old")
+	require.NoError(t, err)
+	require.NotNil(t, r)
+	r.Close()
+
+	// Total 800 bytes > 500 limit. "stale" is now the oldest → evicted.
+	c.Purge()
+
+	r, err = c.GetBlob(ctx, "old")
+	require.NoError(t, err)
+	assert.NotNil(t, r, "recently accessed blob should survive eviction (LRU)")
+	if r != nil {
+		r.Close()
+	}
+
+	r, err = c.GetBlob(ctx, "stale")
+	require.NoError(t, err)
+	assert.Nil(t, r, "stale blob (not accessed recently) should be evicted")
+}
+
+func TestDisk_PurgeTicker_TriggersEviction(t *testing.T) {
+	// End-to-end: real ticker fires, over-limit blobs are removed automatically.
+	dir := t.TempDir()
+	c, err := cache.NewDiskWithMax(dir, 500, 20*time.Millisecond)
+	require.NoError(t, err)
+	defer c.Close()
+	ctx := context.Background()
+
+	require.NoError(t, c.SetBlob(ctx, "tick-old", bytes.NewReader(make([]byte, 400))))
+	require.NoError(t, c.SetBlob(ctx, "tick-new", bytes.NewReader(make([]byte, 400))))
+
+	base := time.Now().Add(-time.Hour)
+	setBlobMtime(t, dir, "tick-old", base)
+	setBlobMtime(t, dir, "tick-new", base.Add(time.Minute))
+
+	// Wait for at least two ticker fires.
+	time.Sleep(100 * time.Millisecond)
+
+	r, err := c.GetBlob(ctx, "tick-old")
+	require.NoError(t, err)
+	assert.Nil(t, r, "oldest blob should be evicted by background ticker")
+
+	r, err = c.GetBlob(ctx, "tick-new")
+	require.NoError(t, err)
+	assert.NotNil(t, r, "newer blob should survive")
+	if r != nil {
+		r.Close()
+	}
 }
 
 func TestDisk_SanitizePathTraversal(t *testing.T) {

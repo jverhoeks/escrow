@@ -265,6 +265,12 @@ func (d *Disk) Flush() error {
 	return nil
 }
 
+// Purge immediately sweeps expired meta and evicts over-limit blobs.
+// Exposed for testing; production code relies on the background ticker.
+func (d *Disk) Purge() {
+	d.purge()
+}
+
 func (d *Disk) Close() error {
 	d.mem.Stop()
 	select {

@@ -23,13 +23,35 @@ class Escrow < Formula
   service do
     run [opt_bin/"escrow", "--config=#{etc}/escrow/escrow.toml"]
     keep_alive true
-    log_path     var/"log/escrow.log"
-    error_log_path var/"log/escrow.log"
-    working_dir  var/"escrow"
+    user           "_escrow"
+    log_path       var/"log/escrow.log"
+    error_log_path var/"log/escrow.error.log"
+    working_dir    var/"escrow"
   end
 
   def post_install
+    # Working directory for cache, allow/block lists.
     (var/"escrow").mkpath
+
+    # Create the _escrow role account if not already present.
+    # sysadminctl requires root; skip silently if the account already exists.
+    unless system("id", "-u", "_escrow", out: File::NULL, err: File::NULL)
+      system "sysadminctl", "-addUser", "_escrow",
+             "-fullName", "Escrow Proxy",
+             "-home", "/var/empty",
+             "-shell", "/usr/bin/false",
+             "-roleAccount"
+    end
+
+    # Pre-create log files so _escrow can write to them from first launch.
+    (var/"log").mkpath
+    [var/"log/escrow.log", var/"log/escrow.error.log"].each do |f|
+      f.open("a") {} unless f.exist?
+      FileUtils.chown "_escrow", nil, f
+    end
+
+    # Hand writable directories to _escrow.
+    FileUtils.chown "_escrow", nil, var/"escrow"
   end
 
   def caveats
@@ -39,6 +61,10 @@ class Escrow < Formula
 
       Edit it to enable ecosystems and set your policy, then start the service:
         brew services start escrow
+
+      The service runs as the _escrow system account.  If you use the companion
+      macOS app, open Settings → Proxy Service User and set it to _escrow so the
+      pf traffic-redirect rules grant the proxy outbound access.
 
       Dashboard (after first start):
         http://localhost:7888/dashboard
