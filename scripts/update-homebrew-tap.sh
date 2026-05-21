@@ -7,7 +7,8 @@
 # What it does:
 #   1. Downloads the tarball for the given tag from GitHub
 #   2. Computes the SHA256
-#   3. Updates Formula/escrow.rb in the tap repo (../homebrew-tap or TAP_DIR)
+#   3. Copies Formula/escrow.rb from this repo into the tap (full sync),
+#      then stamps the correct url + sha256 for the release tag
 #   4. Commits and pushes the tap
 #
 # Prerequisites:
@@ -43,7 +44,11 @@ curl -fL "$TARBALL_URL" -o "$TMPFILE"
 SHA256=$(shasum -a 256 "$TMPFILE" | awk '{print $1}')
 echo "→ SHA256: $SHA256"
 
-# Update url and sha256 in formula
+# Full sync: copy the canonical formula from this repo, then stamp url + sha256.
+# This keeps the tap's service block, post_install, caveats, and default_config
+# in lockstep with the source — patching only url/sha256 caused silent drift.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cp "$SCRIPT_DIR/../Formula/escrow.rb" "$FORMULA"
 sed -i '' \
   -e "s|url \"https://github.com/jverhoeks/escrow/archive/refs/tags/.*\"|url \"$TARBALL_URL\"|" \
   -e "s|sha256 \".*\"|sha256 \"$SHA256\"|" \
