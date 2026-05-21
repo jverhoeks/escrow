@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.5.0] — 2026-05-21
+
+### Added
+
+- **`_escrow` service account** — Homebrew `post_install` creates a macOS role account (`sysadminctl -roleAccount`) if it doesn't exist; the `service` block sets `user "_escrow"` so the process runs as a dedicated low-privilege account. Log files and `var/escrow` are pre-created and chowned to `_escrow`. Companion-app users should set **Settings → Proxy Service User** to `_escrow` so the pf traffic-redirect rules grant the proxy outbound access.
+- **`cache.Disk.Purge()`** — exported method that immediately runs the expired-meta sweep and blob eviction cycle. Useful for tests and operational tooling; the background ticker continues to call the same logic on its interval.
+- **Disk eviction tests** — five new tests covering: no eviction when under the size limit, oldest-first blob removal when over limit, stops evicting the moment total drops to or below the limit, LRU access-order protection (`GetBlob` touching mtime saves a blob from the next eviction pass), and background-ticker end-to-end eviction.
+
+### Performance
+
+- **In-memory write-through meta cache** — metadata reads now hit a `ttlcache` in-memory layer (capacity 2 000 entries, ≈ 100 MB worst-case) before falling through to disk. Remaining TTL is preserved on disk-miss population. Eviction is LRU by access time (`WithDisableTouchOnHit` keeps TTL anchored to `Set` time, not last `Get`).
+- **LRU blob eviction** — `GetBlob` touches the file's mtime on every read; the background purge goroutine sorts blobs oldest-mtime-first, so the least recently accessed blobs are removed first when the cache exceeds `max_size_gb`.
+
+### Fixed
+
+- `error_log_path` in the Homebrew formula was incorrectly pointing at `escrow.log` (same as stdout). Corrected to `escrow.error.log`.
+
+### Chore
+
+- Removed tracked `escrow-cache/` runtime artifacts from the repository; the directory has been in `.gitignore` since v1.4.x but the already-tracked files were not cleaned up.
+
+---
+
 ## [1.1.0] — 2026-05-18
 
 ### Changed
