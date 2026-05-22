@@ -14,6 +14,12 @@ class Escrow < Formula
            "-trimpath",
            "./cmd/escrow"
 
+    system "go", "build",
+           "-o", bin/"escrow-cli",
+           "-ldflags", "-s -w -X main.version=#{version}",
+           "-trimpath",
+           "./cmd/escrow-cli"
+
     # Install default config to $(brew --prefix)/etc/escrow/escrow.toml
     (etc/"escrow").mkpath
     (etc/"escrow"/"escrow.toml").write default_config unless (etc/"escrow"/"escrow.toml").exist?
