@@ -41,11 +41,12 @@ func runStatus(args []string) {
 	// 1+2. Firewall rules active and which ecosystems are loaded.
 	switch runtime.GOOS {
 	case "darwin":
-		pfOut, pfErr := exec.Command("sudo", "-n", "pfctl", "-a", "escrow", "-s", "rules").Output()
+		// rdr rules are in the nat section; filter rules are in -s rules.
+		pfOut, pfErr := exec.Command("sudo", "-n", "pfctl", "-a", "escrow", "-s", "nat").Output()
 		switch {
 		case pfErr == nil:
 			pfRules := strings.TrimSpace(string(pfOut))
-			result.PfAnchorActive = pfRules != ""
+			result.PfAnchorActive = strings.Contains(pfRules, "rdr pass")
 			if result.PfAnchorActive {
 				for _, eco := range allEcosystems {
 					hosts := registryHosts[eco]
