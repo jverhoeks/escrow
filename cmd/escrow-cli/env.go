@@ -252,3 +252,150 @@ func runConfigRestoreEnv(args []string) {
 		die("config restore-env not supported on %s", runtime.GOOS)
 	}
 }
+
+// ── config write-shell / check-shell / restore-shell ─────────────────────────
+
+// shellMarkerBegin / shellMarkerEnd wrap the escrow env var block in shell files.
+const (
+	shellMarkerBegin = "# BEGIN escrow-env"
+	shellMarkerEnd   = "# END escrow-env"
+)
+
+// knownProfiles maps the user-facing short names to dotfile names.
+var knownProfiles = map[string]string{
+	"zshrc":        ".zshrc",
+	"bashrc":       ".bashrc",
+	"zprofile":     ".zprofile",
+	"bash_profile": ".bash_profile",
+	"profile":      ".profile",
+}
+
+func runConfigWriteShell(args []string) {
+	fs := flag.NewFlagSet("config write-shell", flag.ExitOnError)
+	ecosystems := fs.String("ecosystems", "npm,pypi,go", "comma-separated ecosystems (cargo/maven/nuget: use config write)")
+	proxyURL := fs.String("proxy-url", "http://127.0.0.1:7888", "base URL of the escrow proxy")
+	profiles := fs.String("profiles", "zshrc,bashrc", "comma-separated shell files to write: zshrc,bashrc,zprofile,bash_profile,profile")
+	fs.Parse(args) //nolint:errcheck
+
+	if err := validateProxyURL(*proxyURL); err != nil {
+		die("--proxy-url: %v", err)
+	}
+
+	base := strings.TrimRight(*proxyURL, "/")
+	vars := buildEnvVars(parseEcosystems(*ecosystems), base)
+	if len(vars) == 0 {
+		die("no env-var-capable ecosystems specified (try: npm,pypi,go)")
+	}
+
+	block := buildShellBlock(vars)
+	home, _ := os.UserHomeDir()
+
+	var written []string
+	for _, name := range parseProfileList(*profiles) {
+		dotfile, ok := knownProfiles[name]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "warning: unknown profile %q (valid: zshrc,bashrc,zprofile,bash_profile,profile)\n", name)
+			continue
+		}
+		path := filepath.Join(home, dotfile)
+		if err := upsertShellBlock(path, block, shellMarkerBegin, shellMarkerEnd); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %s: %v\n", dotfile, err)
+			continue
+		}
+		fmt.Printf("✓  wrote to %s\n", path)
+		written = append(written, path)
+	}
+
+	if len(written) == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Println("Activate in the current shell without opening a new terminal:")
+	for _, p := range written {
+		fmt.Printf("  source %s\n", p)
+	}
+}
+
+func runConfigCheckShell(args []string) {
+	fs := flag.NewFlagSet("config check-shell", flag.ExitOnError)
+	fs.Parse(args) //nolint:errcheck
+
+	home, _ := os.UserHomeDir()
+	any := false
+	for name, dotfile := range knownProfiles {
+		path := filepath.Join(home, dotfile)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(data), shellMarkerBegin) {
+			fmt.Printf("✓  %-14s  %s\n", name, path)
+			any = true
+		}
+	}
+	if !any {
+		fmt.Println("escrow-env block not found in any shell profile")
+		fmt.Println("Run: escrow-cli config write-shell")
+	}
+}
+
+func runConfigRestoreShell(args []string) {
+	fs := flag.NewFlagSet("config restore-shell", flag.ExitOnError)
+	profiles := fs.String("profiles", "zshrc,bashrc,zprofile,bash_profile,profile", "profiles to clean")
+	fs.Parse(args) //nolint:errcheck
+
+	home, _ := os.UserHomeDir()
+	var modified []string
+	for _, name := range parseProfileList(*profiles) {
+		dotfile, ok := knownProfiles[name]
+		if !ok {
+			continue
+		}
+		path := filepath.Join(home, dotfile)
+		if removeShellBlock(path, shellMarkerBegin, shellMarkerEnd) {
+			fmt.Printf("✓  removed block from %s\n", path)
+			modified = append(modified, path)
+		}
+	}
+	if len(modified) == 0 {
+		fmt.Println("nothing to remove")
+		return
+	}
+	fmt.Println()
+	fmt.Println("Deactivate in the current shell without opening a new terminal:")
+	for _, path := range modified {
+		fmt.Printf("  source %s\n", path)
+	}
+}
+
+// buildShellBlock builds the export block for shell profiles.
+func buildShellBlock(vars []ecoEnvVar) string {
+	var sb strings.Builder
+	sb.WriteString(shellMarkerBegin + "\n")
+	for _, v := range vars {
+		fmt.Fprintf(&sb, "export %s=%s\n", v.key, shellQuote(v.value))
+	}
+	sb.WriteString(shellMarkerEnd + "\n")
+	return sb.String()
+}
+
+// shellQuote single-quotes a value that contains shell metacharacters.
+func shellQuote(s string) string {
+	if strings.ContainsAny(s, " \t\n*?[]{}$`\"'\\|&;()<>") {
+		return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	}
+	return s
+}
+
+// parseProfileList splits a comma-separated profile list, trimming whitespace.
+func parseProfileList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}

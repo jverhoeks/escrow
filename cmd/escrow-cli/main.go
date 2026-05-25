@@ -15,12 +15,15 @@ Usage:
   escrow-cli config write            [--ecosystems LIST] [--proxy-url URL]
   escrow-cli config write-local      [--ecosystems LIST] [--proxy-url URL]
   escrow-cli config write-env        [--ecosystems LIST] [--proxy-url URL]
+  escrow-cli config write-shell      [--ecosystems LIST] [--proxy-url URL] [--profiles LIST]
   escrow-cli config check            [--ecosystems LIST]
   escrow-cli config check-local      [--ecosystems LIST]
   escrow-cli config check-env
+  escrow-cli config check-shell
   escrow-cli config restore          [--ecosystems LIST]
   escrow-cli config restore-local    [--ecosystems LIST]
   escrow-cli config restore-env
+  escrow-cli config restore-shell    [--profiles LIST]
   escrow-cli status                  [--json]
   escrow-cli service                 <start|stop|restart|status>
 
@@ -58,18 +61,24 @@ func main() {
 			runConfigWriteLocal(os.Args[3:])
 		case "write-env":
 			runConfigWriteEnv(os.Args[3:])
+		case "write-shell":
+			runConfigWriteShell(os.Args[3:])
 		case "check":
 			runConfigCheck(os.Args[3:])
 		case "check-local":
 			runConfigCheckLocal(os.Args[3:])
 		case "check-env":
 			runConfigCheckEnv(os.Args[3:])
+		case "check-shell":
+			runConfigCheckShell(os.Args[3:])
 		case "restore":
 			runConfigRestore(os.Args[3:])
 		case "restore-local":
 			runConfigRestoreLocal(os.Args[3:])
 		case "restore-env":
 			runConfigRestoreEnv(os.Args[3:])
+		case "restore-shell":
+			runConfigRestoreShell(os.Args[3:])
 		default:
 			fmt.Fprintf(os.Stderr, "error: unknown config subcommand: %s\n", os.Args[2])
 			os.Exit(1)
