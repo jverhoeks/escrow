@@ -7,7 +7,7 @@ import (
 )
 
 func TestBuildPfRules_OrderPassBeforeBlock(t *testing.T) {
-	rules := buildPfRules([]string{"npm"}, 7888, "_escrow")
+	rules := buildPfRules([]string{"npm"}, 7888, "501")
 	passIdx := strings.Index(rules, "pass out quick")
 	blockIdx := strings.Index(rules, "block return")
 	if passIdx < 0 {
@@ -22,7 +22,7 @@ func TestBuildPfRules_OrderPassBeforeBlock(t *testing.T) {
 }
 
 func TestBuildPfRules_ContainsAllHosts(t *testing.T) {
-	rules := buildPfRules([]string{"npm"}, 7888, "_escrow")
+	rules := buildPfRules([]string{"npm"}, 7888, "501")
 	for _, host := range registryHosts["npm"] {
 		if !strings.Contains(rules, host) {
 			t.Errorf("expected host %q in rules", host)
@@ -31,14 +31,15 @@ func TestBuildPfRules_ContainsAllHosts(t *testing.T) {
 }
 
 func TestBuildPfRules_ProxyUserExempted(t *testing.T) {
-	rules := buildPfRules([]string{"npm"}, 7888, "_escrow")
-	if !strings.Contains(rules, "user _escrow") {
-		t.Error("proxy user exemption missing from pass rules")
+	// buildPfRules takes a numeric UID string, not a username.
+	rules := buildPfRules([]string{"npm"}, 7888, "501")
+	if !strings.Contains(rules, "user 501") {
+		t.Error("proxy user UID exemption missing from pass rules")
 	}
 }
 
 func TestBuildPfRules_CorrectPort(t *testing.T) {
-	rules := buildPfRules([]string{"npm"}, 9999, "_escrow")
+	rules := buildPfRules([]string{"npm"}, 9999, "501")
 	if !strings.Contains(rules, "port 9999") {
 		t.Error("expected custom port 9999 in redirect rule")
 	}
@@ -73,7 +74,7 @@ func TestBuildNftRules_NatHookPresent(t *testing.T) {
 }
 
 func TestBuildPfRules_MultipleEcosystems(t *testing.T) {
-	rules := buildPfRules([]string{"npm", "pypi"}, 7888, "_escrow")
+	rules := buildPfRules([]string{"npm", "pypi"}, 7888, "501")
 	for _, eco := range []string{"npm", "pypi"} {
 		for _, host := range registryHosts[eco] {
 			if !strings.Contains(rules, host) {

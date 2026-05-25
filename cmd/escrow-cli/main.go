@@ -11,6 +11,7 @@ Usage:
   escrow-cli setup                   [--sudoers] [--dry-run]
   escrow-cli fw-enable               [--ecosystems LIST] [--proxy-port PORT] [--proxy-user USER]
   escrow-cli fw-disable
+  escrow-cli fw-test                 [--ecosystems LIST]
   escrow-cli config write            [--ecosystems LIST] [--proxy-url URL]
   escrow-cli config write-local      [--ecosystems LIST] [--proxy-url URL]
   escrow-cli config check            [--ecosystems LIST]
@@ -40,6 +41,8 @@ func main() {
 		runFwEnable(os.Args[2:])
 	case "fw-disable", "pf-disable":
 		runFwDisable(os.Args[2:])
+	case "fw-test":
+		runFwTest(os.Args[2:])
 	case "config":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "error: config requires a subcommand: write, write-local, restore, restore-local")
