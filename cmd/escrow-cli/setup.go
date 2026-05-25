@@ -71,11 +71,18 @@ func runSetup(args []string) {
 					die("patching %s: %v", pfConf, err)
 				}
 				if patched {
+					// Clear the anchor file before reloading pf.conf.
+					// setup only wires the anchor hook; fw-enable writes the rules.
+					// A stale anchor (e.g. from a prior fw-enable) would fail here
+					// because pf validates "user _escrow" at load time even if the
+					// account was just created.
+					const emptyAnchor = "# Escrow pf anchor — managed by escrow-cli\n"
+					writeAtomic(pfAnchorFile, []byte(emptyAnchor), 0644) //nolint:errcheck
 					out, err := exec.Command("pfctl", "-f", pfConf).CombinedOutput()
 					if err != nil {
 						die("reloading pf.conf: %v\n%s", err, strings.TrimSpace(string(out)))
 					}
-					done = append(done, "updated "+pfConf+" and reloaded pf")
+					done = append(done, "updated "+pfConf+" and reloaded pf (run fw-enable to restore rules)")
 				}
 			}
 		} else {
