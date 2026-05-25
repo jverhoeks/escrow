@@ -1,12 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"encoding/xml"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 func runConfigWrite(args []string) {
@@ -14,6 +20,10 @@ func runConfigWrite(args []string) {
 	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems")
 	proxyURL := fs.String("proxy-url", "http://127.0.0.1:7888", "base URL of the escrow proxy")
 	fs.Parse(args) //nolint:errcheck
+
+	if err := validateProxyURL(*proxyURL); err != nil {
+		die("--proxy-url: %v", err)
+	}
 
 	ecos := parseEcosystems(*ecosystems)
 	base := strings.TrimRight(*proxyURL, "/")
@@ -59,7 +69,7 @@ func runConfigRestore(args []string) {
 			fmt.Fprintf(os.Stderr, "warning: reading %s: %v\n", bak, err)
 			continue
 		}
-		if err := os.WriteFile(path, data, 0644); err != nil {
+		if err := writeAtomic(path, data, 0644); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: restoring %s: %v\n", path, err)
 			continue
 		}
@@ -68,8 +78,6 @@ func runConfigRestore(args []string) {
 		restored++
 	}
 
-	// Remove GOPROXY marker blocks from shell profiles (may not have a backup if
-	// the profile already existed — we append rather than replace the whole file).
 	for _, profile := range []string{
 		filepath.Join(home, ".zprofile"),
 		filepath.Join(home, ".bash_profile"),
@@ -83,6 +91,26 @@ func runConfigRestore(args []string) {
 	if restored == 0 {
 		fmt.Println("nothing to restore")
 	}
+}
+
+// validateProxyURL rejects proxy URLs that would break config file formats
+// or allow injection into XML, JSON, or INI/TOML values.
+func validateProxyURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %v", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("scheme must be http or https, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("URL must include a host")
+	}
+	// Guard against characters that break config file formats.
+	if strings.ContainsAny(raw, "\n\r\"'<>") {
+		return fmt.Errorf("URL contains characters not safe for config files")
+	}
+	return nil
 }
 
 func writeEcoConfig(eco, base string) error {
@@ -120,9 +148,10 @@ func writeNpmConfig(home, base string) error {
 		}
 		return nil
 	}
-	// Fallback: edit ~/.npmrc directly.
 	npmrc := filepath.Join(home, ".npmrc")
-	backupFile(npmrc)
+	if err := backupFile(npmrc); err != nil {
+		return fmt.Errorf("backing up %s: %v", npmrc, err)
+	}
 	data, _ := os.ReadFile(npmrc)
 	lines := strings.Split(string(data), "\n")
 	found := false
@@ -136,7 +165,7 @@ func writeNpmConfig(home, base string) error {
 	if !found {
 		lines = append(lines, "registry="+url)
 	}
-	return os.WriteFile(npmrc, []byte(strings.Join(lines, "\n")), 0644)
+	return writeAtomic(npmrc, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // ── pypi ──────────────────────────────────────────────────────────────────────
@@ -145,22 +174,28 @@ func writePypiConfig(home, base string) error {
 	indexURL := base + "/pypi/simple/"
 
 	pipConf := filepath.Join(home, ".pip", "pip.conf")
-	backupFile(pipConf)
+	if err := backupFile(pipConf); err != nil {
+		return fmt.Errorf("backing up %s: %v", pipConf, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(pipConf), 0755); err != nil {
 		return err
 	}
 	pipContent := "[global]\nindex-url = " + indexURL + "\ntrusted-host = 127.0.0.1\n"
-	if err := os.WriteFile(pipConf, []byte(pipContent), 0644); err != nil {
+	if err := writeAtomic(pipConf, []byte(pipContent), 0644); err != nil {
 		return err
 	}
 
 	uvConf := filepath.Join(home, ".config", "uv", "uv.toml")
-	backupFile(uvConf)
+	if err := backupFile(uvConf); err != nil {
+		return fmt.Errorf("backing up %s: %v", uvConf, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(uvConf), 0755); err != nil {
 		return err
 	}
-	uvContent := "[pip]\nindex-url = \"" + indexURL + "\"\n"
-	return os.WriteFile(uvConf, []byte(uvContent), 0644)
+	// Use json.Marshal to safely quote the URL string in a TOML context.
+	quoted, _ := json.Marshal(indexURL)
+	uvContent := "[pip]\nindex-url = " + string(quoted) + "\n"
+	return writeAtomic(uvConf, []byte(uvContent), 0644)
 }
 
 // ── go ────────────────────────────────────────────────────────────────────────
@@ -169,10 +204,18 @@ func writeGoConfig(home, base string) error {
 	goProxy := base + "/go,off"
 	block := "# BEGIN escrow-go\nexport GOPROXY=" + goProxy + "\nexport GONOSUMDB=*\n# END escrow-go\n"
 
-	profiles := []string{filepath.Join(home, ".zprofile")}
-	if _, err := os.Stat(filepath.Join(home, ".bash_profile")); err == nil {
-		profiles = append(profiles, filepath.Join(home, ".bash_profile"))
+	// Only write to profiles that already exist; create .zprofile if neither exists.
+	var profiles []string
+	for _, name := range []string{".zprofile", ".bash_profile"} {
+		p := filepath.Join(home, name)
+		if _, err := os.Stat(p); err == nil {
+			profiles = append(profiles, p)
+		}
 	}
+	if len(profiles) == 0 {
+		profiles = []string{filepath.Join(home, ".zprofile")}
+	}
+
 	for _, p := range profiles {
 		if err := upsertShellBlock(p, block); err != nil {
 			return fmt.Errorf("%s: %v", filepath.Base(p), err)
@@ -190,25 +233,26 @@ func upsertShellBlock(profile, block string) error {
 	content := string(data)
 
 	if idx := strings.Index(content, begin); idx >= 0 {
-		// Replace existing block in-place.
 		endIdx := strings.Index(content, end)
 		if endIdx < 0 {
-			endIdx = len(content)
-		} else {
-			endIdx += len(end)
-			if endIdx < len(content) && content[endIdx] == '\n' {
-				endIdx++
-			}
+			// Marker without END — refuse to modify to avoid truncating the file.
+			return fmt.Errorf("found %q without %q; remove the stale marker manually", begin, end)
+		}
+		endIdx += len(end)
+		if endIdx < len(content) && content[endIdx] == '\n' {
+			endIdx++
 		}
 		content = content[:idx] + block + content[endIdx:]
 	} else {
-		backupFile(profile)
+		if err := backupFile(profile); err != nil {
+			return fmt.Errorf("backing up %s: %v", profile, err)
+		}
 		if len(content) > 0 && !strings.HasSuffix(content, "\n") {
 			content += "\n"
 		}
 		content += block
 	}
-	return os.WriteFile(profile, []byte(content), 0644)
+	return writeAtomic(profile, []byte(content), 0644)
 }
 
 func removeGoMarkers(profile string) bool {
@@ -230,7 +274,7 @@ func removeGoMarkers(profile string) bool {
 	if endIdx < len(content) && content[endIdx] == '\n' {
 		endIdx++
 	}
-	os.WriteFile(profile, []byte(content[:startIdx]+content[endIdx:]), 0644) //nolint:errcheck
+	writeAtomic(profile, []byte(content[:startIdx]+content[endIdx:]), 0644) //nolint:errcheck
 	return true
 }
 
@@ -238,85 +282,94 @@ func removeGoMarkers(profile string) bool {
 
 func writeCargoConfig(home, base string) error {
 	cfgPath := filepath.Join(home, ".cargo", "config.toml")
-	backupFile(cfgPath)
+	if err := backupFile(cfgPath); err != nil {
+		return fmt.Errorf("backing up %s: %v", cfgPath, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
 		return err
 	}
+
 	existing, _ := os.ReadFile(cfgPath)
-	return os.WriteFile(cfgPath, []byte(mergeCargoConfig(string(existing), base+"/cargo/")), 0644)
+	merged, err := mergeCargoConfig(existing, base+"/cargo/")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(cfgPath, merged, 0644)
 }
 
-// mergeCargoConfig replaces/appends [source.crates-io] and [source.escrow] sections,
-// preserving all other sections (e.g. [net], [build]).
-func mergeCargoConfig(existing, registryURL string) string {
-	escrowBlock := "\n[source.crates-io]\nreplace-with = \"escrow\"\n\n[source.escrow]\nregistry = \"" + registryURL + "\"\n"
-	if strings.TrimSpace(existing) == "" {
-		return strings.TrimLeft(escrowBlock, "\n")
-	}
-
-	// Remove existing escrow-related sections, keep everything else.
-	lines := strings.Split(existing, "\n")
-	var result []string
-	skip := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "[source.crates-io]" || trimmed == "[source.escrow]" {
-			skip = true
-			continue
-		}
-		if skip && strings.HasPrefix(trimmed, "[") {
-			skip = false
-		}
-		if !skip {
-			result = append(result, line)
+// mergeCargoConfig uses the TOML library to parse the existing config, set the
+// escrow source entries, and re-encode. All non-escrow sections are preserved.
+func mergeCargoConfig(existing []byte, registryURL string) ([]byte, error) {
+	var cfg map[string]interface{}
+	if len(bytes.TrimSpace(existing)) > 0 {
+		if err := toml.Unmarshal(existing, &cfg); err != nil {
+			return nil, fmt.Errorf("parsing cargo config: %w", err)
 		}
 	}
-
-	// Trim trailing blank lines.
-	for len(result) > 0 && strings.TrimSpace(result[len(result)-1]) == "" {
-		result = result[:len(result)-1]
+	if cfg == nil {
+		cfg = make(map[string]interface{})
 	}
 
-	base := strings.Join(result, "\n")
-	if base != "" {
-		base += "\n"
+	source, _ := cfg["source"].(map[string]interface{})
+	if source == nil {
+		source = make(map[string]interface{})
 	}
-	return base + escrowBlock
+
+	cratesIO, _ := source["crates-io"].(map[string]interface{})
+	if cratesIO == nil {
+		cratesIO = make(map[string]interface{})
+	}
+	cratesIO["replace-with"] = "escrow"
+	source["crates-io"] = cratesIO
+	source["escrow"] = map[string]interface{}{"registry": registryURL}
+	cfg["source"] = source
+
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
+		return nil, fmt.Errorf("encoding cargo config: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 // ── nuget ─────────────────────────────────────────────────────────────────────
 
 func writeNugetConfig(home, base string) error {
 	cfgPath := filepath.Join(home, ".nuget", "NuGet", "NuGet.Config")
-	backupFile(cfgPath)
+	if err := backupFile(cfgPath); err != nil {
+		return fmt.Errorf("backing up %s: %v", cfgPath, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
 		return err
 	}
-	url := base + "/nuget/v3/index.json"
+	// Escape the URL for safe XML attribute embedding.
+	escapedURL := xmlEscape(base + "/nuget/v3/index.json")
 	content := `<?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
     <clear />
-    <add key="escrow" value="` + url + `" />
+    <add key="escrow" value="` + escapedURL + `" />
   </packageSources>
 </configuration>
 `
-	return os.WriteFile(cfgPath, []byte(content), 0644)
+	return writeAtomic(cfgPath, []byte(content), 0644)
 }
 
 // ── maven ─────────────────────────────────────────────────────────────────────
 
 func writeMavenConfig(home, base string) error {
 	cfgPath := filepath.Join(home, ".m2", "settings.xml")
-	backupFile(cfgPath)
+	if err := backupFile(cfgPath); err != nil {
+		return fmt.Errorf("backing up %s: %v", cfgPath, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
 		return err
 	}
 
+	escapedURL := xmlEscape(base + "/maven2/")
 	mirrorXML := "    <mirror>\n" +
 		"      <id>escrow</id>\n" +
 		"      <name>Escrow Proxy</name>\n" +
-		"      <url>" + base + "/maven2/</url>\n" +
+		"      <url>" + escapedURL + "</url>\n" +
 		"      <mirrorOf>central</mirrorOf>\n" +
 		"    </mirror>"
 
@@ -324,7 +377,7 @@ func writeMavenConfig(home, base string) error {
 	if os.IsNotExist(err) {
 		content := "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<settings>\n  <mirrors>\n" +
 			mirrorXML + "\n  </mirrors>\n</settings>\n"
-		return os.WriteFile(cfgPath, []byte(content), 0644)
+		return writeAtomic(cfgPath, []byte(content), 0644)
 	}
 	if err != nil {
 		return err
@@ -332,7 +385,7 @@ func writeMavenConfig(home, base string) error {
 
 	content := string(data)
 	if strings.Contains(content, "<id>escrow</id>") {
-		return nil // already present
+		return nil
 	}
 	if idx := strings.Index(content, "<mirrors>"); idx >= 0 {
 		ins := idx + len("<mirrors>")
@@ -345,17 +398,33 @@ func writeMavenConfig(home, base string) error {
 	} else {
 		content += "  <mirrors>\n" + mirrorXML + "\n  </mirrors>\n"
 	}
-	return os.WriteFile(cfgPath, []byte(content), 0644)
+	return writeAtomic(cfgPath, []byte(content), 0644)
 }
 
 // ── composer ──────────────────────────────────────────────────────────────────
 
 func writeComposerConfig(home, base string) error {
 	cfgPath := filepath.Join(home, ".config", "composer", "config.json")
-	backupFile(cfgPath)
+	if err := backupFile(cfgPath); err != nil {
+		return fmt.Errorf("backing up %s: %v", cfgPath, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
 		return err
 	}
-	content := "{\n  \"repositories\": [\n    {\n      \"type\": \"composer\",\n      \"url\": \"" + base + "\"\n    }\n  ]\n}\n"
-	return os.WriteFile(cfgPath, []byte(content), 0644)
+	// Use encoding/json to safely marshal the URL string.
+	urlJSON, err := json.Marshal(base)
+	if err != nil {
+		return err
+	}
+	content := "{\n  \"repositories\": [\n    {\n      \"type\": \"composer\",\n      \"url\": " +
+		string(urlJSON) + "\n    }\n  ]\n}\n"
+	return writeAtomic(cfgPath, []byte(content), 0644)
+}
+
+// xmlEscape returns s with XML special characters escaped for safe embedding
+// in element content or attribute values.
+func xmlEscape(s string) string {
+	var buf bytes.Buffer
+	xml.EscapeText(&buf, []byte(s)) //nolint:errcheck
+	return buf.String()
 }

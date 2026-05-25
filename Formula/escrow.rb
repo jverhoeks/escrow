@@ -16,7 +16,7 @@ class Escrow < Formula
 
     system "go", "build",
            "-o", bin/"escrow-cli",
-           "-ldflags", "-s -w -X main.version=#{version}",
+           "-ldflags", "-s -w -X main.version=#{version} -X main.installBinDir=#{HOMEBREW_PREFIX}/bin",
            "-trimpath",
            "./cmd/escrow-cli"
 

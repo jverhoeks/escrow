@@ -37,9 +37,10 @@ func serviceLoad() {
 	if _, err := os.Stat(launchDaemonPlist); err != nil {
 		die("%s not found — register the service first with: sudo brew services start escrow", launchDaemonPlist)
 	}
-	out, err := exec.Command("launchctl", "load", launchDaemonPlist).CombinedOutput()
+	// launchctl load/unload are deprecated since macOS 10.10; use bootstrap/bootout.
+	out, err := exec.Command("launchctl", "bootstrap", "system", launchDaemonPlist).CombinedOutput()
 	if err != nil {
-		die("launchctl load: %v\n%s", err, strings.TrimSpace(string(out)))
+		die("launchctl bootstrap: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	fmt.Println("service started")
 }
@@ -48,9 +49,9 @@ func serviceUnload() {
 	if _, err := os.Stat(launchDaemonPlist); err != nil {
 		die("%s not found", launchDaemonPlist)
 	}
-	out, err := exec.Command("launchctl", "unload", launchDaemonPlist).CombinedOutput()
+	out, err := exec.Command("launchctl", "bootout", "system", launchDaemonPlist).CombinedOutput()
 	if err != nil {
-		die("launchctl unload: %v\n%s", err, strings.TrimSpace(string(out)))
+		die("launchctl bootout: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	fmt.Println("service stopped")
 }

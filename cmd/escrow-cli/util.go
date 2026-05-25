@@ -18,20 +18,22 @@ func die(format string, a ...any) {
 	os.Exit(1)
 }
 
-// writeAtomic writes data to dst via a temp file in the same directory,
-// then renames atomically. Preserves the same filesystem so rename works.
+// writeAtomic writes data to dst via a temp file in the same directory.
+// Permissions are set before data is written so the file is never visible
+// at an incorrect mode, then renamed atomically into place.
 func writeAtomic(dst string, data []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(dst), ".escrow-tmp-*")
 	if err != nil {
 		return err
 	}
 	name := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
+	// Set permissions BEFORE writing so data is never exposed with wrong mode.
+	if err := tmp.Chmod(mode); err != nil {
 		tmp.Close()
 		os.Remove(name)
 		return err
 	}
-	if err := tmp.Chmod(mode); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		os.Remove(name)
 		return err
@@ -43,21 +45,25 @@ func writeAtomic(dst string, data []byte, mode os.FileMode) error {
 	return os.Rename(name, dst)
 }
 
-// backupFile copies src to src+".escrow-backup" if the backup does not already exist.
-// Silently does nothing if src does not exist.
-func backupFile(src string) {
+// backupFile copies src to src+".escrow-backup" if the backup does not already
+// exist. Returns an error if the backup cannot be written; callers should abort
+// the intended write when backup fails to avoid an unrecoverable state.
+func backupFile(src string) error {
 	bak := src + ".escrow-backup"
 	if _, err := os.Stat(bak); err == nil {
-		return // backup already present
+		return nil // backup already present
 	}
 	data, err := os.ReadFile(src)
 	if err != nil {
-		return // file doesn't exist yet, nothing to back up
+		if os.IsNotExist(err) {
+			return nil // nothing to back up
+		}
+		return err
 	}
 	info, _ := os.Stat(src)
 	mode := os.FileMode(0644)
 	if info != nil {
 		mode = info.Mode()
 	}
-	os.WriteFile(bak, data, mode) //nolint:errcheck
+	return os.WriteFile(bak, data, mode)
 }

@@ -3,9 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -13,6 +16,14 @@ const (
 	pfAnchorFile = "/etc/pf.anchors/escrow-npm"
 	sudoersPath  = "/etc/sudoers.d/escrow"
 )
+
+// installBinDir is stamped at build time:
+//
+//	go build -ldflags "-X main.installBinDir=/opt/homebrew/bin" ./cmd/escrow-cli
+//
+// The Homebrew formula sets this to #{HOMEBREW_PREFIX}/bin so the sudoers
+// file always references the correct installed path regardless of architecture.
+var installBinDir = "/usr/local/bin"
 
 var escrowPfLines = []string{
 	`rdr-anchor "escrow"`,
@@ -81,7 +92,6 @@ func runSetup(args []string) {
 		done = append(done, "installed sudoers file at "+sudoersPath)
 	}
 
-	// 5. Summary.
 	for _, s := range done {
 		fmt.Println("✓", s)
 	}
@@ -91,17 +101,28 @@ func runSetup(args []string) {
 }
 
 // patchPfConf ensures the three escrow anchor lines are present in /etc/pf.conf.
-// It removes any stale partial escrow lines first, then inserts all three
-// after the com.apple rdr-anchor line (or at the end if not found).
+// An exclusive advisory lock prevents concurrent modifications. Stale partial
+// escrow lines are removed, then all three are re-inserted at the correct
+// position (after the last existing rdr-anchor line, or before filter rules).
 // Returns true if the file was modified.
 func patchPfConf() (bool, error) {
-	data, err := os.ReadFile(pfConf)
+	f, err := os.OpenFile(pfConf, os.O_RDONLY, 0)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	// Advisory lock: prevents two concurrent setup calls from corrupting pf.conf.
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return false, fmt.Errorf("locking %s: %v", pfConf, err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return false, err
 	}
 	lines := strings.Split(string(data), "\n")
 
-	// Count how many escrow lines are already present.
 	escrowSet := make(map[string]bool, len(escrowPfLines))
 	for _, l := range escrowPfLines {
 		escrowSet[l] = true
@@ -113,24 +134,32 @@ func patchPfConf() (bool, error) {
 		}
 	}
 	if present == len(escrowPfLines) {
-		return false, nil // already fully configured
+		return false, nil
 	}
 
-	// Remove stale partial escrow lines.
-	filtered := lines[:0:len(lines)]
+	// Remove any stale partial escrow lines.
+	filtered := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if !escrowSet[strings.TrimSpace(line)] {
 			filtered = append(filtered, line)
 		}
 	}
 
-	// Find insertion point: after `rdr-anchor "com.apple/*"`.
-	insertIdx := len(filtered)
+	// Find insertion point: after the last rdr-anchor line (any, not just com.apple).
+	// This ensures our rdr-anchor sits in the correct pf.conf section.
+	// Fall back to end-of-file only if no rdr-anchor line exists at all, and
+	// warn the user that manual placement may be needed.
+	insertIdx := -1
 	for i, line := range filtered {
-		if strings.Contains(line, `rdr-anchor "com.apple`) {
+		if strings.Contains(line, "rdr-anchor") {
 			insertIdx = i + 1
-			break
 		}
+	}
+	if insertIdx < 0 {
+		fmt.Fprintf(os.Stderr,
+			"warning: no rdr-anchor line found in %s; appending escrow anchors at end.\n"+
+				"  Verify placement manually if pf redirects do not work.\n", pfConf)
+		insertIdx = len(filtered)
 	}
 
 	out := make([]string, 0, len(filtered)+len(escrowPfLines))
@@ -141,28 +170,35 @@ func patchPfConf() (bool, error) {
 	return true, writeAtomic(pfConf, []byte(strings.Join(out, "\n")), 0644)
 }
 
-// installSudoers writes a sudoers snippet granting the admin group passwordless
-// access to the privileged escrow-cli subcommands. Validated by visudo before install.
+// installSudoers writes a sudoers snippet that grants admin group members
+// passwordless sudo for the privileged escrow-cli subcommands.
+// The binary path is taken from the installBinDir build-time variable so it
+// reflects the actual Homebrew prefix (Intel vs Apple Silicon).
+// The temp file is placed inside /etc/sudoers.d/ (mode 0750, root-owned) to
+// prevent unprivileged processes from reading it during the visudo check.
 func installSudoers() error {
-	exe, err := os.Executable()
-	if err != nil {
-		exe = "/usr/local/bin/escrow-cli"
-	}
-	content := fmt.Sprintf(
-		"# Escrow proxy — passwordless sudo for admin group\n"+
-			"%%admin ALL=(root) NOPASSWD: %s setup\n"+
-			"%%admin ALL=(root) NOPASSWD: %s pf-enable *\n"+
-			"%%admin ALL=(root) NOPASSWD: %s pf-disable\n"+
-			"%%admin ALL=(root) NOPASSWD: %s service *\n",
-		exe, exe, exe, exe,
-	)
+	bin := filepath.Join(installBinDir, "escrow-cli")
+	content := "# Escrow proxy — passwordless sudo for admin group\n" +
+		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s setup\n", bin) +
+		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s pf-enable *\n", bin) +
+		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s pf-disable\n", bin) +
+		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s service start\n", bin) +
+		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s service stop\n", bin) +
+		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s service restart\n", bin) +
+		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s service status\n", bin)
 
-	tmp, err := os.CreateTemp("", "escrow-sudoers-*")
+	// Write temp file inside /etc/sudoers.d/ (root:wheel 0750) so no
+	// unprivileged process can read the content before visudo validates it.
+	tmp, err := os.CreateTemp(filepath.Dir(sudoersPath), ".escrow-sudoers-tmp-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
 
+	if err := tmp.Chmod(0440); err != nil {
+		tmp.Close()
+		return err
+	}
 	if _, err := tmp.WriteString(content); err != nil {
 		tmp.Close()
 		return err

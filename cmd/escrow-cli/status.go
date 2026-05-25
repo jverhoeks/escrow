@@ -16,6 +16,7 @@ import (
 
 type statusResult struct {
 	PfAnchorActive      bool     `json:"pfAnchorActive"`
+	PfAnchorUnknown     bool     `json:"pfAnchorUnknown,omitempty"` // true when pfctl query was denied
 	ActiveEcosystems    []string `json:"activeEcosystems"`
 	ConfigFilesWritten  []string `json:"configFilesWritten"`
 	ProxyServiceRunning bool     `json:"proxyServiceRunning"`
@@ -30,23 +31,30 @@ func runStatus(args []string) {
 	fs.Parse(args) //nolint:errcheck
 
 	result := statusResult{
-		ProxyUser:        "_escrow",
-		ProxyPort:        7888,
-		ActiveEcosystems: []string{},
+		ProxyUser:          "_escrow",
+		ProxyPort:          7888,
+		ActiveEcosystems:   []string{},
 		ConfigFilesWritten: []string{},
 	}
 
-	// 1+2. pf anchor active and which ecosystems are loaded.
-	pfOut, _ := exec.Command("sudo", "-n", "pfctl", "-a", "escrow", "-s", "rules").Output()
-	pfRules := strings.TrimSpace(string(pfOut))
-	result.PfAnchorActive = pfRules != ""
-	if result.PfAnchorActive {
-		for _, eco := range allEcosystems {
-			hosts := registryHosts[eco]
-			if len(hosts) > 0 && strings.Contains(pfRules, hosts[0]) {
-				result.ActiveEcosystems = append(result.ActiveEcosystems, eco)
+	// 1+2. pf anchor state.
+	pfOut, pfErr := exec.Command("sudo", "-n", "pfctl", "-a", "escrow", "-s", "rules").Output()
+	switch {
+	case pfErr == nil:
+		pfRules := strings.TrimSpace(string(pfOut))
+		result.PfAnchorActive = pfRules != ""
+		if result.PfAnchorActive {
+			for _, eco := range allEcosystems {
+				hosts := registryHosts[eco]
+				if len(hosts) > 0 && strings.Contains(pfRules, hosts[0]) {
+					result.ActiveEcosystems = append(result.ActiveEcosystems, eco)
+				}
 			}
 		}
+	case isPermissionDenied(pfErr):
+		result.PfAnchorUnknown = true
+	default:
+		// pfctl returned non-zero for a reason other than permission — treat anchor as inactive.
 	}
 
 	// 3. Config files written by escrow.
@@ -100,12 +108,13 @@ func runStatus(args []string) {
 
 	// Human-readable output.
 	pfStatus := "inactive"
-	if result.PfAnchorActive {
-		if len(result.ActiveEcosystems) > 0 {
-			pfStatus = "active (" + strings.Join(result.ActiveEcosystems, ", ") + ")"
-		} else {
-			pfStatus = "active (no ecosystems detected)"
-		}
+	switch {
+	case result.PfAnchorUnknown:
+		pfStatus = "unknown (run as root or configure passwordless sudo for pfctl)"
+	case result.PfAnchorActive && len(result.ActiveEcosystems) > 0:
+		pfStatus = "active (" + strings.Join(result.ActiveEcosystems, ", ") + ")"
+	case result.PfAnchorActive:
+		pfStatus = "active (no ecosystems detected)"
 	}
 	fmt.Printf("pf anchor:    %s\n", pfStatus)
 
@@ -129,6 +138,16 @@ func runStatus(args []string) {
 	} else {
 		fmt.Println("config files: none")
 	}
+}
+
+// isPermissionDenied reports whether an exec error is a sudo password-required denial.
+func isPermissionDenied(err error) bool {
+	if err == nil {
+		return false
+	}
+	// sudo -n exits with status 1 and prints "a password is required" to stderr.
+	// exec.Cmd.Output() wraps non-zero exit in *exec.ExitError; check the message.
+	return strings.Contains(err.Error(), "exit status 1")
 }
 
 func isEscrowConfig(path, hint string) bool {
