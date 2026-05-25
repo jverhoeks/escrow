@@ -41,17 +41,23 @@ func runStatus(args []string) {
 	// 1+2. Firewall rules active and which ecosystems are loaded.
 	switch runtime.GOOS {
 	case "darwin":
-		// rdr rules are in the nat section; filter rules are in -s rules.
+		// rdr rules live in the nat section (not filter rules).
 		pfOut, pfErr := exec.Command("sudo", "-n", "pfctl", "-a", "escrow", "-s", "nat").Output()
 		switch {
 		case pfErr == nil:
 			pfRules := strings.TrimSpace(string(pfOut))
 			result.PfAnchorActive = strings.Contains(pfRules, "rdr pass")
 			if result.PfAnchorActive {
+				// pfctl -s nat shows resolved IPs, not hostnames.
+				// Read the anchor file instead — we wrote it with hostnames.
+				anchorData, _ := os.ReadFile(pfAnchorFile)
+				anchor := string(anchorData)
 				for _, eco := range allEcosystems {
-					hosts := registryHosts[eco]
-					if len(hosts) > 0 && strings.Contains(pfRules, hosts[0]) {
-						result.ActiveEcosystems = append(result.ActiveEcosystems, eco)
+					for _, host := range registryHosts[eco] {
+						if strings.Contains(anchor, host) {
+							result.ActiveEcosystems = append(result.ActiveEcosystems, eco)
+							break
+						}
 					}
 				}
 			}
