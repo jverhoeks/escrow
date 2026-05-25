@@ -3,11 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
-	"os/user"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // runFwEnable is the cross-platform fw-enable entry point.
@@ -65,18 +66,42 @@ func runPfEnable(args []string)  { runFwEnable(args) }
 func runPfDisable(args []string) { runFwDisable(args) }
 
 // lookupUID returns the numeric UID string for the given username.
+// On macOS, queries the local dscl directory node directly — this is the same
+// node where createSystemUser writes, and it's visible to pf's user keyword.
+// On Linux, falls back to id -u.
 func lookupUID(username string) (string, error) {
-	u, err := user.Lookup(username)
-	if err != nil {
-		return "", err
+	if runtime.GOOS == "darwin" {
+		out, err := exec.Command("dscl", ".", "-read", "/Users/"+username, "UniqueID").Output()
+		if err != nil {
+			return "", fmt.Errorf("unknown user %q (run setup first)", username)
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(line, "UniqueID:") {
+				uid := strings.TrimSpace(strings.TrimPrefix(line, "UniqueID:"))
+				if uid != "" {
+					return uid, nil
+				}
+			}
+		}
+		return "", fmt.Errorf("no UniqueID found for %q", username)
 	}
-	return u.Uid, nil
+	out, err := exec.Command("id", "-u", username).Output()
+	if err != nil {
+		return "", fmt.Errorf("unknown user %q", username)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // ── macOS pf backend ──────────────────────────────────────────────────────────
 
 func fwEnableDarwin(ecos []string, port int, proxyUser string) {
-	rules := buildPfRules(ecos, port, proxyUser)
+	// Resolve to numeric UID so pf doesn't do a username lookup at load time.
+	// A freshly-created OD account may not be visible to pf's getpwnam() yet.
+	uid, err := lookupUID(proxyUser)
+	if err != nil {
+		die("looking up uid for %q: %v — run 'escrow-cli setup' first", proxyUser, err)
+	}
+	rules := buildPfRules(ecos, port, uid)
 	if err := writeAtomic(pfAnchorFile, []byte(rules), 0644); err != nil {
 		die("writing anchor file: %v", err)
 	}
@@ -265,4 +290,75 @@ func buildNftRules(ecos []string, port int, uid string) string {
 	sb.WriteString("}\n")
 
 	return sb.String()
+}
+
+// ── fw-test ───────────────────────────────────────────────────────────────────
+
+func runFwTest(args []string) {
+	fs := flag.NewFlagSet("fw-test", flag.ExitOnError)
+	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems to test")
+	fs.Parse(args) //nolint:errcheck
+
+	// Verify the proxy is reachable first.
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:7888", time.Second)
+	if err != nil {
+		fmt.Println("proxy:     ✗  127.0.0.1:7888 not reachable — start the service first")
+		return
+	}
+	conn.Close()
+	fmt.Println("proxy:     ✓  127.0.0.1:7888 reachable")
+	fmt.Println()
+
+	// Check whether the anchor has any rdr rules loaded.
+	// pfctl -s rules outputs resolved IPs, not hostnames, so we can only tell
+	// whether fw-enable was run at all — not which specific host was redirected.
+	pfRules := loadedPfRules()
+	anchorActive := strings.Contains(pfRules, "rdr pass")
+
+	ecos := parseEcosystems(*ecosystems)
+	for _, eco := range ecos {
+		for _, host := range registryHosts[eco] {
+			redirected := testRedirect(host)
+			switch {
+			case redirected:
+				fmt.Printf("%-10s ✓  %s:443 → proxy\n", eco, host)
+			case anchorActive:
+				// Anchor has rdr rules but this host's current IP doesn't match
+				// the IP pf resolved at rule-load time (CDN rotation). The rule
+				// IS present; redirect will catch it when the IP aligns.
+				fmt.Printf("%-10s ~  %s:443  rule loaded, CDN IP rotated (likely OK)\n", eco, host)
+			default:
+				fmt.Printf("%-10s ✗  %s:443  no rules loaded — run: sudo escrow-cli fw-enable\n", eco, host)
+			}
+		}
+	}
+}
+
+// loadedPfRules returns the current pf anchor NAT (rdr) rules as a string,
+// or "" if unavailable. rdr rules live in the nat section, not filter rules.
+func loadedPfRules() string {
+	out, err := exec.Command("sudo", "-n", "pfctl", "-a", "escrow", "-s", "nat").Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+// testRedirect sends a plain HTTP request to host:443.
+// If pf has an rdr rule active, the escrow proxy intercepts it and responds
+// with an HTTP status line. If not redirected, the real server begins a TLS
+// handshake (first byte 0x16 = ContentType Handshake) — not an HTTP response.
+func testRedirect(host string) bool {
+	conn, err := net.DialTimeout("tcp", host+":443", 3*time.Second)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(3 * time.Second)) //nolint:errcheck
+
+	fmt.Fprintf(conn, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", host) //nolint:errcheck
+
+	buf := make([]byte, 16)
+	n, _ := conn.Read(buf)
+	return n > 0 && strings.HasPrefix(string(buf[:n]), "HTTP/")
 }

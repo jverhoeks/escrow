@@ -67,12 +67,15 @@ func runConfigRestore(args []string) {
 			fmt.Printf("✓ restored %s\n", path)
 			restored++
 		}
-		if eco == "go" {
-			for _, p := range ecosystemGlobalPaths("go", home) {
-				if removeGoMarkers(p) {
-					fmt.Printf("✓ removed GOPROXY block from %s\n", p)
-					restored++
-				}
+		// Remove shell-profile marker blocks.
+		for _, p := range shellProfiles(home) {
+			if eco == "go" && removeShellBlock(p, "# BEGIN escrow-go", "# END escrow-go") {
+				fmt.Printf("✓ removed GOPROXY block from %s\n", p)
+				restored++
+			}
+			if eco == "pypi" && removeShellBlock(p, "# BEGIN escrow-python", "# END escrow-python") {
+				fmt.Printf("✓ removed PIP_INDEX_URL block from %s\n", p)
+				restored++
 			}
 		}
 	}
@@ -82,27 +85,33 @@ func runConfigRestore(args []string) {
 	}
 }
 
-// ecosystemGlobalPaths returns the $HOME config file paths owned by the given ecosystem.
+// ecosystemGlobalPaths returns all $HOME config file paths owned by the given ecosystem.
 func ecosystemGlobalPaths(eco, home string) []string {
 	switch eco {
 	case "npm":
-		return []string{filepath.Join(home, ".npmrc")}
+		return []string{
+			filepath.Join(home, ".npmrc"),
+			filepath.Join(home, ".yarnrc"),
+			filepath.Join(home, ".yarnrc.yml"),
+			filepath.Join(home, ".bunfig.toml"),
+		}
 	case "pypi":
 		return []string{
 			filepath.Join(home, ".pip", "pip.conf"),
 			filepath.Join(home, ".config", "uv", "uv.toml"),
+			// shell profiles handled separately (marker removal, not file restore)
 		}
 	case "go":
-		return []string{
-			filepath.Join(home, ".zprofile"),
-			filepath.Join(home, ".bash_profile"),
-		}
+		return shellProfiles(home)
 	case "cargo":
 		return []string{filepath.Join(home, ".cargo", "config.toml")}
 	case "nuget":
 		return []string{filepath.Join(home, ".nuget", "NuGet", "NuGet.Config")}
 	case "maven":
-		return []string{filepath.Join(home, ".m2", "settings.xml")}
+		return []string{
+			filepath.Join(home, ".m2", "settings.xml"),
+			filepath.Join(home, ".gradle", "init.d", "escrow-mirror.gradle"),
+		}
 	case "composer":
 		return []string{filepath.Join(home, ".config", "composer", "config.json")}
 	}
@@ -111,6 +120,12 @@ func ecosystemGlobalPaths(eco, home string) []string {
 
 // ── config check ─────────────────────────────────────────────────────────────
 
+type toolCheck struct {
+	label string // display label, e.g. "npm/pnpm", "yarn v1"
+	path  string // config file path or description
+	ok    bool
+}
+
 func runConfigCheck(args []string) {
 	fs := flag.NewFlagSet("config check", flag.ExitOnError)
 	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems to check")
@@ -118,48 +133,85 @@ func runConfigCheck(args []string) {
 
 	home, _ := os.UserHomeDir()
 	for _, eco := range parseEcosystems(*ecosystems) {
-		path, ok := checkEcoGlobal(eco, home)
-		if ok {
-			fmt.Printf("%-10s ✓  %s\n", eco, path)
-		} else {
-			fmt.Printf("%-10s –  not configured\n", eco)
+		for _, c := range checkEcoGlobalAll(eco, home) {
+			if c.ok {
+				fmt.Printf("%-14s ✓  %s\n", c.label, c.path)
+			} else {
+				fmt.Printf("%-14s –  %s\n", c.label, c.path)
+			}
 		}
 	}
 }
 
-// checkEcoGlobal returns the first configured file path for the ecosystem and true,
-// or ("", false) if escrow is not active for this ecosystem globally.
-func checkEcoGlobal(eco, home string) (string, bool) {
+// checkEcoGlobalAll returns a status entry for every tool in the ecosystem.
+func checkEcoGlobalAll(eco, home string) []toolCheck {
 	switch eco {
 	case "npm":
-		p := filepath.Join(home, ".npmrc")
-		return p, isEscrowConfig(p, "npm")
-	case "pypi":
-		if p := filepath.Join(home, ".pip", "pip.conf"); isEscrowConfig(p, "pypi") {
-			return p, true
+		npmrc := filepath.Join(home, ".npmrc")
+		yarnrc := filepath.Join(home, ".yarnrc")
+		yarnYml := filepath.Join(home, ".yarnrc.yml")
+		bunfig := filepath.Join(home, ".bunfig.toml")
+		return []toolCheck{
+			{"npm/pnpm", npmrc, isEscrowConfig(npmrc, "npm")},
+			{"yarn (v1)", yarnrc, isEscrowConfig(yarnrc, "yarn1")},
+			{"yarn (v2+)", yarnYml, isEscrowConfig(yarnYml, "yarnberry")},
+			{"bun", bunfig, isEscrowConfig(bunfig, "bun")},
 		}
-		p := filepath.Join(home, ".config", "uv", "uv.toml")
-		return p, isEscrowConfig(p, "uv")
-	case "go":
-		for _, name := range []string{".zprofile", ".bash_profile"} {
-			p := filepath.Join(home, name)
-			if isEscrowConfig(p, "go") {
-				return p, true
+	case "pypi":
+		pip := filepath.Join(home, ".pip", "pip.conf")
+		uv := filepath.Join(home, ".config", "uv", "uv.toml")
+		var poetryOk bool
+		for _, p := range shellProfiles(home) {
+			if isEscrowConfig(p, "python-env") {
+				poetryOk = true
+				break
 			}
 		}
-		return "", false
+		return []toolCheck{
+			{"pip", pip, isEscrowConfig(pip, "pypi")},
+			{"uv", uv, isEscrowConfig(uv, "uv")},
+			{"poetry", "PIP_INDEX_URL in shell profile", poetryOk},
+		}
+	case "go":
+		var goOk bool
+		var goPath string
+		for _, p := range shellProfiles(home) {
+			if isEscrowConfig(p, "go") {
+				goOk = true
+				goPath = p
+				break
+			}
+		}
+		if goPath == "" {
+			goPath = "GOPROXY in shell profile"
+		}
+		return []toolCheck{{"go", goPath, goOk}}
 	case "cargo":
 		p := filepath.Join(home, ".cargo", "config.toml")
-		return p, isEscrowConfig(p, "cargo")
+		return []toolCheck{{"cargo", p, isEscrowConfig(p, "cargo")}}
 	case "nuget":
 		p := filepath.Join(home, ".nuget", "NuGet", "NuGet.Config")
-		return p, isEscrowConfig(p, "nuget")
+		return []toolCheck{{"nuget", p, isEscrowConfig(p, "nuget")}}
 	case "maven":
-		p := filepath.Join(home, ".m2", "settings.xml")
-		return p, isEscrowConfig(p, "maven")
+		mvn := filepath.Join(home, ".m2", "settings.xml")
+		gradle := filepath.Join(home, ".gradle", "init.d", "escrow-mirror.gradle")
+		return []toolCheck{
+			{"maven", mvn, isEscrowConfig(mvn, "maven")},
+			{"gradle", gradle, isEscrowConfig(gradle, "gradle")},
+		}
 	case "composer":
 		p := filepath.Join(home, ".config", "composer", "config.json")
-		return p, isEscrowConfig(p, "composer")
+		return []toolCheck{{"composer", p, isEscrowConfig(p, "composer")}}
+	}
+	return nil
+}
+
+// checkEcoGlobal returns the first configured path/true for backward compat with check-local.
+func checkEcoGlobal(eco, home string) (string, bool) {
+	for _, c := range checkEcoGlobalAll(eco, home) {
+		if c.ok {
+			return c.path, true
+		}
 	}
 	return "", false
 }
@@ -173,39 +225,64 @@ func runConfigCheckLocal(args []string) {
 
 	cwd, _ := os.Getwd()
 	for _, eco := range parseEcosystems(*ecosystems) {
-		switch eco {
-		case "go", "maven":
-			fmt.Printf("%-10s N/A (no local config)\n", eco)
-			continue
-		}
-		path, ok := checkEcoLocal(eco, cwd)
-		if ok {
-			fmt.Printf("%-10s ✓  %s\n", eco, path)
-		} else {
-			fmt.Printf("%-10s –  not configured\n", eco)
+		for _, c := range checkEcoLocalAll(eco, cwd) {
+			if c.ok {
+				fmt.Printf("%-14s ✓  %s\n", c.label, c.path)
+			} else {
+				fmt.Printf("%-14s –  %s\n", c.label, c.path)
+			}
 		}
 	}
 }
 
-// checkEcoLocal returns the local config path for the ecosystem in dir and true
-// if it is currently pointing at escrow, or ("", false) otherwise.
+// checkEcoLocal returns the first configured local path for the ecosystem, or ("", false).
 func checkEcoLocal(eco, dir string) (string, bool) {
-	var path, hint string
+	for _, c := range checkEcoLocalAll(eco, dir) {
+		if c.ok {
+			return c.path, true
+		}
+	}
+	return "", false
+}
+
+func checkEcoLocalAll(eco, dir string) []toolCheck {
 	switch eco {
 	case "npm":
-		path, hint = filepath.Join(dir, ".npmrc"), "npm"
-	case "cargo":
-		path, hint = filepath.Join(dir, ".cargo", "config.toml"), "cargo"
-	case "nuget":
-		path, hint = filepath.Join(dir, "nuget.config"), "nuget"
+		npmrc := filepath.Join(dir, ".npmrc")
+		yarnrc := filepath.Join(dir, ".yarnrc")
+		yarnYml := filepath.Join(dir, ".yarnrc.yml")
+		bunfig := filepath.Join(dir, "bunfig.toml")
+		return []toolCheck{
+			{"npm/pnpm", npmrc, isEscrowConfig(npmrc, "npm")},
+			{"yarn (v1)", yarnrc, isEscrowConfig(yarnrc, "yarn1")},
+			{"yarn (v2+)", yarnYml, isEscrowConfig(yarnYml, "yarnberry")},
+			{"bun", bunfig, isEscrowConfig(bunfig, "bun")},
+		}
 	case "pypi":
-		path, hint = filepath.Join(dir, "uv.toml"), "uv"
+		uv := filepath.Join(dir, "uv.toml")
+		return []toolCheck{
+			{"uv", uv, isEscrowConfig(uv, "uv")},
+			{"pip", "no local auto-discovery — use global or PIP_INDEX_URL", false},
+			{"poetry", "no local registry config — use global shell block or pyproject.toml source", false},
+		}
+	case "go":
+		return []toolCheck{{"go", "env vars are shell-global — use 'config write'", false}}
+	case "cargo":
+		p := filepath.Join(dir, ".cargo", "config.toml")
+		return []toolCheck{{"cargo", p, isEscrowConfig(p, "cargo")}}
+	case "nuget":
+		p := filepath.Join(dir, "nuget.config")
+		return []toolCheck{{"nuget", p, isEscrowConfig(p, "nuget")}}
+	case "maven":
+		return []toolCheck{
+			{"maven", "no project-local settings.xml — use 'config write' for ~/.m2/settings.xml", false},
+			{"gradle", "no project-local init script — use 'config write' for ~/.gradle/init.d/", false},
+		}
 	case "composer":
-		path, hint = filepath.Join(dir, "composer.json"), "composer"
-	default:
-		return "", false
+		p := filepath.Join(dir, "composer.json")
+		return []toolCheck{{"composer", p, isEscrowConfig(p, "composer")}}
 	}
-	return path, isEscrowConfig(path, hint)
+	return nil
 }
 
 // validateProxyURL rejects proxy URLs that would break config file formats
@@ -252,22 +329,58 @@ func writeEcoConfig(eco, base string) error {
 	return fmt.Errorf("unknown ecosystem: %s", eco)
 }
 
-// ── npm ───────────────────────────────────────────────────────────────────────
+// ── npm / pnpm / yarn / bun ───────────────────────────────────────────────────
 
+// writeNpmConfig configures all JS package managers that are installed or
+// already have a config file: npm+pnpm (.npmrc), yarn v1 (.yarnrc),
+// yarn berry (.yarnrc.yml), and bun (bunfig.toml).
 func writeNpmConfig(home, base string) error {
 	url := base + "/"
-	if _, err := exec.LookPath("npm"); err == nil {
-		out, err := exec.Command("npm", "config", "set", "registry", url).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("npm config set: %v: %s", err, strings.TrimSpace(string(out)))
+	var errs []string
+
+	// npm + pnpm: both read from .npmrc
+	if err := writeNpmrcRegistry(filepath.Join(home, ".npmrc"), url); err != nil {
+		errs = append(errs, "npmrc: "+err.Error())
+	}
+
+	// yarn v1 (.yarnrc) — write if installed or file already exists
+	yarnrcPath := filepath.Join(home, ".yarnrc")
+	if yarnMajorVersion() == 1 || fileExists(yarnrcPath) {
+		if err := writeYarnV1Registry(yarnrcPath, url); err != nil {
+			errs = append(errs, "yarnrc: "+err.Error())
 		}
-		return nil
 	}
-	npmrc := filepath.Join(home, ".npmrc")
-	if err := backupFile(npmrc); err != nil {
-		return fmt.Errorf("backing up %s: %v", npmrc, err)
+
+	// yarn berry (.yarnrc.yml) — write if installed (v2+) or file already exists
+	yarnYmlPath := filepath.Join(home, ".yarnrc.yml")
+	if yarnMajorVersion() >= 2 || fileExists(yarnYmlPath) {
+		if err := writeYarnBerryRegistry(yarnYmlPath, url); err != nil {
+			errs = append(errs, "yarnrc.yml: "+err.Error())
+		}
 	}
-	data, _ := os.ReadFile(npmrc)
+
+	// bun (bunfig.toml) — write if installed or file already exists
+	bunfigPath := filepath.Join(home, ".bunfig.toml")
+	if toolInPath("bun") || fileExists(bunfigPath) {
+		if err := writeBunRegistry(bunfigPath, url); err != nil {
+			errs = append(errs, "bunfig.toml: "+err.Error())
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// writeNpmrcRegistry writes or updates the registry= line in an .npmrc file.
+// Used by both npm and pnpm (pnpm reads from .npmrc by default).
+// Always edits the file at path directly — works for both global and local config.
+func writeNpmrcRegistry(path, url string) error {
+	if err := backupFile(path); err != nil {
+		return fmt.Errorf("backing up %s: %v", path, err)
+	}
+	data, _ := os.ReadFile(path)
 	lines := strings.Split(string(data), "\n")
 	found := false
 	for i, line := range lines {
@@ -280,14 +393,106 @@ func writeNpmConfig(home, base string) error {
 	if !found {
 		lines = append(lines, "registry="+url)
 	}
-	return writeAtomic(npmrc, []byte(strings.Join(lines, "\n")), 0644)
+	return writeAtomic(path, []byte(strings.Join(lines, "\n")), 0644)
 }
 
-// ── pypi ──────────────────────────────────────────────────────────────────────
+// writeYarnV1Registry writes the registry to a yarn v1 .yarnrc file.
+func writeYarnV1Registry(path, url string) error {
+	backupFile(path) //nolint:errcheck
+	data, _ := os.ReadFile(path)
+	lines := strings.Split(string(data), "\n")
+	found := false
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "registry ") {
+			lines[i] = `registry "` + url + `"`
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, `registry "`+url+`"`)
+	}
+	return writeAtomic(path, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+// writeYarnBerryRegistry writes or updates npmRegistryServer in a .yarnrc.yml file.
+func writeYarnBerryRegistry(path, url string) error {
+	backupFile(path) //nolint:errcheck
+	data, _ := os.ReadFile(path)
+	lines := strings.Split(string(data), "\n")
+	found := false
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "npmRegistryServer:") {
+			lines[i] = `npmRegistryServer: "` + url + `"`
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, `npmRegistryServer: "`+url+`"`)
+	}
+	return writeAtomic(path, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+// writeBunRegistry writes or updates [install].registry in a bunfig.toml file.
+func writeBunRegistry(path, url string) error {
+	backupFile(path) //nolint:errcheck
+	existing, _ := os.ReadFile(path)
+	var cfg map[string]interface{}
+	if len(bytes.TrimSpace(existing)) > 0 {
+		if err := toml.Unmarshal(existing, &cfg); err != nil {
+			cfg = nil // parse failure — overwrite safely
+		}
+	}
+	if cfg == nil {
+		cfg = make(map[string]interface{})
+	}
+	install, _ := cfg["install"].(map[string]interface{})
+	if install == nil {
+		install = make(map[string]interface{})
+	}
+	install["registry"] = url
+	cfg["install"] = install
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
+		return err
+	}
+	return writeAtomic(path, buf.Bytes(), 0644)
+}
+
+// yarnMajorVersion returns the major version of the yarn binary (1 for classic,
+// 2+ for berry) or 0 if yarn is not installed.
+func yarnMajorVersion() int {
+	out, err := exec.Command("yarn", "--version").Output()
+	if err != nil {
+		return 0
+	}
+	v := strings.TrimSpace(string(out))
+	if strings.HasPrefix(v, "1.") {
+		return 1
+	}
+	if v != "" {
+		return 2 // berry (2.x / 3.x / 4.x)
+	}
+	return 0
+}
+
+func toolInPath(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// ── pypi / uv / poetry ───────────────────────────────────────────────────────
 
 func writePypiConfig(home, base string) error {
 	indexURL := base + "/pypi/simple/"
 
+	// pip
 	pipConf := filepath.Join(home, ".pip", "pip.conf")
 	if err := backupFile(pipConf); err != nil {
 		return fmt.Errorf("backing up %s: %v", pipConf, err)
@@ -300,6 +505,7 @@ func writePypiConfig(home, base string) error {
 		return err
 	}
 
+	// uv
 	uvConf := filepath.Join(home, ".config", "uv", "uv.toml")
 	if err := backupFile(uvConf); err != nil {
 		return fmt.Errorf("backing up %s: %v", uvConf, err)
@@ -307,10 +513,38 @@ func writePypiConfig(home, base string) error {
 	if err := os.MkdirAll(filepath.Dir(uvConf), 0755); err != nil {
 		return err
 	}
-	// Use json.Marshal to safely quote the URL string in a TOML context.
 	quoted, _ := json.Marshal(indexURL)
 	uvContent := "[pip]\nindex-url = " + string(quoted) + "\n"
-	return writeAtomic(uvConf, []byte(uvContent), 0644)
+	if err := writeAtomic(uvConf, []byte(uvContent), 0644); err != nil {
+		return err
+	}
+
+	// poetry: no global "default registry" setting exists; inject PIP_INDEX_URL
+	// into shell profiles — poetry respects this env var as a fallback source.
+	block := "# BEGIN escrow-python\nexport PIP_INDEX_URL=" + indexURL +
+		"\nexport UV_INDEX_URL=" + indexURL + "\n# END escrow-python\n"
+	profiles := shellProfiles(home)
+	for _, p := range profiles {
+		if err := upsertShellBlock(p, block, "# BEGIN escrow-python", "# END escrow-python"); err != nil {
+			return fmt.Errorf("%s: %v", filepath.Base(p), err)
+		}
+	}
+	return nil
+}
+
+// shellProfiles returns the shell profiles to write to (existing only, or .zprofile as fallback).
+func shellProfiles(home string) []string {
+	var profiles []string
+	for _, name := range []string{".zprofile", ".bash_profile"} {
+		p := filepath.Join(home, name)
+		if fileExists(p) {
+			profiles = append(profiles, p)
+		}
+	}
+	if len(profiles) == 0 {
+		profiles = []string{filepath.Join(home, ".zprofile")}
+	}
+	return profiles
 }
 
 // ── go ────────────────────────────────────────────────────────────────────────
@@ -318,39 +552,23 @@ func writePypiConfig(home, base string) error {
 func writeGoConfig(home, base string) error {
 	goProxy := base + "/go,off"
 	block := "# BEGIN escrow-go\nexport GOPROXY=" + goProxy + "\nexport GONOSUMDB=*\n# END escrow-go\n"
-
-	// Only write to profiles that already exist; create .zprofile if neither exists.
-	var profiles []string
-	for _, name := range []string{".zprofile", ".bash_profile"} {
-		p := filepath.Join(home, name)
-		if _, err := os.Stat(p); err == nil {
-			profiles = append(profiles, p)
-		}
-	}
-	if len(profiles) == 0 {
-		profiles = []string{filepath.Join(home, ".zprofile")}
-	}
-
-	for _, p := range profiles {
-		if err := upsertShellBlock(p, block); err != nil {
+	for _, p := range shellProfiles(home) {
+		if err := upsertShellBlock(p, block, "# BEGIN escrow-go", "# END escrow-go"); err != nil {
 			return fmt.Errorf("%s: %v", filepath.Base(p), err)
 		}
 	}
 	return nil
 }
 
-func upsertShellBlock(profile, block string) error {
-	const (
-		begin = "# BEGIN escrow-go"
-		end   = "# END escrow-go"
-	)
+// upsertShellBlock writes or replaces a named block in a shell profile.
+// The block is identified by begin/end marker strings.
+func upsertShellBlock(profile, block, begin, end string) error {
 	data, _ := os.ReadFile(profile)
 	content := string(data)
 
 	if idx := strings.Index(content, begin); idx >= 0 {
 		endIdx := strings.Index(content, end)
 		if endIdx < 0 {
-			// Marker without END — refuse to modify to avoid truncating the file.
 			return fmt.Errorf("found %q without %q; remove the stale marker manually", begin, end)
 		}
 		endIdx += len(end)
@@ -370,11 +588,8 @@ func upsertShellBlock(profile, block string) error {
 	return writeAtomic(profile, []byte(content), 0644)
 }
 
-func removeGoMarkers(profile string) bool {
-	const (
-		begin = "# BEGIN escrow-go"
-		end   = "# END escrow-go"
-	)
+// removeShellBlock removes a begin/end marker block from a shell profile.
+func removeShellBlock(profile, begin, end string) bool {
 	data, err := os.ReadFile(profile)
 	if err != nil || !strings.Contains(string(data), begin) {
 		return false
@@ -391,6 +606,10 @@ func removeGoMarkers(profile string) bool {
 	}
 	writeAtomic(profile, []byte(content[:startIdx]+content[endIdx:]), 0644) //nolint:errcheck
 	return true
+}
+
+func removeGoMarkers(profile string) bool {
+	return removeShellBlock(profile, "# BEGIN escrow-go", "# END escrow-go")
 }
 
 // ── cargo ─────────────────────────────────────────────────────────────────────
@@ -469,7 +688,7 @@ func writeNugetConfig(home, base string) error {
 	return writeAtomic(cfgPath, []byte(content), 0644)
 }
 
-// ── maven ─────────────────────────────────────────────────────────────────────
+// ── maven / gradle ────────────────────────────────────────────────────────────
 
 func writeMavenConfig(home, base string) error {
 	cfgPath := filepath.Join(home, ".m2", "settings.xml")
@@ -513,7 +732,49 @@ func writeMavenConfig(home, base string) error {
 	} else {
 		content += "  <mirrors>\n" + mirrorXML + "\n  </mirrors>\n"
 	}
-	return writeAtomic(cfgPath, []byte(content), 0644)
+	if err := writeAtomic(cfgPath, []byte(content), 0644); err != nil {
+		return err
+	}
+
+	// Gradle: write init script that redirects all Maven repos through escrow.
+	return writeGradleConfig(home, base)
+}
+
+// writeGradleConfig writes a Gradle init script that redirects all Maven
+// repository URLs to the escrow proxy. The script is placed in
+// ~/.gradle/init.d/ so it applies globally to all Gradle projects.
+func writeGradleConfig(home, base string) error {
+	dir := filepath.Join(home, ".gradle", "init.d")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "escrow-mirror.gradle")
+	backupFile(path) //nolint:errcheck
+	url := base + "/maven2/"
+	content := `// Escrow supply-chain proxy — managed by escrow-cli
+// Redirects all Maven repository requests through the escrow proxy.
+allprojects {
+    buildscript {
+        repositories {
+            all { ArtifactRepository repo ->
+                if (repo instanceof MavenArtifactRepository
+                        && !repo.url.toString().startsWith('file:')) {
+                    repo.url = new URI('` + url + `')
+                }
+            }
+        }
+    }
+    repositories {
+        all { ArtifactRepository repo ->
+            if (repo instanceof MavenArtifactRepository
+                    && !repo.url.toString().startsWith('file:')) {
+                repo.url = new URI('` + url + `')
+            }
+        }
+    }
+}
+`
+	return writeAtomic(path, []byte(content), 0644)
 }
 
 // ── composer ──────────────────────────────────────────────────────────────────
@@ -595,24 +856,34 @@ func writeEcoConfigLocal(eco, base, dir string) error {
 	return fmt.Errorf("local config not supported for %s", eco)
 }
 
+// writeNpmConfigLocal writes .npmrc, .yarnrc, .yarnrc.yml, and bunfig.toml
+// to the project directory — whichever tools are installed or already configured.
 func writeNpmConfigLocal(dir, base string) error {
-	path := filepath.Join(dir, ".npmrc")
-	backupFile(path) //nolint:errcheck
 	url := base + "/"
-	data, _ := os.ReadFile(path)
-	lines := strings.Split(string(data), "\n")
-	found := false
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "registry=") {
-			lines[i] = "registry=" + url
-			found = true
-			break
+	var errs []string
+
+	if err := writeNpmrcRegistry(filepath.Join(dir, ".npmrc"), url); err != nil {
+		errs = append(errs, "npmrc: "+err.Error())
+	}
+	if yarnrc := filepath.Join(dir, ".yarnrc"); yarnMajorVersion() == 1 || fileExists(yarnrc) {
+		if err := writeYarnV1Registry(yarnrc, url); err != nil {
+			errs = append(errs, "yarnrc: "+err.Error())
 		}
 	}
-	if !found {
-		lines = append(lines, "registry="+url)
+	if yarnYml := filepath.Join(dir, ".yarnrc.yml"); yarnMajorVersion() >= 2 || fileExists(yarnYml) {
+		if err := writeYarnBerryRegistry(yarnYml, url); err != nil {
+			errs = append(errs, "yarnrc.yml: "+err.Error())
+		}
 	}
-	return writeAtomic(path, []byte(strings.Join(lines, "\n")), 0644)
+	if bunfig := filepath.Join(dir, "bunfig.toml"); toolInPath("bun") || fileExists(bunfig) {
+		if err := writeBunRegistry(bunfig, url); err != nil {
+			errs = append(errs, "bunfig.toml: "+err.Error())
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 func writeCargoConfigLocal(dir, base string) error {

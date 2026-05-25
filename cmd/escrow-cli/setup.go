@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -35,77 +36,156 @@ var escrowPfLines = []string{
 func runSetup(args []string) {
 	fs := flag.NewFlagSet("setup", flag.ExitOnError)
 	withSudoers := fs.Bool("sudoers", false, "install sudoers file at /etc/sudoers.d/escrow")
+	dryRun := fs.Bool("dry-run", false, "print what would be done without making any changes")
 	fs.Parse(args) //nolint:errcheck
 
-	requireRoot("setup")
-
-	var done, already []string
-
-	// 1. Create _escrow system account.
-	created, err := createSystemUser()
-	if err != nil {
-		die("creating _escrow account: %v", err)
+	if !*dryRun {
+		requireRoot("setup")
 	}
-	if created {
-		done = append(done, "created system account _escrow")
-	} else {
+
+	if *dryRun {
+		fmt.Println("(dry-run — no changes will be made)")
+	}
+
+	var would, done, already []string
+
+	// 1. _escrow system account.
+	if userExists() {
 		already = append(already, "_escrow account already exists")
+	} else if *dryRun {
+		would = append(would, "create system account _escrow ("+createUserCmd()+")")
+	} else {
+		if _, err := createSystemUser(); err != nil {
+			die("creating _escrow account: %v", err)
+		}
+		done = append(done, "created system account _escrow")
 	}
 
 	if runtime.GOOS == "darwin" {
-		// 2. Patch /etc/pf.conf and reload.
-		patched, err := patchPfConf()
-		if err != nil {
-			die("patching %s: %v", pfConf, err)
-		}
-		if patched {
-			out, err := exec.Command("pfctl", "-f", pfConf).CombinedOutput()
-			if err != nil {
-				die("reloading pf.conf: %v\n%s", err, strings.TrimSpace(string(out)))
+		// 2. /etc/pf.conf
+		if pfConfNeedsUpdate() {
+			if *dryRun {
+				would = append(would, "patch "+pfConf+" with escrow rdr-anchor lines and reload pf")
+			} else {
+				patched, err := patchPfConf()
+				if err != nil {
+					die("patching %s: %v", pfConf, err)
+				}
+				if patched {
+					// Clear the anchor file before reloading pf.conf.
+					// setup only wires the anchor hook; fw-enable writes the rules.
+					// A stale anchor (e.g. from a prior fw-enable) would fail here
+					// because pf validates "user _escrow" at load time even if the
+					// account was just created.
+					const emptyAnchor = "# Escrow pf anchor — managed by escrow-cli\n"
+					writeAtomic(pfAnchorFile, []byte(emptyAnchor), 0644) //nolint:errcheck
+					out, err := exec.Command("pfctl", "-f", pfConf).CombinedOutput()
+					if err != nil {
+						die("reloading pf.conf: %v\n%s", err, strings.TrimSpace(string(out)))
+					}
+					done = append(done, "updated "+pfConf+" and reloaded pf (run fw-enable to restore rules)")
+				}
 			}
-			done = append(done, "updated "+pfConf+" and reloaded pf")
 		} else {
 			already = append(already, pfConf+" already contains escrow anchors")
 		}
 
-		// 3. Create empty anchor file.
+		// 3. Anchor file.
 		if _, err := os.Stat(pfAnchorFile); os.IsNotExist(err) {
-			if err := os.MkdirAll("/etc/pf.anchors", 0755); err != nil {
-				die("creating /etc/pf.anchors: %v", err)
+			if *dryRun {
+				would = append(would, "create "+pfAnchorFile)
+			} else {
+				if err := os.MkdirAll("/etc/pf.anchors", 0755); err != nil {
+					die("creating /etc/pf.anchors: %v", err)
+				}
+				comment := "# Escrow pf anchor — managed by escrow-cli\n"
+				if err := writeAtomic(pfAnchorFile, []byte(comment), 0644); err != nil {
+					die("creating %s: %v", pfAnchorFile, err)
+				}
+				done = append(done, "created "+pfAnchorFile)
 			}
-			comment := "# Escrow pf anchor — managed by escrow-cli\n"
-			if err := writeAtomic(pfAnchorFile, []byte(comment), 0644); err != nil {
-				die("creating %s: %v", pfAnchorFile, err)
-			}
-			done = append(done, "created "+pfAnchorFile)
 		} else {
 			already = append(already, pfAnchorFile+" already exists")
 		}
 	}
 
 	if runtime.GOOS == "linux" {
-		ok, err := setupLinuxFwChain()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: firewall chain setup: %v\n", err)
-		} else if ok {
-			done = append(done, "created ESCROW iptables/nftables chain")
+		if *dryRun {
+			would = append(would, "create ESCROW iptables/nftables chain (via "+detectLinuxFw()+")")
+		} else {
+			ok, err := setupLinuxFwChain()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: firewall chain setup: %v\n", err)
+			} else if ok {
+				done = append(done, "created ESCROW iptables/nftables chain")
+			}
 		}
 	}
 
-	// 4. Install sudoers file (opt-in via --sudoers).
+	// 4. Sudoers (opt-in).
 	if *withSudoers {
-		if err := installSudoers(); err != nil {
-			die("installing sudoers: %v", err)
+		if _, err := os.Stat(sudoersPath); err == nil {
+			already = append(already, sudoersPath+" already exists")
+		} else if *dryRun {
+			would = append(would, "install sudoers file at "+sudoersPath)
+		} else {
+			if err := installSudoers(); err != nil {
+				die("installing sudoers: %v", err)
+			}
+			done = append(done, "installed sudoers file at "+sudoersPath)
 		}
-		done = append(done, "installed sudoers file at "+sudoersPath)
 	}
 
+	for _, s := range would {
+		fmt.Println("~", s)
+	}
 	for _, s := range done {
 		fmt.Println("✓", s)
 	}
 	for _, s := range already {
 		fmt.Println("–", s)
 	}
+}
+
+// userExists reports whether the _escrow system account already exists.
+func userExists() bool {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("dscl", ".", "-read", "/Users/_escrow").Run() == nil
+	default:
+		return exec.Command("id", "-u", "_escrow").Run() == nil
+	}
+}
+
+// createUserCmd returns the command string that would create _escrow, for dry-run display.
+func createUserCmd() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "/usr/sbin/sysadminctl -addUser _escrow -fullName \"Escrow Proxy\" -roleAccount"
+	default:
+		return "useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin _escrow"
+	}
+}
+
+// pfConfNeedsUpdate reports whether /etc/pf.conf is missing any of the escrow anchor lines.
+func pfConfNeedsUpdate() bool {
+	data, err := os.ReadFile(pfConf)
+	if err != nil {
+		return true
+	}
+	for _, line := range escrowPfLines {
+		found := false
+		for _, l := range strings.Split(string(data), "\n") {
+			if strings.TrimSpace(l) == line {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return true
+		}
+	}
+	return false
 }
 
 // patchPfConf ensures the three escrow anchor lines are present in /etc/pf.conf.
@@ -228,11 +308,26 @@ func createSystemUser() (bool, error) {
 		if exec.Command("dscl", ".", "-read", "/Users/_escrow").Run() == nil {
 			return false, nil
 		}
-		out, err := exec.Command("/usr/bin/sysadminctl",
-			"-addUser", "_escrow", "-fullName", "Escrow Proxy", "-roleAccount",
-		).CombinedOutput()
+		// Create the user directly in the local directory node via dscl.
+		// sysadminctl -roleAccount writes to Open Directory, which is NOT visible
+		// to id(1), pf's user keyword, or /etc/passwd lookups.  dscl "." targets
+		// /Local/Default — the same node queried by every standard POSIX lookup.
+		uid, err := nextSystemUID()
 		if err != nil {
-			return false, fmt.Errorf("%v\n%s", err, strings.TrimSpace(string(out)))
+			return false, fmt.Errorf("finding available UID: %v", err)
+		}
+		cmds := [][]string{
+			{"dscl", ".", "-create", "/Users/_escrow"},
+			{"dscl", ".", "-create", "/Users/_escrow", "RealName", "Escrow Proxy"},
+			{"dscl", ".", "-create", "/Users/_escrow", "UserShell", "/usr/bin/false"},
+			{"dscl", ".", "-create", "/Users/_escrow", "NFSHomeDirectory", "/var/empty"},
+			{"dscl", ".", "-create", "/Users/_escrow", "UniqueID", uid},
+			{"dscl", ".", "-create", "/Users/_escrow", "PrimaryGroupID", "99"},
+		}
+		for _, args := range cmds {
+			if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+				return false, fmt.Errorf("dscl %v: %v\n%s", args[2:], err, strings.TrimSpace(string(out)))
+			}
 		}
 		return true, nil
 
@@ -255,6 +350,30 @@ func createSystemUser() (bool, error) {
 	default:
 		return false, fmt.Errorf("user creation not supported on %s", runtime.GOOS)
 	}
+}
+
+// nextSystemUID scans the local dscl directory for the highest free UID in
+// the macOS system-user range (200–499) and returns it as a decimal string.
+func nextSystemUID() (string, error) {
+	out, err := exec.Command("dscl", ".", "-list", "/Users", "UniqueID").Output()
+	if err != nil {
+		return "499", nil // safe default if dscl fails
+	}
+	used := make(map[int]bool)
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			if n, err := strconv.Atoi(fields[1]); err == nil {
+				used[n] = true
+			}
+		}
+	}
+	for uid := 499; uid >= 200; uid-- {
+		if !used[uid] {
+			return strconv.Itoa(uid), nil
+		}
+	}
+	return "", fmt.Errorf("no free UID in range 200–499")
 }
 
 // setupLinuxFwChain creates the empty ESCROW iptables chain (if iptables is in use)

@@ -41,16 +41,23 @@ func runStatus(args []string) {
 	// 1+2. Firewall rules active and which ecosystems are loaded.
 	switch runtime.GOOS {
 	case "darwin":
-		pfOut, pfErr := exec.Command("sudo", "-n", "pfctl", "-a", "escrow", "-s", "rules").Output()
+		// rdr rules live in the nat section (not filter rules).
+		pfOut, pfErr := exec.Command("sudo", "-n", "pfctl", "-a", "escrow", "-s", "nat").Output()
 		switch {
 		case pfErr == nil:
 			pfRules := strings.TrimSpace(string(pfOut))
-			result.PfAnchorActive = pfRules != ""
+			result.PfAnchorActive = strings.Contains(pfRules, "rdr pass")
 			if result.PfAnchorActive {
+				// pfctl -s nat shows resolved IPs, not hostnames.
+				// Read the anchor file instead — we wrote it with hostnames.
+				anchorData, _ := os.ReadFile(pfAnchorFile)
+				anchor := string(anchorData)
 				for _, eco := range allEcosystems {
-					hosts := registryHosts[eco]
-					if len(hosts) > 0 && strings.Contains(pfRules, hosts[0]) {
-						result.ActiveEcosystems = append(result.ActiveEcosystems, eco)
+					for _, host := range registryHosts[eco] {
+						if strings.Contains(anchor, host) {
+							result.ActiveEcosystems = append(result.ActiveEcosystems, eco)
+							break
+						}
 					}
 				}
 			}
@@ -202,8 +209,17 @@ func isEscrowConfig(path, hint string) bool {
 	case "npm":
 		return strings.Contains(s, "registry=http://127.0.0.1:7888") ||
 			strings.Contains(s, "registry=http://localhost:7888")
+	case "yarn1":
+		return strings.Contains(s, `registry "http://127.0.0.1:7888`) ||
+			strings.Contains(s, `registry "http://localhost:7888`)
+	case "yarnberry":
+		return strings.Contains(s, "npmRegistryServer:") && escrowProxy(s)
+	case "bun":
+		return strings.Contains(s, "[install]") && escrowProxy(s)
 	case "pypi", "uv":
 		return escrowProxy(s)
+	case "python-env":
+		return strings.Contains(s, "BEGIN escrow-python")
 	case "go":
 		return strings.Contains(s, "BEGIN escrow-go")
 	case "cargo":
@@ -212,6 +228,8 @@ func isEscrowConfig(path, hint string) bool {
 		return strings.Contains(s, `key="escrow"`)
 	case "maven":
 		return strings.Contains(s, "<id>escrow</id>")
+	case "gradle":
+		return strings.Contains(s, "escrow-mirror") || strings.Contains(s, "escrow-cli")
 	case "composer":
 		return strings.Contains(s, `"type": "composer"`) && escrowProxy(s)
 	}
