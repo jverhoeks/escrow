@@ -35,77 +35,149 @@ var escrowPfLines = []string{
 func runSetup(args []string) {
 	fs := flag.NewFlagSet("setup", flag.ExitOnError)
 	withSudoers := fs.Bool("sudoers", false, "install sudoers file at /etc/sudoers.d/escrow")
+	dryRun := fs.Bool("dry-run", false, "print what would be done without making any changes")
 	fs.Parse(args) //nolint:errcheck
 
-	requireRoot("setup")
-
-	var done, already []string
-
-	// 1. Create _escrow system account.
-	created, err := createSystemUser()
-	if err != nil {
-		die("creating _escrow account: %v", err)
+	if !*dryRun {
+		requireRoot("setup")
 	}
-	if created {
-		done = append(done, "created system account _escrow")
-	} else {
+
+	if *dryRun {
+		fmt.Println("(dry-run — no changes will be made)")
+	}
+
+	var would, done, already []string
+
+	// 1. _escrow system account.
+	if userExists() {
 		already = append(already, "_escrow account already exists")
+	} else if *dryRun {
+		would = append(would, "create system account _escrow ("+createUserCmd()+")")
+	} else {
+		if _, err := createSystemUser(); err != nil {
+			die("creating _escrow account: %v", err)
+		}
+		done = append(done, "created system account _escrow")
 	}
 
 	if runtime.GOOS == "darwin" {
-		// 2. Patch /etc/pf.conf and reload.
-		patched, err := patchPfConf()
-		if err != nil {
-			die("patching %s: %v", pfConf, err)
-		}
-		if patched {
-			out, err := exec.Command("pfctl", "-f", pfConf).CombinedOutput()
-			if err != nil {
-				die("reloading pf.conf: %v\n%s", err, strings.TrimSpace(string(out)))
+		// 2. /etc/pf.conf
+		if pfConfNeedsUpdate() {
+			if *dryRun {
+				would = append(would, "patch "+pfConf+" with escrow rdr-anchor lines and reload pf")
+			} else {
+				patched, err := patchPfConf()
+				if err != nil {
+					die("patching %s: %v", pfConf, err)
+				}
+				if patched {
+					out, err := exec.Command("pfctl", "-f", pfConf).CombinedOutput()
+					if err != nil {
+						die("reloading pf.conf: %v\n%s", err, strings.TrimSpace(string(out)))
+					}
+					done = append(done, "updated "+pfConf+" and reloaded pf")
+				}
 			}
-			done = append(done, "updated "+pfConf+" and reloaded pf")
 		} else {
 			already = append(already, pfConf+" already contains escrow anchors")
 		}
 
-		// 3. Create empty anchor file.
+		// 3. Anchor file.
 		if _, err := os.Stat(pfAnchorFile); os.IsNotExist(err) {
-			if err := os.MkdirAll("/etc/pf.anchors", 0755); err != nil {
-				die("creating /etc/pf.anchors: %v", err)
+			if *dryRun {
+				would = append(would, "create "+pfAnchorFile)
+			} else {
+				if err := os.MkdirAll("/etc/pf.anchors", 0755); err != nil {
+					die("creating /etc/pf.anchors: %v", err)
+				}
+				comment := "# Escrow pf anchor — managed by escrow-cli\n"
+				if err := writeAtomic(pfAnchorFile, []byte(comment), 0644); err != nil {
+					die("creating %s: %v", pfAnchorFile, err)
+				}
+				done = append(done, "created "+pfAnchorFile)
 			}
-			comment := "# Escrow pf anchor — managed by escrow-cli\n"
-			if err := writeAtomic(pfAnchorFile, []byte(comment), 0644); err != nil {
-				die("creating %s: %v", pfAnchorFile, err)
-			}
-			done = append(done, "created "+pfAnchorFile)
 		} else {
 			already = append(already, pfAnchorFile+" already exists")
 		}
 	}
 
 	if runtime.GOOS == "linux" {
-		ok, err := setupLinuxFwChain()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: firewall chain setup: %v\n", err)
-		} else if ok {
-			done = append(done, "created ESCROW iptables/nftables chain")
+		if *dryRun {
+			would = append(would, "create ESCROW iptables/nftables chain (via "+detectLinuxFw()+")")
+		} else {
+			ok, err := setupLinuxFwChain()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: firewall chain setup: %v\n", err)
+			} else if ok {
+				done = append(done, "created ESCROW iptables/nftables chain")
+			}
 		}
 	}
 
-	// 4. Install sudoers file (opt-in via --sudoers).
+	// 4. Sudoers (opt-in).
 	if *withSudoers {
-		if err := installSudoers(); err != nil {
-			die("installing sudoers: %v", err)
+		if _, err := os.Stat(sudoersPath); err == nil {
+			already = append(already, sudoersPath+" already exists")
+		} else if *dryRun {
+			would = append(would, "install sudoers file at "+sudoersPath)
+		} else {
+			if err := installSudoers(); err != nil {
+				die("installing sudoers: %v", err)
+			}
+			done = append(done, "installed sudoers file at "+sudoersPath)
 		}
-		done = append(done, "installed sudoers file at "+sudoersPath)
 	}
 
+	for _, s := range would {
+		fmt.Println("~", s)
+	}
 	for _, s := range done {
 		fmt.Println("✓", s)
 	}
 	for _, s := range already {
 		fmt.Println("–", s)
 	}
+}
+
+// userExists reports whether the _escrow system account already exists.
+func userExists() bool {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("dscl", ".", "-read", "/Users/_escrow").Run() == nil
+	default:
+		return exec.Command("id", "-u", "_escrow").Run() == nil
+	}
+}
+
+// createUserCmd returns the command string that would create _escrow, for dry-run display.
+func createUserCmd() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "/usr/sbin/sysadminctl -addUser _escrow -fullName \"Escrow Proxy\" -roleAccount"
+	default:
+		return "useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin _escrow"
+	}
+}
+
+// pfConfNeedsUpdate reports whether /etc/pf.conf is missing any of the escrow anchor lines.
+func pfConfNeedsUpdate() bool {
+	data, err := os.ReadFile(pfConf)
+	if err != nil {
+		return true
+	}
+	for _, line := range escrowPfLines {
+		found := false
+		for _, l := range strings.Split(string(data), "\n") {
+			if strings.TrimSpace(l) == line {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return true
+		}
+	}
+	return false
 }
 
 // patchPfConf ensures the three escrow anchor lines are present in /etc/pf.conf.
@@ -228,7 +300,7 @@ func createSystemUser() (bool, error) {
 		if exec.Command("dscl", ".", "-read", "/Users/_escrow").Run() == nil {
 			return false, nil
 		}
-		out, err := exec.Command("/usr/bin/sysadminctl",
+		out, err := exec.Command("/usr/sbin/sysadminctl",
 			"-addUser", "_escrow", "-fullName", "Escrow Proxy", "-roleAccount",
 		).CombinedOutput()
 		if err != nil {

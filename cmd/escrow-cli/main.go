@@ -8,7 +8,7 @@ import (
 const cliUsage = `escrow-cli — escrow proxy system configuration
 
 Usage:
-  escrow-cli setup                   [--sudoers]
+  escrow-cli setup                   [--sudoers] [--dry-run]
   escrow-cli fw-enable               [--ecosystems LIST] [--proxy-port PORT] [--proxy-user USER]
   escrow-cli fw-disable
   escrow-cli config write            [--ecosystems LIST] [--proxy-url URL]
