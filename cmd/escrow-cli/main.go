@@ -8,15 +8,21 @@ import (
 const cliUsage = `escrow-cli — escrow proxy system configuration
 
 Usage:
-  escrow-cli setup              [--sudoers]
-  escrow-cli pf-enable          [--ecosystems LIST] [--proxy-port PORT] [--proxy-user USER]
-  escrow-cli pf-disable
-  escrow-cli config write       [--ecosystems LIST] [--proxy-url URL]
+  escrow-cli setup                   [--sudoers]
+  escrow-cli fw-enable               [--ecosystems LIST] [--proxy-port PORT] [--proxy-user USER]
+  escrow-cli fw-disable
+  escrow-cli config write            [--ecosystems LIST] [--proxy-url URL]
+  escrow-cli config write-local      [--ecosystems LIST] [--proxy-url URL]
   escrow-cli config restore
-  escrow-cli status             [--json]
-  escrow-cli service            <start|stop|restart|status>
+  escrow-cli config restore-local
+  escrow-cli status                  [--json]
+  escrow-cli service                 <start|stop|restart|status>
 
-Subcommands that require root: setup, pf-enable, pf-disable, service
+Aliases (backward-compatible):
+  pf-enable  →  fw-enable
+  pf-disable →  fw-disable
+
+Subcommands that require root: setup, fw-enable, fw-disable, service
 `
 
 func main() {
@@ -28,20 +34,24 @@ func main() {
 	switch os.Args[1] {
 	case "setup":
 		runSetup(os.Args[2:])
-	case "pf-enable":
-		runPfEnable(os.Args[2:])
-	case "pf-disable":
-		runPfDisable(os.Args[2:])
+	case "fw-enable", "pf-enable":
+		runFwEnable(os.Args[2:])
+	case "fw-disable", "pf-disable":
+		runFwDisable(os.Args[2:])
 	case "config":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "error: config requires a subcommand: write, restore")
+			fmt.Fprintln(os.Stderr, "error: config requires a subcommand: write, write-local, restore, restore-local")
 			os.Exit(1)
 		}
 		switch os.Args[2] {
 		case "write":
 			runConfigWrite(os.Args[3:])
+		case "write-local":
+			runConfigWriteLocal(os.Args[3:])
 		case "restore":
 			runConfigRestore(os.Args[3:])
+		case "restore-local":
+			runConfigRestoreLocal(os.Args[3:])
 		default:
 			fmt.Fprintf(os.Stderr, "error: unknown config subcommand: %s\n", os.Args[2])
 			os.Exit(1)
