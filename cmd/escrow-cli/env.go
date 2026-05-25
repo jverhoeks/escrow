@@ -15,14 +15,20 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
 
-const (
-	launchDaemonEnvPlist = "/Library/LaunchDaemons/com.escrow.environment.plist"
-	linuxProfileScript   = "/etc/profile.d/escrow.sh"
-)
+const linuxProfileScript = "/etc/profile.d/escrow.sh"
+
+// launchAgentEnvPlist returns the path for the user-level LaunchAgent.
+// User LaunchAgents run in the user's session context where launchctl setenv
+// is permitted even with SIP enabled. System LaunchDaemons are blocked by SIP.
+func launchAgentEnvPlist() string {
+	home, _ := os.UserHomeDir()
+	return home + "/Library/LaunchAgents/com.escrow.environment.plist"
+}
 
 // ecoEnvVar maps an ecosystem to the env vars it contributes.
 type ecoEnvVar struct {
@@ -79,12 +85,14 @@ func runConfigWriteEnv(args []string) {
 
 	switch runtime.GOOS {
 	case "darwin":
-		requireRoot("config write-env")
-		if err := writeLaunchDaemonEnv(vars); err != nil {
-			die("writing LaunchDaemon: %v", err)
+		// No root needed — user LaunchAgent lives in ~/Library/LaunchAgents/.
+		plist := launchAgentEnvPlist()
+		if err := writeUserLaunchAgentEnv(plist, vars); err != nil {
+			die("writing LaunchAgent: %v", err)
 		}
-		fmt.Printf("✓ %s written and loaded\n", launchDaemonEnvPlist)
-		fmt.Println("  Env vars are now active for all processes (no reboot needed).")
+		fmt.Printf("✓ %s written and loaded\n", plist)
+		fmt.Println("  Env vars are now active for new processes in this login session.")
+		fmt.Println("  They will persist automatically on every login.")
 	case "linux":
 		requireRoot("config write-env")
 		if err := writeLinuxProfileEnv(vars); err != nil {
@@ -102,11 +110,16 @@ func runConfigWriteEnv(args []string) {
 	}
 }
 
-func writeLaunchDaemonEnv(vars []ecoEnvVar) error {
-	// Build the shell command that calls launchctl setenv for each var.
+// writeUserLaunchAgentEnv writes a LaunchAgent plist to ~/Library/LaunchAgents/
+// and loads it. The agent runs at login and calls launchctl setenv for each var.
+// User-domain launchctl setenv works with SIP enabled; system-domain does not.
+func writeUserLaunchAgentEnv(plistPath string, vars []ecoEnvVar) error {
 	var cmds []string
 	for _, v := range vars {
-		cmds = append(cmds, fmt.Sprintf("launchctl setenv %s %s", v.key, v.value))
+		// Single-quote the value to prevent shell glob/word-splitting expansion.
+		// e.g. GONOSUMDB=* would be expanded to filenames without quoting.
+		quoted := "'" + strings.ReplaceAll(v.value, "'", "'\\''") + "'"
+		cmds = append(cmds, fmt.Sprintf("launchctl setenv %s %s", v.key, quoted))
 	}
 	script := strings.Join(cmds, " && ")
 
@@ -128,24 +141,20 @@ func writeLaunchDaemonEnv(vars []ecoEnvVar) error {
 </dict>
 </plist>
 `
-	if err := os.MkdirAll("/Library/LaunchDaemons", 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(plistPath), 0755); err != nil {
 		return err
 	}
-	if err := writeAtomic(launchDaemonEnvPlist, []byte(plist), 0644); err != nil {
+	if err := writeAtomic(plistPath, []byte(plist), 0644); err != nil {
 		return err
 	}
 
-	// Unload first if already loaded (ignore error — may not be loaded).
-	exec.Command("launchctl", "unload", launchDaemonEnvPlist).Run() //nolint:errcheck
+	// Unload first if already loaded (best-effort).
+	exec.Command("launchctl", "unload", plistPath).Run() //nolint:errcheck
 
-	// Load it so env vars are active immediately without a reboot.
-	if out, err := exec.Command("launchctl", "load", launchDaemonEnvPlist).CombinedOutput(); err != nil {
+	// Load — RunAtLoad triggers the script immediately via launchd context,
+	// where launchctl setenv is permitted even with SIP enabled.
+	if out, err := exec.Command("launchctl", "load", plistPath).CombinedOutput(); err != nil {
 		return fmt.Errorf("launchctl load: %v\n%s", err, strings.TrimSpace(string(out)))
-	}
-
-	// Apply immediately by running the script directly.
-	if out, err := exec.Command("/bin/sh", "-c", script).CombinedOutput(); err != nil {
-		return fmt.Errorf("setting env vars: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -167,11 +176,12 @@ func runConfigCheckEnv(args []string) {
 
 	switch runtime.GOOS {
 	case "darwin":
-		installed := fileExists(launchDaemonEnvPlist)
+		plist := launchAgentEnvPlist()
+		installed := fileExists(plist)
 		if installed {
-			fmt.Printf("LaunchDaemon   ✓  %s\n", launchDaemonEnvPlist)
+			fmt.Printf("LaunchAgent    ✓  %s\n", plist)
 		} else {
-			fmt.Printf("LaunchDaemon   –  not installed (run: sudo escrow-cli config write-env)\n")
+			fmt.Printf("LaunchAgent    –  not installed (run: escrow-cli config write-env)\n")
 		}
 		fmt.Println()
 	case "linux":
@@ -215,19 +225,19 @@ func runConfigRestoreEnv(args []string) {
 
 	switch runtime.GOOS {
 	case "darwin":
-		if !fileExists(launchDaemonEnvPlist) {
-			fmt.Println("nothing to remove (LaunchDaemon not installed)")
+		plist := launchAgentEnvPlist()
+		if !fileExists(plist) {
+			fmt.Println("nothing to remove (LaunchAgent not installed)")
 			return
 		}
-		exec.Command("launchctl", "unload", launchDaemonEnvPlist).Run() //nolint:errcheck
-		if err := os.Remove(launchDaemonEnvPlist); err != nil {
-			die("removing %s: %v", launchDaemonEnvPlist, err)
+		exec.Command("launchctl", "unload", plist).Run() //nolint:errcheck
+		if err := os.Remove(plist); err != nil {
+			die("removing %s: %v", plist, err)
 		}
-		// Unset the vars in the running launch environment.
 		for _, v := range buildEnvVars(allEcosystems, "") {
 			exec.Command("launchctl", "unsetenv", v.key).Run() //nolint:errcheck
 		}
-		fmt.Printf("✓ removed %s and unset env vars\n", launchDaemonEnvPlist)
+		fmt.Printf("✓ removed %s and unset env vars\n", plist)
 	case "linux":
 		if !fileExists(linuxProfileScript) {
 			fmt.Println("nothing to remove (profile script not installed)")
