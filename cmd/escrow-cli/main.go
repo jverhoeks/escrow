@@ -13,8 +13,10 @@ Usage:
   escrow-cli fw-disable
   escrow-cli config write            [--ecosystems LIST] [--proxy-url URL]
   escrow-cli config write-local      [--ecosystems LIST] [--proxy-url URL]
-  escrow-cli config restore
-  escrow-cli config restore-local
+  escrow-cli config check            [--ecosystems LIST]
+  escrow-cli config check-local      [--ecosystems LIST]
+  escrow-cli config restore          [--ecosystems LIST]
+  escrow-cli config restore-local    [--ecosystems LIST]
   escrow-cli status                  [--json]
   escrow-cli service                 <start|stop|restart|status>
 
@@ -48,6 +50,10 @@ func main() {
 			runConfigWrite(os.Args[3:])
 		case "write-local":
 			runConfigWriteLocal(os.Args[3:])
+		case "check":
+			runConfigCheck(os.Args[3:])
+		case "check-local":
+			runConfigCheckLocal(os.Args[3:])
 		case "restore":
 			runConfigRestore(os.Args[3:])
 		case "restore-local":

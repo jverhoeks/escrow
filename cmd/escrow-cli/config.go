@@ -39,6 +39,7 @@ func runConfigWrite(args []string) {
 
 func runConfigRestore(args []string) {
 	fs := flag.NewFlagSet("config restore", flag.ExitOnError)
+	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems to restore")
 	fs.Parse(args) //nolint:errcheck
 
 	home, err := os.UserHomeDir()
@@ -46,51 +47,165 @@ func runConfigRestore(args []string) {
 		die("getting home dir: %v", err)
 	}
 
-	candidates := []string{
-		filepath.Join(home, ".npmrc"),
-		filepath.Join(home, ".pip", "pip.conf"),
-		filepath.Join(home, ".config", "uv", "uv.toml"),
-		filepath.Join(home, ".zprofile"),
-		filepath.Join(home, ".bash_profile"),
-		filepath.Join(home, ".cargo", "config.toml"),
-		filepath.Join(home, ".nuget", "NuGet", "NuGet.Config"),
-		filepath.Join(home, ".m2", "settings.xml"),
-		filepath.Join(home, ".config", "composer", "config.json"),
-	}
-
 	restored := 0
-	for _, path := range candidates {
-		bak := path + ".escrow-backup"
-		if _, err := os.Stat(bak); err != nil {
-			continue
-		}
-		data, err := os.ReadFile(bak)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: reading %s: %v\n", bak, err)
-			continue
-		}
-		if err := writeAtomic(path, data, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: restoring %s: %v\n", path, err)
-			continue
-		}
-		os.Remove(bak)
-		fmt.Printf("✓ restored %s\n", path)
-		restored++
-	}
-
-	for _, profile := range []string{
-		filepath.Join(home, ".zprofile"),
-		filepath.Join(home, ".bash_profile"),
-	} {
-		if removeGoMarkers(profile) {
-			fmt.Printf("✓ removed GOPROXY block from %s\n", profile)
+	for _, eco := range parseEcosystems(*ecosystems) {
+		for _, path := range ecosystemGlobalPaths(eco, home) {
+			bak := path + ".escrow-backup"
+			if _, err := os.Stat(bak); err != nil {
+				continue
+			}
+			data, err := os.ReadFile(bak)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: reading %s: %v\n", bak, err)
+				continue
+			}
+			if err := writeAtomic(path, data, 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: restoring %s: %v\n", path, err)
+				continue
+			}
+			os.Remove(bak)
+			fmt.Printf("✓ restored %s\n", path)
 			restored++
+		}
+		if eco == "go" {
+			for _, p := range ecosystemGlobalPaths("go", home) {
+				if removeGoMarkers(p) {
+					fmt.Printf("✓ removed GOPROXY block from %s\n", p)
+					restored++
+				}
+			}
 		}
 	}
 
 	if restored == 0 {
 		fmt.Println("nothing to restore")
 	}
+}
+
+// ecosystemGlobalPaths returns the $HOME config file paths owned by the given ecosystem.
+func ecosystemGlobalPaths(eco, home string) []string {
+	switch eco {
+	case "npm":
+		return []string{filepath.Join(home, ".npmrc")}
+	case "pypi":
+		return []string{
+			filepath.Join(home, ".pip", "pip.conf"),
+			filepath.Join(home, ".config", "uv", "uv.toml"),
+		}
+	case "go":
+		return []string{
+			filepath.Join(home, ".zprofile"),
+			filepath.Join(home, ".bash_profile"),
+		}
+	case "cargo":
+		return []string{filepath.Join(home, ".cargo", "config.toml")}
+	case "nuget":
+		return []string{filepath.Join(home, ".nuget", "NuGet", "NuGet.Config")}
+	case "maven":
+		return []string{filepath.Join(home, ".m2", "settings.xml")}
+	case "composer":
+		return []string{filepath.Join(home, ".config", "composer", "config.json")}
+	}
+	return nil
+}
+
+// ── config check ─────────────────────────────────────────────────────────────
+
+func runConfigCheck(args []string) {
+	fs := flag.NewFlagSet("config check", flag.ExitOnError)
+	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems to check")
+	fs.Parse(args) //nolint:errcheck
+
+	home, _ := os.UserHomeDir()
+	for _, eco := range parseEcosystems(*ecosystems) {
+		path, ok := checkEcoGlobal(eco, home)
+		if ok {
+			fmt.Printf("%-10s ✓  %s\n", eco, path)
+		} else {
+			fmt.Printf("%-10s –  not configured\n", eco)
+		}
+	}
+}
+
+// checkEcoGlobal returns the first configured file path for the ecosystem and true,
+// or ("", false) if escrow is not active for this ecosystem globally.
+func checkEcoGlobal(eco, home string) (string, bool) {
+	switch eco {
+	case "npm":
+		p := filepath.Join(home, ".npmrc")
+		return p, isEscrowConfig(p, "npm")
+	case "pypi":
+		if p := filepath.Join(home, ".pip", "pip.conf"); isEscrowConfig(p, "pypi") {
+			return p, true
+		}
+		p := filepath.Join(home, ".config", "uv", "uv.toml")
+		return p, isEscrowConfig(p, "uv")
+	case "go":
+		for _, name := range []string{".zprofile", ".bash_profile"} {
+			p := filepath.Join(home, name)
+			if isEscrowConfig(p, "go") {
+				return p, true
+			}
+		}
+		return "", false
+	case "cargo":
+		p := filepath.Join(home, ".cargo", "config.toml")
+		return p, isEscrowConfig(p, "cargo")
+	case "nuget":
+		p := filepath.Join(home, ".nuget", "NuGet", "NuGet.Config")
+		return p, isEscrowConfig(p, "nuget")
+	case "maven":
+		p := filepath.Join(home, ".m2", "settings.xml")
+		return p, isEscrowConfig(p, "maven")
+	case "composer":
+		p := filepath.Join(home, ".config", "composer", "config.json")
+		return p, isEscrowConfig(p, "composer")
+	}
+	return "", false
+}
+
+// ── config check-local ────────────────────────────────────────────────────────
+
+func runConfigCheckLocal(args []string) {
+	fs := flag.NewFlagSet("config check-local", flag.ExitOnError)
+	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems to check")
+	fs.Parse(args) //nolint:errcheck
+
+	cwd, _ := os.Getwd()
+	for _, eco := range parseEcosystems(*ecosystems) {
+		switch eco {
+		case "go", "maven":
+			fmt.Printf("%-10s N/A (no local config)\n", eco)
+			continue
+		}
+		path, ok := checkEcoLocal(eco, cwd)
+		if ok {
+			fmt.Printf("%-10s ✓  %s\n", eco, path)
+		} else {
+			fmt.Printf("%-10s –  not configured\n", eco)
+		}
+	}
+}
+
+// checkEcoLocal returns the local config path for the ecosystem in dir and true
+// if it is currently pointing at escrow, or ("", false) otherwise.
+func checkEcoLocal(eco, dir string) (string, bool) {
+	var path, hint string
+	switch eco {
+	case "npm":
+		path, hint = filepath.Join(dir, ".npmrc"), "npm"
+	case "cargo":
+		path, hint = filepath.Join(dir, ".cargo", "config.toml"), "cargo"
+	case "nuget":
+		path, hint = filepath.Join(dir, "nuget.config"), "nuget"
+	case "pypi":
+		path, hint = filepath.Join(dir, "uv.toml"), "uv"
+	case "composer":
+		path, hint = filepath.Join(dir, "composer.json"), "composer"
+	default:
+		return "", false
+	}
+	return path, isEscrowConfig(path, hint)
 }
 
 // validateProxyURL rejects proxy URLs that would break config file formats
@@ -581,14 +696,41 @@ func writeComposerConfigLocal(dir, base string) error {
 
 func runConfigRestoreLocal(args []string) {
 	fs := flag.NewFlagSet("config restore-local", flag.ExitOnError)
+	ecosystems := fs.String("ecosystems", "npm,cargo,nuget,pypi,composer", "comma-separated ecosystems to restore")
 	fs.Parse(args) //nolint:errcheck
 
 	cwd, err := os.Getwd()
 	if err != nil {
 		die("getting working directory: %v", err)
 	}
-	n := restoreLocalBackups(cwd)
-	if n == 0 {
+
+	restored := 0
+	for _, eco := range parseEcosystems(*ecosystems) {
+		path, _ := checkEcoLocal(eco, cwd)
+		if path == "" {
+			continue
+		}
+		bak := path + ".escrow-backup"
+		if _, err := os.Stat(bak); err != nil {
+			continue
+		}
+		data, err := os.ReadFile(bak)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: reading %s: %v\n", bak, err)
+			continue
+		}
+		if err := writeAtomic(path, data, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: restoring %s: %v\n", path, err)
+			continue
+		}
+		os.Remove(bak)
+		fmt.Printf("✓ restored %s\n", path)
+		restored++
+	}
+	// Also sweep .cargo/ for any remaining backup files.
+	restored += restoreLocalBackups(filepath.Join(cwd, ".cargo"))
+
+	if restored == 0 {
 		fmt.Println("nothing to restore in current directory")
 	}
 }
