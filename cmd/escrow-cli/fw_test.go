@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -83,6 +84,9 @@ func TestBuildPfRules_MultipleEcosystems(t *testing.T) {
 }
 
 func TestDetectLinuxFw_ReturnsKnownOrEmpty(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("detectLinuxFw only meaningful on Linux")
+	}
 	result := detectLinuxFw()
 	switch result {
 	case "iptables", "nftables", "":
