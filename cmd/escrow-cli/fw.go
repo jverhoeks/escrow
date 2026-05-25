@@ -120,6 +120,8 @@ func detectLinuxFw() string {
 // Uses a dedicated chain so fw-disable can flush it without touching other rules.
 func fwEnableIptables(ecos []string, port int, proxyUser string) {
 	exec.Command("iptables", "-t", "nat", "-N", "ESCROW").Run()  //nolint:errcheck
+	// ESCROW6 lives in the filter table (not nat): we block IPv6 entirely rather than
+	// redirect it, forcing dual-stack hosts to use the IPv4 redirect path through the proxy.
 	exec.Command("ip6tables", "-N", "ESCROW6").Run()              //nolint:errcheck
 
 	if exec.Command("iptables", "-t", "nat", "-C", "OUTPUT", "-j", "ESCROW").Run() != nil {
@@ -134,6 +136,8 @@ func fwEnableIptables(ecos []string, port int, proxyUser string) {
 	}
 
 	exec.Command("iptables", "-t", "nat", "-F", "ESCROW").Run()  //nolint:errcheck
+	// ESCROW6 lives in the filter table (not nat): we block IPv6 entirely rather than
+	// redirect it, forcing dual-stack hosts to use the IPv4 redirect path through the proxy.
 	exec.Command("ip6tables", "-F", "ESCROW6").Run()              //nolint:errcheck
 
 	portStr := fmt.Sprintf("%d", port)
@@ -165,6 +169,8 @@ func fwEnableIptables(ecos []string, port int, proxyUser string) {
 
 func fwDisableIptables() {
 	exec.Command("iptables", "-t", "nat", "-F", "ESCROW").Run()  //nolint:errcheck
+	// ESCROW6 lives in the filter table (not nat): we block IPv6 entirely rather than
+	// redirect it, forcing dual-stack hosts to use the IPv4 redirect path through the proxy.
 	exec.Command("ip6tables", "-F", "ESCROW6").Run()              //nolint:errcheck
 }
 
