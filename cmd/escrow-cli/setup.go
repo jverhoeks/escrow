@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 )
@@ -41,47 +42,54 @@ func runSetup(args []string) {
 	var done, already []string
 
 	// 1. Create _escrow system account.
-	if exec.Command("dscl", ".", "-read", "/Users/_escrow").Run() != nil {
-		out, err := exec.Command("/usr/bin/sysadminctl",
-			"-addUser", "_escrow",
-			"-fullName", "Escrow Proxy",
-			"-roleAccount",
-		).CombinedOutput()
-		if err != nil {
-			die("creating _escrow account: %v\n%s", err, strings.TrimSpace(string(out)))
-		}
+	created, err := createSystemUser()
+	if err != nil {
+		die("creating _escrow account: %v", err)
+	}
+	if created {
 		done = append(done, "created system account _escrow")
 	} else {
 		already = append(already, "_escrow account already exists")
 	}
 
-	// 2. Patch /etc/pf.conf and reload.
-	patched, err := patchPfConf()
-	if err != nil {
-		die("patching %s: %v", pfConf, err)
-	}
-	if patched {
-		out, err := exec.Command("pfctl", "-f", pfConf).CombinedOutput()
+	if runtime.GOOS == "darwin" {
+		// 2. Patch /etc/pf.conf and reload.
+		patched, err := patchPfConf()
 		if err != nil {
-			die("reloading pf.conf: %v\n%s", err, strings.TrimSpace(string(out)))
+			die("patching %s: %v", pfConf, err)
 		}
-		done = append(done, "updated "+pfConf+" and reloaded pf")
-	} else {
-		already = append(already, pfConf+" already contains escrow anchors")
+		if patched {
+			out, err := exec.Command("pfctl", "-f", pfConf).CombinedOutput()
+			if err != nil {
+				die("reloading pf.conf: %v\n%s", err, strings.TrimSpace(string(out)))
+			}
+			done = append(done, "updated "+pfConf+" and reloaded pf")
+		} else {
+			already = append(already, pfConf+" already contains escrow anchors")
+		}
+
+		// 3. Create empty anchor file.
+		if _, err := os.Stat(pfAnchorFile); os.IsNotExist(err) {
+			if err := os.MkdirAll("/etc/pf.anchors", 0755); err != nil {
+				die("creating /etc/pf.anchors: %v", err)
+			}
+			comment := "# Escrow pf anchor — managed by escrow-cli\n"
+			if err := writeAtomic(pfAnchorFile, []byte(comment), 0644); err != nil {
+				die("creating %s: %v", pfAnchorFile, err)
+			}
+			done = append(done, "created "+pfAnchorFile)
+		} else {
+			already = append(already, pfAnchorFile+" already exists")
+		}
 	}
 
-	// 3. Create empty anchor file.
-	if _, err := os.Stat(pfAnchorFile); os.IsNotExist(err) {
-		if err := os.MkdirAll("/etc/pf.anchors", 0755); err != nil {
-			die("creating /etc/pf.anchors: %v", err)
+	if runtime.GOOS == "linux" {
+		ok, err := setupLinuxFwChain()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: firewall chain setup: %v\n", err)
+		} else if ok {
+			done = append(done, "created ESCROW iptables/nftables chain")
 		}
-		comment := "# Escrow pf anchor — managed by escrow-cli\n"
-		if err := writeAtomic(pfAnchorFile, []byte(comment), 0644); err != nil {
-			die("creating %s: %v", pfAnchorFile, err)
-		}
-		done = append(done, "created "+pfAnchorFile)
-	} else {
-		already = append(already, pfAnchorFile+" already exists")
 	}
 
 	// 4. Install sudoers file (opt-in via --sudoers).
@@ -180,8 +188,8 @@ func installSudoers() error {
 	bin := filepath.Join(installBinDir, "escrow-cli")
 	content := "# Escrow proxy — passwordless sudo for admin group\n" +
 		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s setup\n", bin) +
-		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s pf-enable *\n", bin) +
-		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s pf-disable\n", bin) +
+		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s fw-enable *\n", bin) +
+		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s fw-disable\n", bin) +
 		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s service start\n", bin) +
 		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s service stop\n", bin) +
 		fmt.Sprintf("%%admin ALL=(root) NOPASSWD: %s service restart\n", bin) +
@@ -210,4 +218,63 @@ func installSudoers() error {
 	}
 
 	return writeAtomic(sudoersPath, []byte(content), 0440)
+}
+
+// createSystemUser creates the _escrow system account if it does not exist.
+// Returns (true, nil) if created, (false, nil) if already present.
+func createSystemUser() (bool, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		if exec.Command("dscl", ".", "-read", "/Users/_escrow").Run() == nil {
+			return false, nil
+		}
+		out, err := exec.Command("/usr/bin/sysadminctl",
+			"-addUser", "_escrow", "-fullName", "Escrow Proxy", "-roleAccount",
+		).CombinedOutput()
+		if err != nil {
+			return false, fmt.Errorf("%v\n%s", err, strings.TrimSpace(string(out)))
+		}
+		return true, nil
+
+	case "linux":
+		if exec.Command("id", "-u", "_escrow").Run() == nil {
+			return false, nil
+		}
+		out, err := exec.Command("useradd",
+			"--system",
+			"--no-create-home",
+			"--home-dir", "/nonexistent",
+			"--shell", "/usr/sbin/nologin",
+			"_escrow",
+		).CombinedOutput()
+		if err != nil {
+			return false, fmt.Errorf("%v\n%s", err, strings.TrimSpace(string(out)))
+		}
+		return true, nil
+
+	default:
+		return false, fmt.Errorf("user creation not supported on %s", runtime.GOOS)
+	}
+}
+
+// setupLinuxFwChain creates the empty ESCROW iptables chain (if iptables is in use)
+// so that fw-enable can populate it later. No-op for nftables.
+func setupLinuxFwChain() (bool, error) {
+	switch detectLinuxFw() {
+	case "iptables":
+		exec.Command("iptables", "-t", "nat", "-N", "ESCROW").Run()  //nolint:errcheck
+		// ESCROW6 is in the filter table (blocks IPv6, does not redirect).
+		exec.Command("ip6tables", "-N", "ESCROW6").Run()              //nolint:errcheck
+		if exec.Command("iptables", "-t", "nat", "-C", "OUTPUT", "-j", "ESCROW").Run() != nil {
+			exec.Command("iptables", "-t", "nat", "-A", "OUTPUT", "-j", "ESCROW").Run() //nolint:errcheck
+		}
+		if exec.Command("ip6tables", "-C", "OUTPUT", "-j", "ESCROW6").Run() != nil {
+			exec.Command("ip6tables", "-A", "OUTPUT", "-j", "ESCROW6").Run() //nolint:errcheck
+		}
+		return true, nil
+	case "nftables":
+		return true, nil // fw-enable writes the full table on demand
+	default:
+		return false, fmt.Errorf("neither iptables nor nft found")
+	}
 }
