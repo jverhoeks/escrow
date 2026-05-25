@@ -225,11 +225,6 @@ func runConfigCheckLocal(args []string) {
 
 	cwd, _ := os.Getwd()
 	for _, eco := range parseEcosystems(*ecosystems) {
-		switch eco {
-		case "go", "maven":
-			fmt.Printf("%-14s N/A (no project-local config)\n", eco)
-			continue
-		}
 		for _, c := range checkEcoLocalAll(eco, cwd) {
 			if c.ok {
 				fmt.Printf("%-14s ✓  %s\n", c.label, c.path)
@@ -259,19 +254,30 @@ func checkEcoLocalAll(eco, dir string) []toolCheck {
 		bunfig := filepath.Join(dir, "bunfig.toml")
 		return []toolCheck{
 			{"npm/pnpm", npmrc, isEscrowConfig(npmrc, "npm")},
-			{"yarn v1", yarnrc, isEscrowConfig(yarnrc, "yarn1")},
-			{"yarn v2+", yarnYml, isEscrowConfig(yarnYml, "yarnberry")},
+			{"yarn (v1)", yarnrc, isEscrowConfig(yarnrc, "yarn1")},
+			{"yarn (v2+)", yarnYml, isEscrowConfig(yarnYml, "yarnberry")},
 			{"bun", bunfig, isEscrowConfig(bunfig, "bun")},
 		}
+	case "pypi":
+		uv := filepath.Join(dir, "uv.toml")
+		return []toolCheck{
+			{"uv", uv, isEscrowConfig(uv, "uv")},
+			{"pip", "no local auto-discovery — use global or PIP_INDEX_URL", false},
+			{"poetry", "no local registry config — use global shell block or pyproject.toml source", false},
+		}
+	case "go":
+		return []toolCheck{{"go", "env vars are shell-global — use 'config write'", false}}
 	case "cargo":
 		p := filepath.Join(dir, ".cargo", "config.toml")
 		return []toolCheck{{"cargo", p, isEscrowConfig(p, "cargo")}}
 	case "nuget":
 		p := filepath.Join(dir, "nuget.config")
 		return []toolCheck{{"nuget", p, isEscrowConfig(p, "nuget")}}
-	case "pypi":
-		p := filepath.Join(dir, "uv.toml")
-		return []toolCheck{{"uv", p, isEscrowConfig(p, "uv")}}
+	case "maven":
+		return []toolCheck{
+			{"maven", "no project-local settings.xml — use 'config write' for ~/.m2/settings.xml", false},
+			{"gradle", "no project-local init script — use 'config write' for ~/.gradle/init.d/", false},
+		}
 	case "composer":
 		p := filepath.Join(dir, "composer.json")
 		return []toolCheck{{"composer", p, isEscrowConfig(p, "composer")}}
