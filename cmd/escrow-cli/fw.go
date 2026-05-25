@@ -66,9 +66,25 @@ func runPfEnable(args []string)  { runFwEnable(args) }
 func runPfDisable(args []string) { runFwDisable(args) }
 
 // lookupUID returns the numeric UID string for the given username.
-// Uses `id -u` rather than os/user.Lookup: the pure-Go user package only reads
-// /etc/passwd and misses accounts in Open Directory (e.g. sysadminctl -roleAccount).
+// On macOS, queries the local dscl directory node directly — this is the same
+// node where createSystemUser writes, and it's visible to pf's user keyword.
+// On Linux, falls back to id -u.
 func lookupUID(username string) (string, error) {
+	if runtime.GOOS == "darwin" {
+		out, err := exec.Command("dscl", ".", "-read", "/Users/"+username, "UniqueID").Output()
+		if err != nil {
+			return "", fmt.Errorf("unknown user %q (run setup first)", username)
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(line, "UniqueID:") {
+				uid := strings.TrimSpace(strings.TrimPrefix(line, "UniqueID:"))
+				if uid != "" {
+					return uid, nil
+				}
+			}
+		}
+		return "", fmt.Errorf("no UniqueID found for %q", username)
+	}
 	out, err := exec.Command("id", "-u", username).Output()
 	if err != nil {
 		return "", fmt.Errorf("unknown user %q", username)

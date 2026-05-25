@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -307,11 +308,26 @@ func createSystemUser() (bool, error) {
 		if exec.Command("dscl", ".", "-read", "/Users/_escrow").Run() == nil {
 			return false, nil
 		}
-		out, err := exec.Command("/usr/sbin/sysadminctl",
-			"-addUser", "_escrow", "-fullName", "Escrow Proxy", "-roleAccount",
-		).CombinedOutput()
+		// Create the user directly in the local directory node via dscl.
+		// sysadminctl -roleAccount writes to Open Directory, which is NOT visible
+		// to id(1), pf's user keyword, or /etc/passwd lookups.  dscl "." targets
+		// /Local/Default — the same node queried by every standard POSIX lookup.
+		uid, err := nextSystemUID()
 		if err != nil {
-			return false, fmt.Errorf("%v\n%s", err, strings.TrimSpace(string(out)))
+			return false, fmt.Errorf("finding available UID: %v", err)
+		}
+		cmds := [][]string{
+			{"dscl", ".", "-create", "/Users/_escrow"},
+			{"dscl", ".", "-create", "/Users/_escrow", "RealName", "Escrow Proxy"},
+			{"dscl", ".", "-create", "/Users/_escrow", "UserShell", "/usr/bin/false"},
+			{"dscl", ".", "-create", "/Users/_escrow", "NFSHomeDirectory", "/var/empty"},
+			{"dscl", ".", "-create", "/Users/_escrow", "UniqueID", uid},
+			{"dscl", ".", "-create", "/Users/_escrow", "PrimaryGroupID", "99"},
+		}
+		for _, args := range cmds {
+			if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+				return false, fmt.Errorf("dscl %v: %v\n%s", args[2:], err, strings.TrimSpace(string(out)))
+			}
 		}
 		return true, nil
 
@@ -334,6 +350,30 @@ func createSystemUser() (bool, error) {
 	default:
 		return false, fmt.Errorf("user creation not supported on %s", runtime.GOOS)
 	}
+}
+
+// nextSystemUID scans the local dscl directory for the highest free UID in
+// the macOS system-user range (200–499) and returns it as a decimal string.
+func nextSystemUID() (string, error) {
+	out, err := exec.Command("dscl", ".", "-list", "/Users", "UniqueID").Output()
+	if err != nil {
+		return "499", nil // safe default if dscl fails
+	}
+	used := make(map[int]bool)
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			if n, err := strconv.Atoi(fields[1]); err == nil {
+				used[n] = true
+			}
+		}
+	}
+	for uid := 499; uid >= 200; uid-- {
+		if !used[uid] {
+			return strconv.Itoa(uid), nil
+		}
+	}
+	return "", fmt.Errorf("no free UID in range 200–499")
 }
 
 // setupLinuxFwChain creates the empty ESCROW iptables chain (if iptables is in use)
