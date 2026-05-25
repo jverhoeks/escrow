@@ -186,6 +186,12 @@ func isPermissionDenied(err error) bool {
 	return strings.Contains(err.Error(), "exit status 1")
 }
 
+// escrowProxy matches any localhost proxy URL regardless of whether the
+// host is written as 127.0.0.1 or localhost.
+func escrowProxy(s string) bool {
+	return strings.Contains(s, "127.0.0.1:7888") || strings.Contains(s, "localhost:7888")
+}
+
 func isEscrowConfig(path, hint string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -194,9 +200,10 @@ func isEscrowConfig(path, hint string) bool {
 	s := string(data)
 	switch hint {
 	case "npm":
-		return strings.Contains(s, "registry=http://127.0.0.1:7888")
+		return strings.Contains(s, "registry=http://127.0.0.1:7888") ||
+			strings.Contains(s, "registry=http://localhost:7888")
 	case "pypi", "uv":
-		return strings.Contains(s, "127.0.0.1:7888")
+		return escrowProxy(s)
 	case "go":
 		return strings.Contains(s, "BEGIN escrow-go")
 	case "cargo":
@@ -206,7 +213,7 @@ func isEscrowConfig(path, hint string) bool {
 	case "maven":
 		return strings.Contains(s, "<id>escrow</id>")
 	case "composer":
-		return strings.Contains(s, `"type": "composer"`) && strings.Contains(s, "127.0.0.1:7888")
+		return strings.Contains(s, `"type": "composer"`) && escrowProxy(s)
 	}
 	return false
 }
