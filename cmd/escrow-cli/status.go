@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -37,24 +38,59 @@ func runStatus(args []string) {
 		ConfigFilesWritten: []string{},
 	}
 
-	// 1+2. pf anchor state.
-	pfOut, pfErr := exec.Command("sudo", "-n", "pfctl", "-a", "escrow", "-s", "rules").Output()
-	switch {
-	case pfErr == nil:
-		pfRules := strings.TrimSpace(string(pfOut))
-		result.PfAnchorActive = pfRules != ""
-		if result.PfAnchorActive {
-			for _, eco := range allEcosystems {
-				hosts := registryHosts[eco]
-				if len(hosts) > 0 && strings.Contains(pfRules, hosts[0]) {
-					result.ActiveEcosystems = append(result.ActiveEcosystems, eco)
+	// 1+2. Firewall rules active and which ecosystems are loaded.
+	switch runtime.GOOS {
+	case "darwin":
+		pfOut, pfErr := exec.Command("sudo", "-n", "pfctl", "-a", "escrow", "-s", "rules").Output()
+		switch {
+		case pfErr == nil:
+			pfRules := strings.TrimSpace(string(pfOut))
+			result.PfAnchorActive = pfRules != ""
+			if result.PfAnchorActive {
+				for _, eco := range allEcosystems {
+					hosts := registryHosts[eco]
+					if len(hosts) > 0 && strings.Contains(pfRules, hosts[0]) {
+						result.ActiveEcosystems = append(result.ActiveEcosystems, eco)
+					}
 				}
 			}
+		case isPermissionDenied(pfErr):
+			result.PfAnchorUnknown = true
 		}
-	case isPermissionDenied(pfErr):
-		result.PfAnchorUnknown = true
-	default:
-		// pfctl returned non-zero for a reason other than permission — treat anchor as inactive.
+
+	case "linux":
+		switch detectLinuxFw() {
+		case "iptables":
+			out, err := exec.Command("iptables", "-t", "nat", "-L", "ESCROW", "-n").Output()
+			if err == nil {
+				rules := string(out)
+				result.PfAnchorActive = strings.Contains(rules, "REDIRECT")
+				if result.PfAnchorActive {
+					for _, eco := range allEcosystems {
+						hosts := registryHosts[eco]
+						if len(hosts) > 0 && strings.Contains(rules, hosts[0]) {
+							result.ActiveEcosystems = append(result.ActiveEcosystems, eco)
+						}
+					}
+				}
+			}
+		case "nftables":
+			out, err := exec.Command("nft", "list", "table", "ip", "escrow").Output()
+			if err == nil {
+				rules := string(out)
+				result.PfAnchorActive = strings.Contains(rules, "redirect")
+				if result.PfAnchorActive {
+					for _, eco := range allEcosystems {
+						hosts := registryHosts[eco]
+						if len(hosts) > 0 && strings.Contains(rules, hosts[0]) {
+							result.ActiveEcosystems = append(result.ActiveEcosystems, eco)
+						}
+					}
+				}
+			}
+		default:
+			result.PfAnchorUnknown = true
+		}
 	}
 
 	// 3. Config files written by escrow.
