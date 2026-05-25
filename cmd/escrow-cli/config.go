@@ -428,3 +428,202 @@ func xmlEscape(s string) string {
 	xml.EscapeText(&buf, []byte(s)) //nolint:errcheck
 	return buf.String()
 }
+
+// ── config write-local ────────────────────────────────────────────────────────
+
+// runConfigWriteLocal writes per-tool proxy config to the current working directory.
+// Supported: npm, cargo, nuget, pypi (uv.toml), composer.
+// Skipped:   go (env vars are shell-global), maven (no project-local settings.xml).
+func runConfigWriteLocal(args []string) {
+	fs := flag.NewFlagSet("config write-local", flag.ExitOnError)
+	ecosystems := fs.String("ecosystems", "npm,cargo,nuget,pypi,composer", "comma-separated ecosystems (go/maven not supported locally)")
+	proxyURL := fs.String("proxy-url", "http://127.0.0.1:7888", "base URL of the escrow proxy")
+	fs.Parse(args) //nolint:errcheck
+
+	if err := validateProxyURL(*proxyURL); err != nil {
+		die("--proxy-url: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		die("getting working directory: %v", err)
+	}
+
+	base := strings.TrimRight(*proxyURL, "/")
+	for _, eco := range parseEcosystems(*ecosystems) {
+		switch eco {
+		case "go", "maven":
+			fmt.Printf("– %s: no project-local config supported (skipping)\n", eco)
+			continue
+		}
+		if err := writeEcoConfigLocal(eco, base, cwd); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %s: %v\n", eco, err)
+		} else {
+			fmt.Printf("✓ %s local config written\n", eco)
+		}
+	}
+}
+
+func writeEcoConfigLocal(eco, base, dir string) error {
+	switch eco {
+	case "npm":
+		return writeNpmConfigLocal(dir, base)
+	case "cargo":
+		return writeCargoConfigLocal(dir, base)
+	case "nuget":
+		return writeNugetConfigLocal(dir, base)
+	case "pypi":
+		return writePypiConfigLocal(dir, base)
+	case "composer":
+		return writeComposerConfigLocal(dir, base)
+	}
+	return fmt.Errorf("local config not supported for %s", eco)
+}
+
+func writeNpmConfigLocal(dir, base string) error {
+	path := filepath.Join(dir, ".npmrc")
+	backupFile(path) //nolint:errcheck
+	url := base + "/"
+	data, _ := os.ReadFile(path)
+	lines := strings.Split(string(data), "\n")
+	found := false
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "registry=") {
+			lines[i] = "registry=" + url
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, "registry="+url)
+	}
+	return writeAtomic(path, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+func writeCargoConfigLocal(dir, base string) error {
+	cargoDir := filepath.Join(dir, ".cargo")
+	if err := os.MkdirAll(cargoDir, 0755); err != nil {
+		return err
+	}
+	path := filepath.Join(cargoDir, "config.toml")
+	backupFile(path) //nolint:errcheck
+	existing, _ := os.ReadFile(path)
+	merged, err := mergeCargoConfig(existing, base+"/cargo/")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(path, merged, 0644)
+}
+
+func writeNugetConfigLocal(dir, base string) error {
+	path := filepath.Join(dir, "nuget.config")
+	backupFile(path) //nolint:errcheck
+	url := xmlEscape(base + "/nuget/v3/index.json")
+	content := `<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="escrow" value="` + url + `" />
+  </packageSources>
+</configuration>
+`
+	return writeAtomic(path, []byte(content), 0644)
+}
+
+func writePypiConfigLocal(dir, base string) error {
+	path := filepath.Join(dir, "uv.toml")
+	backupFile(path) //nolint:errcheck
+	quoted, _ := json.Marshal(base + "/pypi/simple/")
+	content := "[pip]\nindex-url = " + string(quoted) + "\n"
+	return writeAtomic(path, []byte(content), 0644)
+}
+
+func writeComposerConfigLocal(dir, base string) error {
+	path := filepath.Join(dir, "composer.json")
+	backupFile(path) //nolint:errcheck
+	newRepo := map[string]interface{}{
+		"type": "composer",
+		"url":  base,
+	}
+
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		content := map[string]interface{}{
+			"repositories": []interface{}{newRepo},
+		}
+		out, err := json.MarshalIndent(content, "", "  ")
+		if err != nil {
+			return err
+		}
+		return writeAtomic(path, append(out, '\n'), 0644)
+	}
+	if err != nil {
+		return err
+	}
+
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("parsing composer.json: %w", err)
+	}
+	repoJSON, err := json.MarshalIndent([]interface{}{newRepo}, "", "  ")
+	if err != nil {
+		return err
+	}
+	cfg["repositories"] = json.RawMessage(repoJSON)
+	merged, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(path, append(merged, '\n'), 0644)
+}
+
+// ── config restore-local ──────────────────────────────────────────────────────
+
+func runConfigRestoreLocal(args []string) {
+	fs := flag.NewFlagSet("config restore-local", flag.ExitOnError)
+	fs.Parse(args) //nolint:errcheck
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		die("getting working directory: %v", err)
+	}
+	n := restoreLocalBackups(cwd)
+	if n == 0 {
+		fmt.Println("nothing to restore in current directory")
+	}
+}
+
+// restoreLocalBackups restores any .escrow-backup files in dir and returns the count.
+func restoreLocalBackups(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	restored := 0
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".escrow-backup") {
+			continue
+		}
+		original := filepath.Join(dir, strings.TrimSuffix(name, ".escrow-backup"))
+		backup := filepath.Join(dir, name)
+		data, err := os.ReadFile(backup)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: reading %s: %v\n", backup, err)
+			continue
+		}
+		if err := writeAtomic(original, data, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: restoring %s: %v\n", original, err)
+			continue
+		}
+		os.Remove(backup)
+		fmt.Printf("✓ restored %s\n", original)
+		restored++
+	}
+	// Walk one level into known local config dirs.
+	for _, sub := range []string{".cargo"} {
+		subDir := filepath.Join(dir, sub)
+		restored += restoreLocalBackups(subDir)
+	}
+	return restored
+}
