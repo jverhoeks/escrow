@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/user"
 	"runtime"
 	"strings"
 	"time"
@@ -67,12 +66,14 @@ func runPfEnable(args []string)  { runFwEnable(args) }
 func runPfDisable(args []string) { runFwDisable(args) }
 
 // lookupUID returns the numeric UID string for the given username.
+// Uses `id -u` rather than os/user.Lookup: the pure-Go user package only reads
+// /etc/passwd and misses accounts in Open Directory (e.g. sysadminctl -roleAccount).
 func lookupUID(username string) (string, error) {
-	u, err := user.Lookup(username)
+	out, err := exec.Command("id", "-u", username).Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("unknown user %q", username)
 	}
-	return u.Uid, nil
+	return strings.TrimSpace(string(out)), nil
 }
 
 // ── macOS pf backend ──────────────────────────────────────────────────────────
