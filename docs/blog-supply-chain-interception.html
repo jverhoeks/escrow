@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Last Mile Problem: Why 100% Supply Chain Coverage is Hard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Mono:wght@300;400;500&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300;1,6..72,400&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg:        #080b0c;
+    --surface:   #0f1416;
+    --border:    #1e2729;
+    --text:      #ddd8d0;
+    --muted:     #6e7a7d;
+    --accent:    #3fdc96;
+    --accent2:   #f97316;
+    --accent3:   #60a5fa;
+    --red:       #f87171;
+    --ink:       #c8c3bc;
+    --serif:     'Instrument Serif', Georgia, serif;
+    --news:      'Newsreader', Georgia, serif;
+    --mono:      'DM Mono', 'Fira Code', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--news);
+    font-size: 18px;
+    line-height: 1.75;
+    font-weight: 300;
+  }
+
+  /* ── Grid noise overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.4;
+  }
+
+  /* ── Layout ── */
+  .page {
+    position: relative;
+    z-index: 1;
+    max-width: 740px;
+    margin: 0 auto;
+    padding: 0 24px 120px;
+  }
+
+  /* ── Header ── */
+  .site-header {
+    padding: 48px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 72px;
+  }
+
+  .site-header .logo {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+
+  .site-header .sep { color: var(--border); }
+
+  .site-header .section {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* ── Hero ── */
+  .hero {
+    margin-bottom: 72px;
+  }
+
+  .hero .kicker {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .hero .kicker::before {
+    content: '';
+    display: block;
+    width: 32px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  .hero h1 {
+    font-family: var(--serif);
+    font-size: clamp(36px, 6vw, 58px);
+    font-weight: 400;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: #ede8e0;
+    margin-bottom: 28px;
+  }
+
+  .hero h1 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  .hero .lede {
+    font-size: 20px;
+    line-height: 1.65;
+    color: var(--ink);
+    max-width: 580px;
+    font-style: italic;
+  }
+
+  .hero .meta {
+    margin-top: 28px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    gap: 24px;
+  }
+
+  /* ── Divider ── */
+  .ruled {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 56px 0;
+  }
+
+  .ruled.short {
+    width: 64px;
+    border-color: var(--accent);
+    margin: 40px 0;
+  }
+
+  /* ── Prose ── */
+  h2 {
+    font-family: var(--serif);
+    font-size: 30px;
+    font-weight: 400;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    color: #ede8e0;
+    margin: 64px 0 20px;
+  }
+
+  h3 {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 40px 0 14px;
+  }
+
+  p { margin-bottom: 22px; color: var(--ink); }
+
+  strong { color: var(--text); font-weight: 400; }
+
+  em { font-style: italic; }
+
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(63,220,150,0.3); transition: border-color 0.15s; }
+  a:hover { border-color: var(--accent); }
+
+  /* ── Code ── */
+  code {
+    font-family: var(--mono);
+    font-size: 0.82em;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent2);
+  }
+
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 20px 24px;
+    overflow-x: auto;
+    margin: 28px 0;
+    border-radius: 0 4px 4px 0;
+  }
+
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* ── Option cards ── */
+  .option-grid {
+    display: grid;
+    gap: 16px;
+    margin: 32px 0;
+  }
+
+  .option-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 24px 28px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .option-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+  }
+
+  .option-card.good::before { background: var(--accent); }
+  .option-card.partial::before { background: var(--accent2); }
+  .option-card.hard::before { background: var(--red); }
+
+  .option-card .opt-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .option-card.good .opt-label { color: var(--accent); }
+  .option-card.partial .opt-label { color: var(--accent2); }
+  .option-card.hard .opt-label { color: var(--red); }
+
+  .option-card .opt-title {
+    font-family: var(--serif);
+    font-size: 20px;
+    color: #ede8e0;
+    margin-bottom: 10px;
+    line-height: 1.25;
+  }
+
+  .option-card .opt-desc {
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  .opt-pros-cons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+
+  .opt-pros-cons .col-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .opt-pros-cons .pros .col-label { color: var(--accent); }
+  .opt-pros-cons .cons .col-label { color: var(--red); }
+
+  .opt-pros-cons li {
+    list-style: none;
+    padding: 2px 0;
+    color: var(--muted);
+    padding-left: 14px;
+    position: relative;
+  }
+
+  .opt-pros-cons .pros li::before { content: '+'; position: absolute; left: 0; color: var(--accent); }
+  .opt-pros-cons .cons li::before { content: '−'; position: absolute; left: 0; color: var(--red); }
+
+  /* ── The hard truth ── */
+  .wall {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 32px 36px;
+    margin: 32px 0;
+    position: relative;
+  }
+
+  .wall .wall-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--red);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .wall .wall-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .wall-items {
+    display: grid;
+    gap: 16px;
+  }
+
+  .wall-item {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 16px;
+    align-start: start;
+    font-size: 14px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .wall-item:last-child { border-bottom: none; padding-bottom: 0; }
+
+  .wall-item .threat {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--red);
+    padding-top: 2px;
+    line-height: 1.4;
+  }
+
+  .wall-item .explain {
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  /* ── Layered defense table ── */
+  .layer-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 28px 0;
+    font-size: 14px;
+  }
+
+  .layer-table th {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+
+  .layer-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--ink);
+    vertical-align: top;
+  }
+
+  .layer-table tr:last-child td { border-bottom: none; }
+
+  .layer-table .layer-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .check { color: var(--accent); font-family: var(--mono); }
+  .partial-check { color: var(--accent2); font-family: var(--mono); }
+  .cross { color: var(--red); font-family: var(--mono); }
+
+  /* ── Pull quote ── */
+  blockquote {
+    border-left: 3px solid var(--accent);
+    margin: 40px 0;
+    padding: 4px 0 4px 28px;
+  }
+
+  blockquote p {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-style: italic;
+    line-height: 1.5;
+    color: #ede8e0;
+    margin: 0;
+  }
+
+  /* ── TTL callout ── */
+  .ttl-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+
+  .ttl-row .host { font-family: var(--mono); color: var(--text); width: 200px; flex-shrink: 0; font-size: 13px; }
+  .ttl-row .ttl-val { font-family: var(--mono); font-size: 13px; }
+  .ttl-row .ttl-val.bad { color: var(--red); }
+  .ttl-row .ttl-val.ok { color: var(--accent2); }
+  .ttl-row .ttl-val.good { color: var(--accent); }
+  .ttl-row .note { color: var(--muted); font-size: 12px; }
+
+  /* ── Footer ── */
+  .post-footer {
+    margin-top: 80px;
+    padding-top: 40px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+
+  .post-footer .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); }
+
+  /* ── Animations ── */
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .hero { animation: fadeSlide 0.6s ease both; }
+  h2    { animation: fadeSlide 0.5s ease both 0.1s; opacity: 0; animation-fill-mode: forwards; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="site-header">
+    <span class="logo">escrow</span>
+    <span class="sep">/</span>
+    <span class="section">Engineering</span>
+  </header>
+
+  <!-- ── HERO ── -->
+  <section class="hero">
+    <div class="kicker">Supply Chain Security</div>
+    <h1>The Last Mile Problem:<br><em>Why 100% Coverage</em><br>is Hard</h1>
+    <p class="lede">
+      Every time a developer runs <code>npm install</code>, they're implicitly trusting
+      hundreds of strangers. Intercepting that trust is straightforward in theory —
+      and surprisingly subtle in practice.
+    </p>
+    <div class="meta">
+      <span>May 2026</span>
+      <span>14 min read</span>
+      <span>macOS · Linux</span>
+    </div>
+  </section>
+
+  <hr class="ruled">
+
+  <!-- ── THE PROBLEM ── -->
+  <p>
+    Supply chain attacks have gone from theoretical concern to recurring headline.
+    <strong>SolarWinds</strong> compromised 18,000 organisations through a single build step.
+    <strong>xz-utils</strong> nearly backdoored OpenSSH across every major Linux distribution.
+    <strong>event-stream</strong> stole cryptocurrency from a specific npm package by
+    becoming a dependency of a dependency. The <strong>colors.js</strong> and
+    <strong>left-pad</strong> incidents showed that even intent-to-harm isn't required —
+    a maintainer having a bad day is enough.
+  </p>
+
+  <p>
+    The attack surface is the package registry. Your code pulls from npm, PyPI, crates.io,
+    pkg.go.dev, Maven Central, NuGet, Packagist. Each one is a trust decision you make
+    dozens of times a day without thinking about it.
+  </p>
+
+  <blockquote>
+    <p>The question isn't whether to intercept package traffic. It's how to do it
+    without breaking the development experience — and how close to 100% you can
+    actually get.</p>
+  </blockquote>
+
+  <p>
+    This post documents what we learned building <strong>escrow</strong>, a local
+    package proxy that applies age gates and OSV vulnerability scanning before
+    allowing packages through. We tried every interception approach available on
+    macOS and Linux, and each one has a ceiling.
+  </p>
+
+  <hr class="ruled">
+
+  <!-- ── THE TRUST CHAIN ── -->
+  <h2>The Trust Chain You're Defending</h2>
+
+  <p>
+    Before picking an interception strategy, it helps to understand what you're
+    actually sitting in front of. When a developer runs <code>npm install lodash</code>,
+    the chain looks like this:
+  </p>
+
+  <pre><code>developer
+  └─ npm CLI (resolves ~/.npmrc for registry URL)
+       └─ DNS lookup: registry.npmjs.org → 104.16.x.34 (Cloudflare CDN)
+            └─ TLS handshake + HTTP/1.1 GET /lodash
+                 └─ tarball download → local cache → node_modules/</code></pre>
+
+  <p>
+    An interception layer can sit at any of these steps: the tool config, the DNS
+    resolution, the TCP connection, or the TLS layer. The catch is that each insertion
+    point has different coverage, different reliability, and different compatibility
+    with the rest of a developer's environment — particularly VPNs.
+  </p>
+
+  <hr class="ruled">
+
+  <!-- ── THE OPTIONS ── -->
+  <h2>The Options</h2>
+
+  <div class="option-grid">
+
+    <div class="option-card good">
+      <div class="opt-label">Option 1 — Most Reliable</div>
+      <div class="opt-title">Per-tool registry config</div>
+      <div class="opt-desc">
+        Write the proxy URL directly into each tool's config file.
+        npm uses <code>~/.npmrc</code>, pip uses <code>~/.pip/pip.conf</code>,
+        cargo uses <code>~/.cargo/config.toml</code>, Go uses <code>GOPROXY</code>,
+        and so on. All seven major ecosystems support this natively.
+      </div>
+      <div class="opt-pros-cons">
+        <div class="pros">
+          <div class="col-label">Works</div>
+          <ul>
+            <li>No kernel involvement</li>
+            <li>Works with any VPN</li>
+            <li>Hostname-aware naturally</li>
+            <li>Zero IP rotation issues</li>
+            <li>Standard proxy protocol</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <div class="col-label">Doesn't catch</div>
+          <ul>
+            <li>Bundled runtimes (VSCode)</li>
+            <li>GUI apps (no shell env)</li>
+            <li>Hardcoded registry URLs</li>
+            <li>Tools not in the list</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="option-card partial">
+      <div class="opt-label">Option 2 — GUI App Coverage</div>
+      <div class="opt-title">launchctl environment injection</div>
+      <div class="opt-desc">
+        On macOS, apps launched from the Dock or Spotlight don't inherit shell
+        environment variables. A LaunchDaemon can inject env vars into the macOS
+        launch environment at boot, so every process — including VSCode and Zed —
+        inherits <code>NPM_CONFIG_REGISTRY</code>, <code>GOPROXY</code>,
+        <code>PIP_INDEX_URL</code>, etc.
+      </div>
+      <pre><code># /Library/LaunchDaemons/com.escrow.environment.plist
+# RunAtLoad — fires before login window
+launchctl setenv NPM_CONFIG_REGISTRY http://127.0.0.1:7888/
+launchctl setenv PIP_INDEX_URL http://127.0.0.1:7888/pypi/simple/
+launchctl setenv GOPROXY http://127.0.0.1:7888/go,off</code></pre>
+      <div class="opt-pros-cons">
+        <div class="pros">
+          <div class="col-label">Works</div>
+          <ul>
+            <li>Covers GUI apps</li>
+            <li>Persists across reboots</li>
+            <li>No TLS complexity</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <div class="col-label">Doesn't catch</div>
+          <ul>
+            <li>Truly bundled npm (ignores env)</li>
+            <li>Hardcoded registry calls</li>
+            <li>Non-proxy-aware tools</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="option-card partial">
+      <div class="opt-label">Option 3 — Network Backstop</div>
+      <div class="opt-title">pf packet filter (macOS) / iptables (Linux)</div>
+      <div class="opt-desc">
+        Intercept at the kernel network layer. Any TCP connection to port 443
+        destined for a registry host gets redirected to <code>127.0.0.1:7888</code>
+        regardless of which tool made it, which config it reads, or whether it
+        inherits env vars. The proxy user is exempted to prevent redirect loops.
+      </div>
+      <pre><code># /etc/pf.anchors/escrow-npm
+rdr pass inet proto tcp from any to registry.npmjs.org port 443 \
+  -> 127.0.0.1 port 7888
+
+pass out quick proto tcp from any to registry.npmjs.org \
+  port {80, 443} user 499  # proxy UID, not username
+
+block return out inet  proto tcp from any to registry.npmjs.org port 80
+block return out inet6 proto tcp from any to registry.npmjs.org port 80
+block return out inet6 proto tcp from any to registry.npmjs.org port 443</code></pre>
+      <div class="opt-pros-cons">
+        <div class="pros">
+          <div class="col-label">Works</div>
+          <ul>
+            <li>Catches all processes</li>
+            <li>VPN-compatible (redirects to localhost)</li>
+            <li>Blocks IPv6 bypass</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <div class="col-label">Doesn't catch</div>
+          <ul>
+            <li>IPs that rotated post-load</li>
+            <li>New CDN IPs (8s TTL!)</li>
+            <li>HTTP/3 / QUIC (UDP)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="option-card hard">
+      <div class="opt-label">Option 4 — macOS Only, Complex</div>
+      <div class="opt-title">Network Extension (NETransparentProxyProvider)</div>
+      <div class="opt-desc">
+        Apple's System Extension framework can intercept flows before DNS resolution
+        using the <code>remoteHostname</code> property on <code>NEFilterSocketFlow</code>.
+        Truly hostname-aware, no IP rotation issue. But requires a provisioning profile
+        with special entitlements, a System Extension bundle, and user approval.
+      </div>
+      <div class="opt-pros-cons">
+        <div class="pros">
+          <div class="col-label">Works</div>
+          <ul>
+            <li>True hostname matching</li>
+            <li>Immune to CDN rotation</li>
+            <li>What Little Snitch uses</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <div class="col-label">Problems</div>
+          <ul>
+            <li>Cisco AnyConnect conflict</li>
+            <li>Email Apple for entitlement</li>
+            <li>Swift/ObjC only (not Go)</li>
+            <li>User approval required</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="option-card hard">
+      <div class="opt-label">Option 5 — Invasive</div>
+      <div class="opt-title">Global HTTPS_PROXY with TLS MITM</div>
+      <div class="opt-desc">
+        Set <code>HTTPS_PROXY=http://127.0.0.1:7888</code> globally. All HTTPS traffic
+        flows through the proxy, which decrypts, inspects, and re-encrypts using a
+        locally-trusted CA. Hostname-aware, universal coverage — but requires installing
+        a CA cert into the system keychain, Python's certifi bundle, Java's cacerts,
+        Rust's webpki roots, and fighting every tool that pins certificates.
+      </div>
+      <div class="opt-pros-cons">
+        <div class="pros">
+          <div class="col-label">Works</div>
+          <ul>
+            <li>Universal coverage</li>
+            <li>Hostname-aware</li>
+            <li>No pf needed</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <div class="col-label">Problems</div>
+          <ul>
+            <li>Requires MITM CA cert</li>
+            <li>5+ trust store installs</li>
+            <li>Certificate pinning breaks</li>
+            <li>HTTP/3 still bypasses it</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /option-grid -->
+
+  <hr class="ruled">
+
+  <!-- ── THE HARD PARTS ── -->
+  <h2>Why 100% is Hard</h2>
+
+  <p>
+    Even with every option above deployed simultaneously, there are structural gaps that
+    are genuinely difficult to close without either imposing significant developer friction
+    or becoming the kind of security tool that breaks things more than it protects them.
+  </p>
+
+  <div class="wall">
+    <div class="wall-title">The gaps that remain</div>
+    <div class="wall-items">
+
+      <div class="wall-item">
+        <div class="threat">CDN IP rotation</div>
+        <div class="explain">
+          pf resolves hostnames to IPs at rule-load time and stores them statically.
+          <code>proxy.golang.org</code> has a TTL of <strong>8 seconds</strong>.
+          By the time a developer runs <code>go get</code>, the IP is almost certainly
+          different from the one in the rule. The rule doesn't match; traffic goes direct.
+        </div>
+      </div>
+
+      <div class="wall-item">
+        <div class="threat">HTTP/3 · QUIC</div>
+        <div class="explain">
+          QUIC is UDP. pf redirects TCP. An HTTPS proxy speaks TCP. A package manager
+          that negotiates HTTP/3 sends packets on UDP/443 that no TCP-based interception
+          layer will ever see. Most current CLI tools don't use HTTP/3 — but that's
+          changing as CDNs push it harder.
+        </div>
+      </div>
+
+      <div class="wall-item">
+        <div class="threat">Bundled runtimes</div>
+        <div class="explain">
+          VSCode bundles its own Node.js at
+          <code>/Applications/Visual Studio Code.app/Contents/Resources/app/node_modules/.bin/npm</code>.
+          When an extension triggers <code>npm install</code>, that bundled npm may read
+          from <code>~/.npmrc</code> — or it may not. Version differences, custom
+          <code>--userconfig</code> flags, and extension isolation policies all affect this.
+          pf catches it at the network layer regardless; env injection catches it if
+          the bundled npm honours env vars.
+        </div>
+      </div>
+
+      <div class="wall-item">
+        <div class="threat">VPN exclusion zones</div>
+        <div class="explain">
+          Corporate VPNs often mark registry IP ranges as "direct" (bypassing the tunnel)
+          in their split-tunnel config. Traffic to those IPs leaves the machine without
+          touching the pf redirect or the proxy — and it's configured on the VPN server,
+          not the developer's machine.
+        </div>
+      </div>
+
+      <div class="wall-item">
+        <div class="threat">DNS-over-HTTPS</div>
+        <div class="explain">
+          DNS interception (<code>/etc/hosts</code>, dnsmasq) is another potential
+          interception layer. But Firefox, Chrome, and newer versions of curl can
+          bypass the system resolver entirely using hardcoded DoH endpoints. For package
+          managers specifically this isn't yet a concern — but it closes the DNS door
+          for the future.
+        </div>
+      </div>
+
+      <div class="wall-item">
+        <div class="threat">Hardcoded IPs</div>
+        <div class="explain">
+          Malicious packages occasionally connect to exfiltration endpoints using
+          hardcoded IP addresses, bypassing DNS entirely. A rule for
+          <code>registry.npmjs.org</code> doesn't help if the package calls
+          <code>104.16.0.34</code> directly. This is pf's home turf — and it still
+          requires knowing the IP ahead of time.
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /wall -->
+
+  <h3>The DNS TTL reality check</h3>
+
+  <p>
+    Here's what we measured when we did a fresh DNS lookup of every registry host,
+    run twice five minutes apart:
+  </p>
+
+  <div>
+    <div class="ttl-row">
+      <span class="host">proxy.golang.org</span>
+      <span class="ttl-val bad">TTL: 8s</span>
+      <span class="note">Google — IPs rotated between both lookups</span>
+    </div>
+    <div class="ttl-row">
+      <span class="host">repo.packagist.org</span>
+      <span class="ttl-val bad">TTL: 35s</span>
+      <span class="note">IP changed between runs</span>
+    </div>
+    <div class="ttl-row">
+      <span class="host">packagist.org</span>
+      <span class="ttl-val bad">TTL: 35s</span>
+      <span class="note">IP changed between runs</span>
+    </div>
+    <div class="ttl-row">
+      <span class="host">static.crates.io</span>
+      <span class="ttl-val ok">TTL: 231s</span>
+      <span class="note">Fastly — IP changed between runs</span>
+    </div>
+    <div class="ttl-row">
+      <span class="host">api.nuget.org</span>
+      <span class="ttl-val ok">TTL: 168s</span>
+      <span class="note">Azure — stable in practice</span>
+    </div>
+    <div class="ttl-row">
+      <span class="host">registry.npmjs.org</span>
+      <span class="ttl-val good">TTL: 299s</span>
+      <span class="note">Cloudflare anycast — 12 IPs, all loaded by pf</span>
+    </div>
+    <div class="ttl-row">
+      <span class="host">pypi.org</span>
+      <span class="ttl-val good">TTL: 48,557s</span>
+      <span class="note">Fastly — 4 stable IPs for ~13 hours</span>
+    </div>
+  </div>
+
+  <p style="margin-top:22px">
+    <code>proxy.golang.org</code> at 8 seconds means pf rules are stale almost
+    immediately. Every <code>go get</code> is a coin flip on whether the redirect fires.
+    Refreshing <code>fw-enable</code> via a launchd timer is the only mitigation
+    short of a Network Extension.
+  </p>
+
+  <hr class="ruled">
+
+  <!-- ── RECOMMENDATION ── -->
+  <h2>The Layered Defence Model</h2>
+
+  <p>
+    No single layer reaches 100%. Three layers together reach the point where the
+    remaining gap requires a deliberately adversarial package that does something
+    unusual — and that's a useful place to be.
+  </p>
+
+  <table class="layer-table">
+    <thead>
+      <tr>
+        <th>Layer</th>
+        <th>CLI tools</th>
+        <th>GUI apps</th>
+        <th>Bundled runtimes</th>
+        <th>Rogue scripts</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="layer-name">1. Per-tool config<br><small style="color:var(--muted);font-family:var(--mono);font-size:11px">config write</small></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="cross">✗</span></td>
+        <td><span class="partial-check">~</span></td>
+        <td><span class="cross">✗</span></td>
+      </tr>
+      <tr>
+        <td class="layer-name">2. Launch env vars<br><small style="color:var(--muted);font-family:var(--mono);font-size:11px">launchctl setenv</small></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="partial-check">~</span></td>
+        <td><span class="cross">✗</span></td>
+      </tr>
+      <tr>
+        <td class="layer-name">3. pf / iptables<br><small style="color:var(--muted);font-family:var(--mono);font-size:11px">fw-enable</small></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="partial-check">~</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The <span class="partial-check" style="font-family:var(--mono)">~</span> on pf
+    for rogue scripts is the CDN IP rotation issue. Mitigate it by refreshing pf
+    rules on every network change event — a launchd job watching
+    <code>com.apple.network.change</code> brings that closer to <span class="check" style="font-family:var(--mono)">✓</span>.
+  </p>
+
+  <p>
+    What this model doesn't catch: a package that connects to an exfiltration server
+    on an IP not in the ruleset, or a tool that uses HTTP/3 over UDP. For those,
+    you need egress filtering at the network level (corporate firewall, DNS sinkhole,
+    or a genuine Network Extension with Apple's blessing).
+  </p>
+
+  <hr class="ruled">
+
+  <!-- ── CLOSING ── -->
+  <h2>The Honest Conclusion</h2>
+
+  <p>
+    Perfect supply chain interception on a developer machine requires either
+    becoming the OS (kernel extension, Network Extension with entitlements) or
+    accepting that determined adversaries have escape routes. The good news is
+    that real supply chain attacks don't require exotic evasion — they rely on
+    developers installing a package without checking. Intercepting the happy path
+    is achievable, and the happy path is where 99.9% of the risk lives.
+  </p>
+
+  <p>
+    The layered model above — per-tool config, launch environment injection, and
+    a network-layer backstop — covers every ordinary installation scenario:
+    <code>npm install</code> in a terminal, a VSCode extension auto-installing its
+    dependencies, a CI job running in a local runner, a Zed plugin downloading
+    a language server. That's the threat model worth defending.
+  </p>
+
+  <blockquote>
+    <p>You don't need to catch every possible evasion. You need to catch the attack
+    that's actually happening — and today, that attack goes through
+    <code>npm install</code>.</p>
+  </blockquote>
+
+  <p>
+    The remaining gap is worth documenting honestly so teams don't build false
+    confidence into their security posture. Escrow is a layer, not a silver bullet.
+    Treat it that way — and it's genuinely useful.
+  </p>
+
+  <hr class="ruled short">
+
+  <div class="post-footer">
+    <div>
+      <div class="label">Tags</div>
+      <div class="tag-list">
+        <span class="tag">supply-chain</span>
+        <span class="tag">pf</span>
+        <span class="tag">macOS</span>
+        <span class="tag">npm</span>
+        <span class="tag">proxy</span>
+        <span class="tag">security</span>
+        <span class="tag">devtools</span>
+      </div>
+    </div>
+    <div>
+      <div class="label">Part of</div>
+      <div style="font-family:var(--mono);font-size:13px;color:var(--muted)">escrow proxy · open source</div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+</body>
+</html>
