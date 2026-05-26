@@ -1,16 +1,20 @@
-# 🔐 escrow
+# escrow
 
-A lightweight supply-chain proxy that enforces configurable trust policies before any package reaches your developers or CI pipeline. Covers **7 ecosystems** in a single binary.
+> Supply-chain proxy for package managers — age gates, CVE scanning, and a real-time operator dashboard. Single binary, 7 ecosystems.
 
 ```
-developer / CI  →  escrow  →  upstream registry
-                      │
-                policy engine
-          ┌───────────┼────────────┐
-         age         osv      publisher  popularity
+developer / CI  →  escrow proxy  →  upstream registry
+                         │
+                   policy engine
+            ┌────────────┼─────────────┐
+           age          osv       publisher · popularity
 ```
 
-Packages that fail policy are **blocked at the proxy level** — they never reach the tool. Operators review blocked events in the real-time dashboard and approve packages with a single click.
+Packages that fail policy are **blocked at the proxy level** — they never reach the tool. Operators review blocked events in the real-time dashboard and approve with a single click.
+
+| npm | PyPI | Go | Cargo | NuGet | Maven / Gradle | Composer |
+|:---:|:----:|:--:|:-----:|:-----:|:--------------:|:--------:|
+| ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -424,21 +428,9 @@ pf and iptables resolve hostnames to IP addresses at rule-load time. This means:
 
 Real-time package event stream with approve/block controls.
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ ESCROW  package proxy                         ● LIVE  admin  logout│
-├──────────┬──────┬──────────────────┬─────────────────┬────────────┤
-│ TIME     │ ECO  │ PACKAGE          │ SIGNAL          │ STATUS     │
-├──────────┼──────┼──────────────────┼─────────────────┼────────────┤
-│ 14:03:12 │ npm  │ lodash@4.17.21   │ age · 2d old    │ BLOCK ✓   │
-│ 14:03:09 │ pypi │ requests@2.31.0  │ osv · CVE-...   │ BLOCK ✓   │
-│ 14:03:07 │ go   │ gin@v1.9.1       │ age · 1825d old │ ALLOW      │
-│ 14:02:48 │ nuget│ Newtonsoft@13.0  │ age · 540d old  │ ALLOW      │
-│ 14:02:31 │ maven│ spring:core@6.1  │ age · 90d old   │ ALLOW      │
-└──────────────────────────────────────────────────────────────────┘
-```
+![escrow dashboard](docs/dashboard-screenshot.png)
 
-Access at `http://localhost:7888/dashboard`. Credentials are printed on first boot.
+Access at `http://localhost:7888/dashboard`. Credentials are printed on first boot and stored in `$(brew --prefix)/var/log/escrow.log`.
 
 **Approve a blocked package:** click ✓ next to any blocked event. Added to
 `escrow-allowlist.json` immediately. No restart needed.

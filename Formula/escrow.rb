@@ -119,9 +119,11 @@ class Escrow < Formula
       # Dashboard: http://localhost:7888/dashboard  (credentials printed on first start)
 
       [server]
-        host      = "127.0.0.1"
-        port      = 7888
-        log_level = "info"
+        host               = "127.0.0.1"
+        port               = 7888
+        log_level          = "info"
+        access_log_path    = "~/.cache/escrow/access.log"
+        access_log_max_days = 30
 
       [storage]
         backend = "disk"

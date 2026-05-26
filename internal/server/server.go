@@ -47,22 +47,39 @@ type Options struct {
 	TLSCertFile              string
 	TLSKeyFile               string
 	ProxyRateLimitPerMin     int
+	AccessLogPath            string // Apache combined format log file; empty = disabled
+	AccessLogMaxDays         int    // rotated files older than this are deleted; 0 → 30
 	// UpstreamURLs maps ecosystem name → base URL for upstream health probes.
 	UpstreamURLs map[string]string
 }
 
 type Server struct {
-	http     *http.Server
-	router   *chi.Mux
-	log      zerolog.Logger
-	certFile string
-	keyFile  string
-	rl       *ipRateLimiter // may be nil
+	http      *http.Server
+	router    *chi.Mux
+	log       zerolog.Logger
+	certFile  string
+	keyFile   string
+	rl        *ipRateLimiter // may be nil
+	accessLog *AccessLogger  // may be nil
 }
 
 func New(opts Options, log zerolog.Logger) *Server {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
+
+	s := &Server{router: r, log: log, certFile: opts.TLSCertFile, keyFile: opts.TLSKeyFile}
+
+	// Access log (Apache combined format) — optional.
+	if opts.AccessLogPath != "" {
+		al, err := NewAccessLogger(opts.AccessLogPath, opts.AccessLogMaxDays)
+		if err != nil {
+			log.Warn().Err(err).Str("path", opts.AccessLogPath).Msg("access log disabled: cannot open file")
+		} else {
+			s.accessLog = al
+			r.Use(al.Middleware())
+			log.Info().Str("path", opts.AccessLogPath).Msg("access log enabled")
+		}
+	}
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -92,7 +109,6 @@ func New(opts Options, log zerolog.Logger) *Server {
 			ev.Msg("request")
 		})
 	})
-	s := &Server{router: r, log: log, certFile: opts.TLSCertFile, keyFile: opts.TLSKeyFile}
 	if opts.ProxyRateLimitPerMin > 0 {
 		s.rl = newIPRateLimiter(opts.ProxyRateLimitPerMin)
 		r.Use(s.rl.middleware())

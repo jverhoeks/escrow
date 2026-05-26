@@ -32,6 +32,8 @@ type ServerConfig struct {
 	TLSCertFile               string `toml:"tls_cert_file"`
 	TLSKeyFile                string `toml:"tls_key_file"`
 	ProxyRateLimitPerMin      int    `toml:"proxy_rate_limit_per_min"` // 0 = disabled
+	AccessLogPath             string `toml:"access_log_path"`          // Apache combined format; empty = disabled
+	AccessLogMaxDays          int    `toml:"access_log_max_days"`       // rotate+delete logs older than N days; 0 = 30
 }
 
 type StorageConfig struct {
@@ -221,6 +223,8 @@ func GenerateIfMissing(path string) (bool, string, error) {
   # tls_cert_file          = ""
   # tls_key_file           = ""
   # proxy_rate_limit_per_min = 0   # requests/min per IP; 0 = disabled
+  # access_log_path        = "~/.cache/escrow/access.log"  # Apache combined format; empty = disabled
+  # access_log_max_days    = 30    # delete rotated logs older than N days
 
 [storage]
   backend = "disk"

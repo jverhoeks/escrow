@@ -128,7 +128,7 @@ func main() {
 		log.Info().Msg("cache flushed")
 	}
 
-	httpClient := upstream.New()
+	httpClient := server.NewLoggingClient(upstream.New(), log.Logger)
 	polEngine := policy.New(cfg.Policy)
 
 	allowList, err := allow.New(config.ExpandPath(cfg.AllowlistPath))
@@ -252,6 +252,8 @@ func main() {
 		TLSCertFile:              cfg.Server.TLSCertFile,
 		TLSKeyFile:               cfg.Server.TLSKeyFile,
 		ProxyRateLimitPerMin:     cfg.Server.ProxyRateLimitPerMin,
+		AccessLogPath:            config.ExpandPath(cfg.Server.AccessLogPath),
+		AccessLogMaxDays:         cfg.Server.AccessLogMaxDays,
 		UpstreamURLs:             upstreamURLs,
 	}, log.Logger)
 	r := srv.Router()
