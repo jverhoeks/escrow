@@ -263,7 +263,8 @@ runs:
         IFS=',' read -ra ECOS <<< "$ESCROW_ECOSYSTEMS"
         for eco in "${ECOS[@]}"; do
           case "${eco// /}" in
-            cargo)    PARTS+=("\"cargo\":{\"registryUrls\":[\"${PROXY}/cargo/\"]}");;
+            # allowCustomCrateRegistries is a Renovate security gate required for non-crates.io registries
+            cargo)    PARTS+=("\"allowCustomCrateRegistries\":true,\"cargo\":{\"registryUrls\":[\"${PROXY}/cargo/\"]}");;
             maven)    PARTS+=("\"maven\":{\"registryUrls\":[\"${PROXY}/maven2/\"]}");;
             nuget)    PARTS+=("\"nuget\":{\"registryUrls\":[\"${PROXY}/nuget/v3/index.json\"]}");;
             composer) PARTS+=("\"packagist\":{\"registryUrls\":[\"${PROXY}\"]}");;

@@ -57,14 +57,15 @@ func runConfigWriteRenovate(args []string) {
 	}
 	fmt.Printf("✓ wrote %s\n", *output)
 	fmt.Println()
-	fmt.Println("Coverage after adding this file:")
-	fmt.Println("  npm/pnpm    ✓  auto via ~/.npmrc")
+	fmt.Println("Renovate coverage:")
+	fmt.Println("  npm/pnpm    ✓  auto via NPM_CONFIG_REGISTRY env / ~/.npmrc")
 	fmt.Println("  PyPI        ✓  auto via PIP_INDEX_URL env")
 	fmt.Println("  Go          ✓  auto via GOPROXY env")
+	fmt.Println("  cargo       ~  Renovate looks up crates.io directly (git index,")
+	fmt.Println("                  not sparse HTTP). Escrow gates cargo at build time")
+	fmt.Println("                  via ~/.cargo/config.toml — run: escrow-cli config write --ecosystems cargo")
 	for _, eco := range ecos {
 		switch eco {
-		case "cargo":
-			fmt.Println("  cargo       ✓  via renovate.json registryUrls")
 		case "maven":
 			fmt.Println("  maven       ✓  via renovate.json registryUrls")
 		case "nuget":
@@ -89,22 +90,24 @@ func buildRenovateConfig(ecosystems []string, base string) string {
 	sb.WriteString(`  "$schema": "https://docs.renovatebot.com/renovate-schema.json",` + "\n")
 	sb.WriteString(`  "extends": ["config:recommended"],` + "\n")
 	sb.WriteString("\n")
-	sb.WriteString("  // npm, PyPI (pip/uv), and Go are auto-detected via ~/.npmrc, PIP_INDEX_URL,\n")
-	sb.WriteString("  // and GOPROXY env vars — no extra config needed here.\n")
+	sb.WriteString("  // npm, PyPI (pip/uv), and Go are auto-detected via NPM_CONFIG_REGISTRY,\n")
+	sb.WriteString("  // PIP_INDEX_URL, and GOPROXY env vars — no extra config needed here.\n")
+	sb.WriteString("\n")
+	sb.WriteString("  // Cargo: Renovate uses git-clone to fetch crate indices for custom registries.\n")
+	sb.WriteString("  // Escrow serves sparse HTTP (used by cargo at install/build time), not git.\n")
+	sb.WriteString("  // Escrow therefore protects cargo at download time — Renovate looks up\n")
+	sb.WriteString("  // versions directly from crates.io, which is the correct division of labour.\n")
+	sb.WriteString("  // No cargo entry needed here.\n")
 	sb.WriteString("\n")
 
-	// Cargo
-	if ecoSet["cargo"] {
-		sb.WriteString(`  "cargo": {` + "\n")
-		sb.WriteString(`    "registryUrls": ["` + base + `/cargo/"]` + "\n")
-		sb.WriteString("  },\n")
-	}
+	hasEntries := false
 
 	// Maven / Gradle
 	if ecoSet["maven"] {
 		sb.WriteString(`  "maven": {` + "\n")
 		sb.WriteString(`    "registryUrls": ["` + base + `/maven2/"]` + "\n")
 		sb.WriteString("  },\n")
+		hasEntries = true
 	}
 
 	// NuGet
@@ -112,6 +115,7 @@ func buildRenovateConfig(ecosystems []string, base string) string {
 		sb.WriteString(`  "nuget": {` + "\n")
 		sb.WriteString(`    "registryUrls": ["` + base + `/nuget/v3/index.json"]` + "\n")
 		sb.WriteString("  },\n")
+		hasEntries = true
 	}
 
 	// Composer
@@ -119,15 +123,21 @@ func buildRenovateConfig(ecosystems []string, base string) string {
 		sb.WriteString(`  "packagist": {` + "\n")
 		sb.WriteString(`    "registryUrls": ["` + base + `"]` + "\n")
 		sb.WriteString("  },\n")
+		hasEntries = true
 	}
 
-	// hostRules for token-free access (no auth required for escrow)
-	sb.WriteString(`  "hostRules": [` + "\n")
-	sb.WriteString("    {\n")
-	sb.WriteString(`      "matchHost": "127.0.0.1",` + "\n")
-	sb.WriteString(`      "insecureRegistry": true` + "\n")
-	sb.WriteString("    }\n")
-	sb.WriteString("  ]\n")
+	// hostRules only needed if we have entries that require HTTP access to localhost
+	if hasEntries {
+		sb.WriteString(`  "hostRules": [` + "\n")
+		sb.WriteString("    {\n")
+		sb.WriteString(`      "matchHost": "127.0.0.1",` + "\n")
+		sb.WriteString(`      "insecureRegistry": true` + "\n")
+		sb.WriteString("    }\n")
+		sb.WriteString("  ]\n")
+	} else {
+		// trim trailing comma from last comment line and close
+		sb.WriteString(`  "enabled": true` + "\n")
+	}
 	sb.WriteString("}\n")
 
 	return sb.String()
