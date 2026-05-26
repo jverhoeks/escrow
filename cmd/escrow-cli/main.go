@@ -14,6 +14,7 @@ Usage:
   escrow-cli fw-test                 [--ecosystems LIST]
   escrow-cli config write            [--ecosystems LIST] [--proxy-url URL] [--git]
   escrow-cli config write-local      [--ecosystems LIST] [--proxy-url URL]
+  escrow-cli config write-renovate   [--ecosystems LIST] [--proxy-url URL] [--output FILE]
   escrow-cli config write-env        [--ecosystems LIST] [--proxy-url URL]
   escrow-cli config write-shell      [--ecosystems LIST] [--proxy-url URL] [--profiles LIST]
   escrow-cli config check            [--ecosystems LIST]
@@ -59,6 +60,8 @@ func main() {
 			runConfigWrite(os.Args[3:])
 		case "write-local":
 			runConfigWriteLocal(os.Args[3:])
+		case "write-renovate":
+			runConfigWriteRenovate(os.Args[3:])
 		case "write-env":
 			runConfigWriteEnv(os.Args[3:])
 		case "write-shell":

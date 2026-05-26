@@ -15,6 +15,124 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// ── config write-renovate ─────────────────────────────────────────────────────
+
+// runConfigWriteRenovate generates a renovate.json that routes Renovate's
+// datasource lookups through the escrow proxy.
+//
+// Renovate has its own HTTP client for version lookups — it does NOT use
+// ~/.cargo/config.toml, ~/.m2/settings.xml, or most other tool configs.
+// The exceptions are: npm (~/.npmrc ✓), PyPI (PIP_INDEX_URL env ✓),
+// Go (GOPROXY env ✓). For everything else, renovate.json is required.
+//
+// Coverage:
+//   npm/pnpm    auto via ~/.npmrc       no renovate.json needed
+//   PyPI        auto via PIP_INDEX_URL  no renovate.json needed
+//   Go          auto via GOPROXY        no renovate.json needed
+//   Cargo       hardcoded crates.io     renovate.json required ← this command
+//   Maven       hardcoded Maven Central renovate.json required ← this command
+//   NuGet       hardcoded nuget.org     renovate.json required ← this command
+//   Composer    hardcoded packagist.org renovate.json required ← this command
+func runConfigWriteRenovate(args []string) {
+	fs := flag.NewFlagSet("config write-renovate", flag.ExitOnError)
+	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems")
+	proxyURL := fs.String("proxy-url", "http://127.0.0.1:7888", "base URL of the escrow proxy")
+	output := fs.String("output", "renovate.json", "output file path (use - for stdout)")
+	fs.Parse(args) //nolint:errcheck
+
+	if err := validateProxyURL(*proxyURL); err != nil {
+		die("--proxy-url: %v", err)
+	}
+
+	ecos := parseEcosystems(*ecosystems)
+	base := strings.TrimRight(*proxyURL, "/")
+	content := buildRenovateConfig(ecos, base)
+
+	if *output == "-" {
+		fmt.Print(content)
+		return
+	}
+	if err := os.WriteFile(*output, []byte(content), 0644); err != nil {
+		die("writing %s: %v", *output, err)
+	}
+	fmt.Printf("✓ wrote %s\n", *output)
+	fmt.Println()
+	fmt.Println("Coverage after adding this file:")
+	fmt.Println("  npm/pnpm    ✓  auto via ~/.npmrc")
+	fmt.Println("  PyPI        ✓  auto via PIP_INDEX_URL env")
+	fmt.Println("  Go          ✓  auto via GOPROXY env")
+	for _, eco := range ecos {
+		switch eco {
+		case "cargo":
+			fmt.Println("  cargo       ✓  via renovate.json registryUrls")
+		case "maven":
+			fmt.Println("  maven       ✓  via renovate.json registryUrls")
+		case "nuget":
+			fmt.Println("  nuget       ✓  via renovate.json registryUrls")
+		case "composer":
+			fmt.Println("  composer    ✓  via renovate.json registryUrls")
+		}
+	}
+	fmt.Println()
+	fmt.Println("Note: for cloud-hosted Renovate (GitHub App) the proxy must be")
+	fmt.Println("network-accessible. For self-hosted Renovate, 127.0.0.1 works.")
+}
+
+func buildRenovateConfig(ecosystems []string, base string) string {
+	ecoSet := make(map[string]bool)
+	for _, e := range ecosystems {
+		ecoSet[e] = true
+	}
+
+	var sb strings.Builder
+	sb.WriteString("{\n")
+	sb.WriteString(`  "$schema": "https://docs.renovatebot.com/renovate-schema.json",` + "\n")
+	sb.WriteString(`  "extends": ["config:recommended"],` + "\n")
+	sb.WriteString("\n")
+	sb.WriteString("  // npm, PyPI (pip/uv), and Go are auto-detected via ~/.npmrc, PIP_INDEX_URL,\n")
+	sb.WriteString("  // and GOPROXY env vars — no extra config needed here.\n")
+	sb.WriteString("\n")
+
+	// Cargo
+	if ecoSet["cargo"] {
+		sb.WriteString(`  "cargo": {` + "\n")
+		sb.WriteString(`    "registryUrls": ["` + base + `/cargo/"]` + "\n")
+		sb.WriteString("  },\n")
+	}
+
+	// Maven / Gradle
+	if ecoSet["maven"] {
+		sb.WriteString(`  "maven": {` + "\n")
+		sb.WriteString(`    "registryUrls": ["` + base + `/maven2/"]` + "\n")
+		sb.WriteString("  },\n")
+	}
+
+	// NuGet
+	if ecoSet["nuget"] {
+		sb.WriteString(`  "nuget": {` + "\n")
+		sb.WriteString(`    "registryUrls": ["` + base + `/nuget/v3/index.json"]` + "\n")
+		sb.WriteString("  },\n")
+	}
+
+	// Composer
+	if ecoSet["composer"] {
+		sb.WriteString(`  "packagist": {` + "\n")
+		sb.WriteString(`    "registryUrls": ["` + base + `"]` + "\n")
+		sb.WriteString("  },\n")
+	}
+
+	// hostRules for token-free access (no auth required for escrow)
+	sb.WriteString(`  "hostRules": [` + "\n")
+	sb.WriteString("    {\n")
+	sb.WriteString(`      "matchHost": "127.0.0.1",` + "\n")
+	sb.WriteString(`      "insecureRegistry": true` + "\n")
+	sb.WriteString("    }\n")
+	sb.WriteString("  ]\n")
+	sb.WriteString("}\n")
+
+	return sb.String()
+}
+
 func runConfigWrite(args []string) {
 	fs := flag.NewFlagSet("config write", flag.ExitOnError)
 	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems")
