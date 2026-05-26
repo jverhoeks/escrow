@@ -174,6 +174,29 @@ Step-by-step guides for global setup, per-project setup, verify, and remove for 
 
 ---
 
+## 🆚 Comparison with alternatives
+
+| Feature | JFrog Curation | escrow |
+|---------|:--------------:|:------:|
+| Server-side age gate | ✅ configurable | ✅ `min_days` |
+| OSV / malware scan | ✅ via Xray | ✅ osv.dev |
+| npm | ✅ | ✅ |
+| PyPI | ✅ | ✅ |
+| Go modules | ✅ | ✅ |
+| Maven / Gradle | ✅ | ✅ |
+| Cargo / Rust | ⚠️ "varying levels of support" | ✅ full age + OSV |
+| NuGet | ❓ not confirmed | ✅ |
+| Composer | ❓ not confirmed | ✅ |
+| On block | silently substitutes safe older version | blocks + dashboard approval |
+| Cost | 💰 commercial (Artifactory add-on) | **free / OSS** |
+| Self-hosted | ✅ | ✅ |
+
+**Notable difference:** Curation silently swaps a blocked package for an older safe version — frictionless but invisible to developers. Escrow blocks outright and surfaces it in the dashboard, requiring an explicit human approval decision. Which is better depends on your workflow.
+
+**Cargo is the key gap to watch.** JFrog documents Cargo as having "varying levels of support", which likely means its time-delay policy does not apply to Cargo yet. Escrow is currently the only proxy with confirmed server-side age enforcement for Cargo.
+
+---
+
 ## 🛡️ What Escrow Protects Against
 
 | Threat | Protected? |
