@@ -12,7 +12,7 @@ Usage:
   escrow-cli fw-enable               [--ecosystems LIST] [--proxy-port PORT] [--proxy-user USER]
   escrow-cli fw-disable
   escrow-cli fw-test                 [--ecosystems LIST]
-  escrow-cli config write            [--ecosystems LIST] [--proxy-url URL]
+  escrow-cli config write            [--ecosystems LIST] [--proxy-url URL] [--git]
   escrow-cli config write-local      [--ecosystems LIST] [--proxy-url URL]
   escrow-cli config write-env        [--ecosystems LIST] [--proxy-url URL]
   escrow-cli config write-shell      [--ecosystems LIST] [--proxy-url URL] [--profiles LIST]

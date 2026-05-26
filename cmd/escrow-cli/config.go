@@ -19,6 +19,7 @@ func runConfigWrite(args []string) {
 	fs := flag.NewFlagSet("config write", flag.ExitOnError)
 	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems")
 	proxyURL := fs.String("proxy-url", "http://127.0.0.1:7888", "base URL of the escrow proxy")
+	gitCLI := fs.Bool("git", false, "set [net] git-fetch-with-cli=true in cargo config so git deps and index updates use the system git, not cargo's libgit2 (prevents git-protocol 404s when a network proxy is active)")
 	fs.Parse(args) //nolint:errcheck
 
 	if err := validateProxyURL(*proxyURL); err != nil {
@@ -29,7 +30,13 @@ func runConfigWrite(args []string) {
 	base := strings.TrimRight(*proxyURL, "/")
 
 	for _, eco := range ecos {
-		if err := writeEcoConfig(eco, base); err != nil {
+		var err error
+		if eco == "cargo" && *gitCLI {
+			err = writeCargoConfigWithGitCLI(base)
+		} else {
+			err = writeEcoConfig(eco, base)
+		}
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: %s: %v\n", eco, err)
 		} else {
 			fmt.Printf("✓ %s config written\n", eco)
@@ -615,6 +622,30 @@ func removeGoMarkers(profile string) bool {
 // ── cargo ─────────────────────────────────────────────────────────────────────
 
 func writeCargoConfig(home, base string) error {
+	return writeCargoConfigOpts(home, base, false)
+}
+
+// writeCargoConfigWithGitCLI writes the escrow cargo config AND sets
+// [net] git-fetch-with-cli = true.
+//
+// With git-fetch-with-cli enabled, all git operations (git dependencies in
+// Cargo.toml, git-based index updates) use the system git binary instead of
+// cargo's embedded libgit2. This prevents git-protocol 404s when a network
+// layer (pf redirect, corporate proxy) intercepts TCP and the escrow proxy
+// does not speak the git smart-HTTP protocol.
+func writeCargoConfigWithGitCLI(base string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	if err := writeCargoConfigOpts(home, base, true); err != nil {
+		return err
+	}
+	fmt.Println("  [net] git-fetch-with-cli = true  (git deps use system git, not libgit2)")
+	return nil
+}
+
+func writeCargoConfigOpts(home, base string, gitFetchWithCLI bool) error {
 	cfgPath := filepath.Join(home, ".cargo", "config.toml")
 	if err := backupFile(cfgPath); err != nil {
 		return fmt.Errorf("backing up %s: %v", cfgPath, err)
@@ -622,9 +653,8 @@ func writeCargoConfig(home, base string) error {
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
 		return err
 	}
-
 	existing, _ := os.ReadFile(cfgPath)
-	merged, err := mergeCargoConfig(existing, base+"/cargo/")
+	merged, err := mergeCargoConfig(existing, base+"/cargo/", gitFetchWithCLI)
 	if err != nil {
 		return err
 	}
@@ -633,7 +663,8 @@ func writeCargoConfig(home, base string) error {
 
 // mergeCargoConfig uses the TOML library to parse the existing config, set the
 // escrow source entries, and re-encode. All non-escrow sections are preserved.
-func mergeCargoConfig(existing []byte, registryURL string) ([]byte, error) {
+// If gitFetchWithCLI is true, [net] git-fetch-with-cli = true is also set.
+func mergeCargoConfig(existing []byte, registryURL string, gitFetchWithCLI bool) ([]byte, error) {
 	var cfg map[string]interface{}
 	if len(bytes.TrimSpace(existing)) > 0 {
 		if err := toml.Unmarshal(existing, &cfg); err != nil {
@@ -648,7 +679,6 @@ func mergeCargoConfig(existing []byte, registryURL string) ([]byte, error) {
 	if source == nil {
 		source = make(map[string]interface{})
 	}
-
 	cratesIO, _ := source["crates-io"].(map[string]interface{})
 	if cratesIO == nil {
 		cratesIO = make(map[string]interface{})
@@ -657,6 +687,15 @@ func mergeCargoConfig(existing []byte, registryURL string) ([]byte, error) {
 	source["crates-io"] = cratesIO
 	source["escrow"] = map[string]interface{}{"registry": registryURL}
 	cfg["source"] = source
+
+	if gitFetchWithCLI {
+		net, _ := cfg["net"].(map[string]interface{})
+		if net == nil {
+			net = make(map[string]interface{})
+		}
+		net["git-fetch-with-cli"] = true
+		cfg["net"] = net
+	}
 
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
@@ -894,7 +933,7 @@ func writeCargoConfigLocal(dir, base string) error {
 	path := filepath.Join(cargoDir, "config.toml")
 	backupFile(path) //nolint:errcheck
 	existing, _ := os.ReadFile(path)
-	merged, err := mergeCargoConfig(existing, base+"/cargo/")
+	merged, err := mergeCargoConfig(existing, base+"/cargo/", false)
 	if err != nil {
 		return err
 	}
