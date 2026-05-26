@@ -139,43 +139,44 @@ Escrow sets `NPM_CONFIG_REGISTRY`, `PIP_INDEX_URL`, `GOPROXY`, etc. automaticall
 
 ### Composing with Renovate
 
-Renovate's npm/PyPI/Go datasources auto-detect via the exported env vars. Cargo, Maven, NuGet, and Composer datasources have hardcoded defaults and need explicit config — use the `renovate-config` output:
+Renovate discovers new versions using its own HTTP client — it does **not** use the same registry config as your package managers. The escrow security check still fires at install/build time:
+
+```
+Renovate: finds "lodash 4.17.22 exists" → queries registry directly (discovery only)
+Developer: npm install after accepting PR  → escrow checks age + OSV ← this is the gate
+```
+
+**What Renovate auto-detects (no extra config):**
+
+| Ecosystem | Auto-detected? | Notes |
+|---|:-:|---|
+| npm | ❌ | Renovate explicitly rejects `localhost` registries from `.npmrc` (security feature) |
+| PyPI | ✅ | Reads `PIP_INDEX_URL` env var |
+| Go | ✅ | Reads `GOPROXY` env var |
+| Cargo | ❌ | Uses git-clone for custom registries; sparse HTTP not supported |
+| Maven | ⚠️ | Only if pom.xml has `<repositories>` pointing to escrow |
+| NuGet / Composer | ⚠️ | Merge/hunt strategy; need project config |
+
+**For maven/nuget/composer with a network-accessible escrow instance**, generate and commit a `renovate.json`:
+
+```bash
+escrow-cli config write-renovate --ecosystems maven,nuget,composer
+```
+
+**In GitHub Actions** — PyPI and Go are covered by the exported env vars; for maven/nuget/composer use the `renovate-config` output:
 
 ```yaml
-jobs:
-  renovate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
+- uses: jverhoeks/escrow@v1
+  id: escrow
+  with:
+    ecosystems: 'npm,pypi,go,cargo,maven,nuget,composer'
 
-      - uses: jverhoeks/escrow@v1
-        id: escrow
-        with:
-          ecosystems: 'npm,pypi,go,cargo,maven,nuget,composer'
-
-      - uses: renovatebot/github-action@v40
-        env:
-          RENOVATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # npm/PyPI/Go: auto-detected via NPM_CONFIG_REGISTRY/PIP_INDEX_URL/GOPROXY ✓
-          # Cargo/Maven/NuGet/Composer: explicit config from escrow output
-          RENOVATE_CONFIG: ${{ steps.escrow.outputs.renovate-config }}
-```
-
-The `renovate-config` output is a JSON fragment like:
-```json
-{
-  "cargo":     {"registryUrls": ["http://127.0.0.1:7888/cargo/"]},
-  "maven":     {"registryUrls": ["http://127.0.0.1:7888/maven2/"]},
-  "nuget":     {"registryUrls": ["http://127.0.0.1:7888/nuget/v3/index.json"]},
-  "packagist": {"registryUrls": ["http://127.0.0.1:7888"]},
-  "hostRules": [{"matchHost": "127.0.0.1", "insecureRegistry": true}]
-}
-```
-
-For local/self-hosted Renovate, generate a `renovate.json` once and commit it:
-```bash
-escrow-cli config write-renovate          # writes renovate.json
-escrow-cli config write-renovate --output - | tee .github/renovate.json
+- uses: renovatebot/github-action@v40
+  env:
+    RENOVATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # PyPI + Go auto-detected via PIP_INDEX_URL / GOPROXY already exported above
+    # Maven/NuGet/Composer: explicit registryUrls (npm/cargo: go direct by design)
+    RENOVATE_CONFIG: ${{ steps.escrow.outputs.renovate-config }}
 ```
 
 | Input | Default | Description |
