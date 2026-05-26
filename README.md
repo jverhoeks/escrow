@@ -137,6 +137,47 @@ jobs:
 
 Escrow sets `NPM_CONFIG_REGISTRY`, `PIP_INDEX_URL`, `GOPROXY`, etc. automatically so every install command routes through the proxy. The package cache is stored in GitHub Actions cache and restored on every run — warm cache runs require zero upstream calls.
 
+### Composing with Renovate
+
+Renovate's npm/PyPI/Go datasources auto-detect via the exported env vars. Cargo, Maven, NuGet, and Composer datasources have hardcoded defaults and need explicit config — use the `renovate-config` output:
+
+```yaml
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jverhoeks/escrow@v1
+        id: escrow
+        with:
+          ecosystems: 'npm,pypi,go,cargo,maven,nuget,composer'
+
+      - uses: renovatebot/github-action@v40
+        env:
+          RENOVATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # npm/PyPI/Go: auto-detected via NPM_CONFIG_REGISTRY/PIP_INDEX_URL/GOPROXY ✓
+          # Cargo/Maven/NuGet/Composer: explicit config from escrow output
+          RENOVATE_CONFIG: ${{ steps.escrow.outputs.renovate-config }}
+```
+
+The `renovate-config` output is a JSON fragment like:
+```json
+{
+  "cargo":     {"registryUrls": ["http://127.0.0.1:7888/cargo/"]},
+  "maven":     {"registryUrls": ["http://127.0.0.1:7888/maven2/"]},
+  "nuget":     {"registryUrls": ["http://127.0.0.1:7888/nuget/v3/index.json"]},
+  "packagist": {"registryUrls": ["http://127.0.0.1:7888"]},
+  "hostRules": [{"matchHost": "127.0.0.1", "insecureRegistry": true}]
+}
+```
+
+For local/self-hosted Renovate, generate a `renovate.json` once and commit it:
+```bash
+escrow-cli config write-renovate          # writes renovate.json
+escrow-cli config write-renovate --output - | tee .github/renovate.json
+```
+
 | Input | Default | Description |
 |---|---|---|
 | `ecosystems` | `npm,pypi,go,cargo` | Comma-separated list to enable |
