@@ -1,0 +1,34 @@
+# Validates Renovate (and human) cargo dependency updates through escrow
+# before they can be merged. Blocks if any new dependency fails the age gate
+# or has a known CVE at or above the configured severity.
+name: cargo escrow check
+
+on:
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '**/Cargo.toml'
+
+jobs:
+  cargo-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jverhoeks/escrow@v1
+        with:
+          ecosystems: 'cargo'
+          min-days: '7'         # block packages < 7 days old
+          osv-severity: 'HIGH'  # block HIGH + CRITICAL CVEs
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # cargo build routes through escrow via the ~/.cargo/config.toml
+      # written by the action. Any blocked crate fails the build.
+      - name: Build (escrow-gated)
+        run: cargo build --locked
+
+      - name: Test (escrow-gated)
+        run: cargo test --locked
