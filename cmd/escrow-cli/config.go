@@ -38,15 +38,19 @@ func runConfigWriteRenovate(args []string) {
 	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems")
 	proxyURL := fs.String("proxy-url", "http://127.0.0.1:7888", "base URL of the escrow proxy")
 	output := fs.String("output", "renovate.json", "output file path (use - for stdout)")
+	minAge := fs.Int("min-age", 7, "minimumReleaseAge in days to add to packageRules (0 = omit)")
+	ageOnly := fs.Bool("age-only", false, "emit only minimumReleaseAge rules — no proxy registryUrls (for teams without an escrow proxy)")
 	fs.Parse(args) //nolint:errcheck
 
-	if err := validateProxyURL(*proxyURL); err != nil {
-		die("--proxy-url: %v", err)
+	if !*ageOnly {
+		if err := validateProxyURL(*proxyURL); err != nil {
+			die("--proxy-url: %v", err)
+		}
 	}
 
 	ecos := parseEcosystems(*ecosystems)
 	base := strings.TrimRight(*proxyURL, "/")
-	content := buildRenovateConfig(ecos, base)
+	content := buildRenovateConfig(ecos, base, *minAge, *ageOnly)
 
 	if *output == "-" {
 		fmt.Print(content)
@@ -57,13 +61,21 @@ func runConfigWriteRenovate(args []string) {
 	}
 	fmt.Printf("✓ wrote %s\n", *output)
 	fmt.Println()
+
+	if *ageOnly {
+		fmt.Printf("  minimumReleaseAge: %d days (all ecosystems)\n", *minAge)
+		fmt.Println("  No proxy registryUrls — age gate only.")
+		fmt.Println("  Pair with 'escrow-cli config write' for proxy protection at install time.")
+		return
+	}
+
 	fmt.Println("Renovate coverage:")
 	fmt.Println("  npm/pnpm    ✓  auto via NPM_CONFIG_REGISTRY env / ~/.npmrc")
 	fmt.Println("  PyPI        ✓  auto via PIP_INDEX_URL env")
 	fmt.Println("  Go          ✓  auto via GOPROXY env")
-	fmt.Println("  cargo       ~  Renovate looks up crates.io directly (git index,")
+	fmt.Println("  cargo       ~  Renovate queries crates.io directly (git index,")
 	fmt.Println("                  not sparse HTTP). Escrow gates cargo at build time")
-	fmt.Println("                  via ~/.cargo/config.toml — run: escrow-cli config write --ecosystems cargo")
+	fmt.Println("                  via ~/.cargo/config.toml — run: escrow-cli config write --ecosystems cargo --git")
 	for _, eco := range ecos {
 		switch eco {
 		case "maven":
@@ -74,12 +86,18 @@ func runConfigWriteRenovate(args []string) {
 			fmt.Println("  composer    ✓  via renovate.json registryUrls")
 		}
 	}
+	if *minAge > 0 {
+		fmt.Printf("\n  minimumReleaseAge: %d days (minor/patch), %d days (major)\n", *minAge, *minAge*2)
+	}
 	fmt.Println()
 	fmt.Println("Note: for cloud-hosted Renovate (GitHub App) the proxy must be")
 	fmt.Println("network-accessible. For self-hosted Renovate, 127.0.0.1 works.")
 }
 
-func buildRenovateConfig(ecosystems []string, base string) string {
+// buildRenovateConfig generates renovate.json content.
+// minAgeDays > 0 adds minimumReleaseAge packageRules.
+// ageOnly = true skips all proxy registryUrls and emits only age rules.
+func buildRenovateConfig(ecosystems []string, base string, minAgeDays int, ageOnly bool) string {
 	ecoSet := make(map[string]bool)
 	for _, e := range ecosystems {
 		ecoSet[e] = true
@@ -89,54 +107,83 @@ func buildRenovateConfig(ecosystems []string, base string) string {
 	sb.WriteString("{\n")
 	sb.WriteString(`  "$schema": "https://docs.renovatebot.com/renovate-schema.json",` + "\n")
 	sb.WriteString(`  "extends": ["config:recommended"],` + "\n")
-	sb.WriteString("\n")
-	sb.WriteString("  // npm, PyPI (pip/uv), and Go are auto-detected via NPM_CONFIG_REGISTRY,\n")
-	sb.WriteString("  // PIP_INDEX_URL, and GOPROXY env vars — no extra config needed here.\n")
-	sb.WriteString("\n")
-	sb.WriteString("  // Cargo: Renovate uses git-clone to fetch crate indices for custom registries.\n")
-	sb.WriteString("  // Escrow serves sparse HTTP (used by cargo at install/build time), not git.\n")
-	sb.WriteString("  // Escrow therefore protects cargo at download time — Renovate looks up\n")
-	sb.WriteString("  // versions directly from crates.io, which is the correct division of labour.\n")
-	sb.WriteString("  // No cargo entry needed here.\n")
-	sb.WriteString("\n")
+
+	if !ageOnly {
+		sb.WriteString("\n")
+		sb.WriteString("  // npm, PyPI (pip/uv), and Go are auto-detected via NPM_CONFIG_REGISTRY,\n")
+		sb.WriteString("  // PIP_INDEX_URL, and GOPROXY env vars — no extra config needed here.\n")
+		sb.WriteString("\n")
+		sb.WriteString("  // Cargo: Renovate uses git-clone for custom registries; escrow serves\n")
+		sb.WriteString("  // sparse HTTP. Escrow gates cargo at build time via ~/.cargo/config.toml.\n")
+		sb.WriteString("\n")
+	}
 
 	hasEntries := false
 
-	// Maven / Gradle
-	if ecoSet["maven"] {
-		sb.WriteString(`  "maven": {` + "\n")
-		sb.WriteString(`    "registryUrls": ["` + base + `/maven2/"]` + "\n")
-		sb.WriteString("  },\n")
+	if !ageOnly {
+		// Maven / Gradle
+		if ecoSet["maven"] {
+			sb.WriteString(`  "maven": {` + "\n")
+			sb.WriteString(`    "registryUrls": ["` + base + `/maven2/"]` + "\n")
+			sb.WriteString("  },\n")
+			hasEntries = true
+		}
+		// NuGet
+		if ecoSet["nuget"] {
+			sb.WriteString(`  "nuget": {` + "\n")
+			sb.WriteString(`    "registryUrls": ["` + base + `/nuget/v3/index.json"]` + "\n")
+			sb.WriteString("  },\n")
+			hasEntries = true
+		}
+		// Composer
+		if ecoSet["composer"] {
+			sb.WriteString(`  "packagist": {` + "\n")
+			sb.WriteString(`    "registryUrls": ["` + base + `"]` + "\n")
+			sb.WriteString("  },\n")
+			hasEntries = true
+		}
+	}
+
+	// minimumReleaseAge packageRules — works for ALL ecosystems including cargo.
+	// Tested: Renovate correctly holds back versions younger than the threshold
+	// and files them in pendingVersions until they age past it.
+	if minAgeDays > 0 {
+		sb.WriteString(`  "packageRules": [` + "\n")
+		sb.WriteString("    {\n")
+		sb.WriteString(`      "matchUpdateTypes": ["minor", "patch"],` + "\n")
+		sb.WriteString(fmt.Sprintf(`      "minimumReleaseAge": "%d days"`, minAgeDays) + "\n")
+		sb.WriteString("    },\n")
+		sb.WriteString("    {\n")
+		sb.WriteString(`      "matchUpdateTypes": ["major"],` + "\n")
+		sb.WriteString(fmt.Sprintf(`      "minimumReleaseAge": "%d days"`, minAgeDays*2) + "\n")
+		sb.WriteString("    },\n")
+		sb.WriteString("    {\n")
+		sb.WriteString(`      "matchManagers": ["cargo"],` + "\n")
+		sb.WriteString(`      "postUpgradeTasks": {` + "\n")
+		sb.WriteString(`        "commands": ["cargo audit --deny warnings"],` + "\n")
+		sb.WriteString(`        "fileFilters": ["Cargo.lock"],` + "\n")
+		sb.WriteString(`        "executionMode": "branch"` + "\n")
+		sb.WriteString("      }\n")
+		sb.WriteString("    }\n")
+		sb.WriteString("  ],\n")
 		hasEntries = true
 	}
 
-	// NuGet
-	if ecoSet["nuget"] {
-		sb.WriteString(`  "nuget": {` + "\n")
-		sb.WriteString(`    "registryUrls": ["` + base + `/nuget/v3/index.json"]` + "\n")
-		sb.WriteString("  },\n")
-		hasEntries = true
-	}
-
-	// Composer
-	if ecoSet["composer"] {
-		sb.WriteString(`  "packagist": {` + "\n")
-		sb.WriteString(`    "registryUrls": ["` + base + `"]` + "\n")
-		sb.WriteString("  },\n")
-		hasEntries = true
-	}
-
-	// hostRules only needed if we have entries that require HTTP access to localhost
-	if hasEntries {
+	if hasEntries && !ageOnly {
 		sb.WriteString(`  "hostRules": [` + "\n")
 		sb.WriteString("    {\n")
 		sb.WriteString(`      "matchHost": "127.0.0.1",` + "\n")
 		sb.WriteString(`      "insecureRegistry": true` + "\n")
 		sb.WriteString("    }\n")
 		sb.WriteString("  ]\n")
-	} else {
-		// trim trailing comma from last comment line and close
+	} else if !hasEntries {
 		sb.WriteString(`  "enabled": true` + "\n")
+	} else {
+		// age-only: close cleanly after packageRules (trailing comma already written above)
+		// remove trailing comma from packageRules close
+		result := sb.String()
+		result = strings.TrimSuffix(strings.TrimRight(result, "\n"), ",") + "\n"
+		return result + "}\n"
 	}
 	sb.WriteString("}\n")
 
