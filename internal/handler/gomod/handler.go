@@ -144,6 +144,7 @@ func (h *Handler) serveInfo(w http.ResponseWriter, r *http.Request, escapedModul
 				Action:    string(d.Action),
 				Signal:    d.Signal,
 				Reason:    d.Reason,
+				Vulns:     d.Vulns,
 			})
 		}
 		if d.Action == policy.ActionBlock && h.webhook != nil {
@@ -322,6 +323,7 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 					Action:    string(d.Action),
 					Signal:    d.Signal,
 					Reason:    d.Reason,
+					Vulns:     d.Vulns,
 				})
 			}
 			if h.webhook != nil {
@@ -337,6 +339,7 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 				Action:    string(d.Action),
 				Signal:    d.Signal,
 				Reason:    d.Reason,
+				Vulns:     d.Vulns,
 			})
 		}
 		// Cache the allowed @latest response with a short TTL.

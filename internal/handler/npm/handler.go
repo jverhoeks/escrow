@@ -168,6 +168,7 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 				Action:    string(decision.Action),
 				Signal:    decision.Signal,
 				Reason:    decision.Reason,
+				Vulns:     decision.Vulns,
 			})
 		}
 	}

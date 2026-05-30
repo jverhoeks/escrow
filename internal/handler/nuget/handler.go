@@ -321,6 +321,7 @@ func (h *Handler) filterRegistration(ctx context.Context, pkgID string, data []b
 					Action:    string(d.Action),
 					Signal:    d.Signal,
 					Reason:    d.Reason,
+					Vulns:     d.Vulns,
 				})
 			}
 			if d.Action == policy.ActionBlock {

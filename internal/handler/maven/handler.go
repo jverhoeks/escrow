@@ -356,6 +356,7 @@ func filterMetadata(ctx context.Context, data []byte, groupID, artifactID string
 				Action:    string(d.Action),
 				Signal:    d.Signal,
 				Reason:    d.Reason,
+				Vulns:     d.Vulns,
 			})
 		}
 		if d.Action == policy.ActionBlock {

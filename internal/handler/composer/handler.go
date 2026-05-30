@@ -202,6 +202,7 @@ func (h *Handler) versionAllowed(ctx context.Context, name, version string, publ
 			Action:    string(d.Action),
 			Signal:    d.Signal,
 			Reason:    d.Reason,
+			Vulns:     d.Vulns,
 		})
 	}
 

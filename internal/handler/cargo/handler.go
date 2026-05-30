@@ -322,6 +322,7 @@ func (h *Handler) checkTrust(r *http.Request, w http.ResponseWriter, name, versi
 			Action:    string(d.Action),
 			Signal:    d.Signal,
 			Reason:    d.Reason,
+			Vulns:     d.Vulns,
 		})
 	}
 	if d.Action == policy.ActionBlock && h.webhook != nil {
