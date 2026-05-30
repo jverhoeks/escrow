@@ -17,6 +17,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/upstreamlog"
 	"github.com/rs/zerolog"
 )
 
@@ -32,6 +33,10 @@ type Dashboard struct {
 	allowList    *allow.List // may be nil
 	blockList    *block.List // may be nil
 	cache        cache.Cache // may be nil
+
+	accessLogPath    string // may be empty
+	accessLogMaxDays int
+	upstreamLog      *upstreamlog.Log // may be nil
 }
 
 func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache) *Dashboard {
@@ -82,6 +87,9 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Get("/api/events", d.handleEvents)
 	protected.Get("/api/stats", d.handleStats)
 	protected.Get("/api/stats/timeseries", d.handleTimeseries)
+	protected.Get("/api/upstreamlog", d.handleUpstreamLog)
+	protected.Get("/api/accesslog", d.handleAccessLog)
+	protected.Get("/api/cves", d.handleCVEs)
 	protected.Post("/api/allow", d.handleAllow)
 	protected.Delete("/api/allow", d.handleAllowRemove)
 	protected.Get("/api/allowlist", d.handleAllowList)
