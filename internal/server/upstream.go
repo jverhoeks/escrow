@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jverhoeks/escrow/internal/upstreamlog"
 	"github.com/rs/zerolog"
 )
 
@@ -18,6 +19,11 @@ import (
 type LoggingTransport struct {
 	Base zerolog.Logger
 	Next http.RoundTripper
+
+	// Optional upstream-fetch recorder. When rec is non-nil and the request
+	// host is present in hostEco, the fetch is recorded with that ecosystem.
+	rec     *upstreamlog.Log
+	hostEco map[string]string
 }
 
 func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -44,6 +50,19 @@ func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		Int64("bytes", bytes).
 		Msg("upstream")
 
+	if t.rec != nil {
+		if eco, ok := t.hostEco[req.URL.Hostname()]; ok {
+			t.rec.Record(upstreamlog.Event{
+				Ecosystem: eco,
+				Method:    req.Method,
+				URL:       req.URL.String(),
+				Status:    resp.StatusCode,
+				Bytes:     bytes,
+				MS:        ms,
+			})
+		}
+	}
+
 	return resp, nil
 }
 
@@ -51,11 +70,17 @@ func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 // logged via the given zerolog.Logger. The original transport is preserved;
 // if it is nil, http.DefaultTransport is used.
 func NewLoggingClient(c *http.Client, log zerolog.Logger) *http.Client {
+	return NewLoggingClientWithRecorder(c, log, nil, nil)
+}
+
+// NewLoggingClientWithRecorder wraps c so requests are logged, and fetches to
+// hosts present in hostEco are recorded into rec with the mapped ecosystem.
+func NewLoggingClientWithRecorder(c *http.Client, log zerolog.Logger, rec *upstreamlog.Log, hostEco map[string]string) *http.Client {
 	base := c.Transport
 	if base == nil {
 		base = http.DefaultTransport
 	}
 	cp := *c
-	cp.Transport = &LoggingTransport{Base: log, Next: base}
+	cp.Transport = &LoggingTransport{Base: log, Next: base, rec: rec, hostEco: hostEco}
 	return &cp
 }
