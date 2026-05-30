@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -32,6 +33,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/server"
 	"github.com/jverhoeks/escrow/internal/trust"
 	"github.com/jverhoeks/escrow/internal/upstream"
+	"github.com/jverhoeks/escrow/internal/upstreamlog"
 )
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z"
@@ -128,7 +130,55 @@ func main() {
 		log.Info().Msg("cache flushed")
 	}
 
-	httpClient := server.NewLoggingClient(upstream.New(), log.Logger)
+	// Collect active upstream URLs for /healthz probes.
+	// Must be fully populated BEFORE server.New so the health handler has the complete map.
+	upstreamURLs := make(map[string]string)
+	if cfg.Ecosystems.NPM {
+		upstreamURLs["npm"] = cfg.Ecosystems.EffectiveNPMUpstream()
+	}
+	if cfg.Ecosystems.PyPI {
+		upstreamURLs["pypi"] = cfg.Ecosystems.EffectivePyPIUpstream()
+	}
+	if cfg.Ecosystems.Go {
+		upstreamURLs["go"] = cfg.Ecosystems.EffectiveGoUpstream()
+	}
+	if cfg.Ecosystems.Cargo {
+		upstreamURLs["cargo"] = "https://crates.io"
+	}
+	if cfg.Ecosystems.Composer {
+		upstreamURLs["composer"] = cfg.Ecosystems.EffectiveComposerUpstream()
+	}
+	if cfg.Ecosystems.NuGet {
+		upstreamURLs["nuget"] = cfg.Ecosystems.EffectiveNuGetUpstream()
+	}
+	if cfg.Ecosystems.Maven {
+		upstreamURLs["maven"] = cfg.Ecosystems.EffectiveMavenUpstream()
+	}
+
+	// Map known registry hostnames → ecosystem for the upstream fetch log.
+	// Derived from configured upstreams, plus well-known defaults so artifact
+	// CDNs (which differ from the metadata host) are also classified.
+	upstreamLog := upstreamlog.New(5000)
+	hostEco := map[string]string{
+		"registry.npmjs.org":     "npm",
+		"pypi.org":               "pypi",
+		"files.pythonhosted.org": "pypi",
+		"crates.io":              "cargo",
+		"static.crates.io":       "cargo",
+		"proxy.golang.org":       "go",
+		"repo1.maven.org":        "maven",
+		"repo.maven.apache.org":  "maven",
+		"repo.packagist.org":     "composer",
+		"packagist.org":          "composer",
+		"api.nuget.org":          "nuget",
+	}
+	for eco, raw := range upstreamURLs {
+		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+			hostEco[u.Hostname()] = eco
+		}
+	}
+
+	httpClient := server.NewLoggingClientWithRecorder(upstream.New(), log.Logger, upstreamLog, hostEco)
 	polEngine := policy.New(cfg.Policy)
 
 	allowList, err := allow.New(config.ExpandPath(cfg.AllowlistPath))
@@ -209,31 +259,6 @@ func main() {
 	if cfg.Alerts.WebhookURL != "" {
 		wh = alerts.NewWebhook(cfg.Alerts.WebhookURL, nil)
 		log.Info().Str("url", cfg.Alerts.WebhookURL).Msg("webhook alerts enabled")
-	}
-
-	// Collect active upstream URLs for /healthz probes.
-	// Must be fully populated BEFORE server.New so the health handler has the complete map.
-	upstreamURLs := make(map[string]string)
-	if cfg.Ecosystems.NPM {
-		upstreamURLs["npm"] = cfg.Ecosystems.EffectiveNPMUpstream()
-	}
-	if cfg.Ecosystems.PyPI {
-		upstreamURLs["pypi"] = cfg.Ecosystems.EffectivePyPIUpstream()
-	}
-	if cfg.Ecosystems.Go {
-		upstreamURLs["go"] = cfg.Ecosystems.EffectiveGoUpstream()
-	}
-	if cfg.Ecosystems.Cargo {
-		upstreamURLs["cargo"] = "https://crates.io"
-	}
-	if cfg.Ecosystems.Composer {
-		upstreamURLs["composer"] = cfg.Ecosystems.EffectiveComposerUpstream()
-	}
-	if cfg.Ecosystems.NuGet {
-		upstreamURLs["nuget"] = cfg.Ecosystems.EffectiveNuGetUpstream()
-	}
-	if cfg.Ecosystems.Maven {
-		upstreamURLs["maven"] = cfg.Ecosystems.EffectiveMavenUpstream()
 	}
 
 	cacheDir := ""
