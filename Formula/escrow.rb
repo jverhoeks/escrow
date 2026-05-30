@@ -29,7 +29,8 @@ class Escrow < Formula
   service do
     run [opt_bin/"escrow", "--config=#{etc}/escrow/escrow.toml"]
     keep_alive true
-    user           "_escrow"
+    # Runs as the user who invokes `brew services` (Homebrew's service DSL has
+    # no `user` directive). No dedicated service account.
     log_path       var/"log/escrow.log"
     error_log_path var/"log/escrow.error.log"
     working_dir    var/"escrow"
@@ -44,14 +45,6 @@ class Escrow < Formula
     [var/"log/escrow.log", var/"log/escrow.error.log"].each do |f|
       f.open("a") {} unless f.exist?
     end
-
-    # Hand ownership to _escrow if the account already exists.
-    # Account creation requires root and must be done manually — see caveats.
-    if system("id", "-u", "_escrow", out: File::NULL, err: File::NULL)
-      FileUtils.chown "_escrow", nil, var/"escrow"
-      FileUtils.chown "_escrow", nil, var/"log/escrow.log"
-      FileUtils.chown "_escrow", nil, var/"log/escrow.error.log"
-    end
   end
 
   def caveats
@@ -62,17 +55,9 @@ class Escrow < Formula
       Edit it to enable ecosystems and set your policy, then start the service:
         brew services start escrow
 
-      The service runs as the _escrow system account.  Run these once to
-      create the account and hand over the data directories:
-        sudo sysadminctl -addUser _escrow -fullName "Escrow Proxy" \
-          -home /var/empty -shell /usr/bin/false -roleAccount
-        sudo chown _escrow #{var}/escrow #{var}/log/escrow.log #{var}/log/escrow.error.log
-      Then restart the service so it picks up the new owner:
-        brew services restart escrow
-
-      If you use the companion macOS app, open Settings → Proxy Service User
-      and set it to _escrow so the pf traffic-redirect rules grant the proxy
-      outbound access.
+      The service runs as your user account. Its data directory and logs are:
+        #{var}/escrow
+        #{var}/log/escrow.log
 
       Dashboard (after first start):
         http://localhost:7888/dashboard
