@@ -36,10 +36,17 @@ const (
 	SignalError SignalResult = "error" // signal couldn't run (network/parse failure); policy decides fail-open vs fail-closed
 )
 
+// Vuln is a single vulnerability advisory matched against a package version.
+type Vuln struct {
+	ID       string `json:"id"`
+	Severity string `json:"severity"` // "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"|"" (unknown)
+}
+
 type SignalReport struct {
 	Signal string
 	Result SignalResult
 	Reason string
+	Vulns  []Vuln // populated by the OSV signal when Result == SignalFail
 }
 
 // TrustResult collects all signal reports for one package version.
