@@ -28,7 +28,7 @@ func newDashWithBothLists(t *testing.T) (http.Handler, *allow.List, *block.List,
 		Secret: "aabbccddeeff00112233445566778899",
 	}
 	evLog := eventlog.New(50)
-	dash := dashboard.New(cfg, evLog, zerolog.Nop(), al, bl, nil)
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), al, bl, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 	return r, al, bl, evLog
@@ -85,7 +85,7 @@ func TestHandleAllowRemove_NilAllowList(t *testing.T) {
 		Username: "admin", Password: "pass",
 		Secret: "aabbccddeeff00112233445566778899",
 	}
-	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), nil, nil, nil)
+	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), nil, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 

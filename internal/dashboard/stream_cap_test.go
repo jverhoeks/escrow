@@ -24,7 +24,7 @@ func TestHandleStream_ReturnsStatusBeforeSSEHeaders(t *testing.T) {
 		Secret: "aabbccddeeff00112233445566778899",
 	}
 	evLog := eventlog.New(10)
-	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 

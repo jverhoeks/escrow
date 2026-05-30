@@ -39,16 +39,19 @@ type Dashboard struct {
 	upstreamLog      *upstreamlog.Log // may be nil
 }
 
-func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache) *Dashboard {
+func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache, accessLogPath string, accessLogMaxDays int, upstreamLog *upstreamlog.Log) *Dashboard {
 	return &Dashboard{
-		cfg:          cfg,
-		auth:         NewAuth(cfg.Username, cfg.Password, cfg.Secret),
-		loginLimiter: newLoginRateLimiter(),
-		log:          log,
-		logger:       logger,
-		allowList:    allowList,
-		blockList:    blockList,
-		cache:        c,
+		cfg:              cfg,
+		auth:             NewAuth(cfg.Username, cfg.Password, cfg.Secret),
+		loginLimiter:     newLoginRateLimiter(),
+		log:              log,
+		logger:           logger,
+		allowList:        allowList,
+		blockList:        blockList,
+		cache:            c,
+		accessLogPath:    accessLogPath,
+		accessLogMaxDays: accessLogMaxDays,
+		upstreamLog:      upstreamLog,
 	}
 }
 

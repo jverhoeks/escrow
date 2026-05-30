@@ -356,7 +356,8 @@ func main() {
 	cireport.New(evLog).Mount(r)
 
 	if cfg.Dashboard.Enabled {
-		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c)
+		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
+			config.ExpandPath(cfg.Server.AccessLogPath), cfg.Server.AccessLogMaxDays, upstreamLog)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
 	}

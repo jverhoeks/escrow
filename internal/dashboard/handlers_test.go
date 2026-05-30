@@ -36,7 +36,7 @@ func newTestDashboard(t *testing.T) (http.Handler, *allow.List) {
 	evLog := eventlog.New(50)
 	logger := zerolog.Nop()
 
-	dash := dashboard.New(cfg, evLog, logger, al, nil, nil)
+	dash := dashboard.New(cfg, evLog, logger, al, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 	return r, al
@@ -146,7 +146,7 @@ func TestHandleAllowList_NilAllowList(t *testing.T) {
 	}
 	evLog := eventlog.New(50)
 	logger := zerolog.Nop()
-	dash := dashboard.New(cfg, evLog, logger, nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, logger, nil, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -171,7 +171,7 @@ func TestHandleAllow_NilAllowList(t *testing.T) {
 	}
 	evLog := eventlog.New(50)
 	logger := zerolog.Nop()
-	dash := dashboard.New(cfg, evLog, logger, nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, logger, nil, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -197,7 +197,7 @@ func TestHandleAllow_UnauthenticatedRejected(t *testing.T) {
 	}
 	al, err := allow.New("")
 	require.NoError(t, err)
-	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al, nil, nil)
+	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -226,7 +226,7 @@ func TestHandleEvents_Since(t *testing.T) {
 	cfg := config.DashboardConfig{Enabled: true, Path: "/dashboard",
 		Username: "admin", Password: "pass",
 		Secret: "aabbccddeeff00112233445566778899"}
-	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -262,7 +262,7 @@ func TestHandleStats_Window(t *testing.T) {
 	cfg := config.DashboardConfig{Enabled: true, Path: "/dashboard",
 		Username: "admin", Password: "pass",
 		Secret: "aabbccddeeff00112233445566778899"}
-	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
