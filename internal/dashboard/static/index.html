@@ -1759,6 +1759,9 @@ initTheme();
 fetch('/healthz').then(r => r.json()).then(h => {
   if (h.version) document.getElementById('app-version').textContent = h.version;
 }).catch(() => {});
+fetch(BASE + '/api/me').then(r => r.json()).then(m => {
+  if (m.username) document.getElementById('username').textContent = m.username;
+}).catch(() => {});
 
 fetch(BASE + '/api/events?n=100')
   .then(r => r.json())

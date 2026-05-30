@@ -86,6 +86,7 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected := chi.NewRouter()
 	protected.Use(d.auth.Middleware(base + "/login"))
 	protected.Get("/", d.handleIndex)
+	protected.Get("/api/me", d.handleMe)
 	protected.Get("/api/stream", d.handleStream)
 	protected.Get("/api/events", d.handleEvents)
 	protected.Get("/api/stats", d.handleStats)
@@ -150,6 +151,14 @@ func (d *Dashboard) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(data)
+}
+
+// handleMe returns the currently authenticated dashboard user so the UI can
+// display the real operator name instead of a hard-coded placeholder.
+func (d *Dashboard) handleMe(w http.ResponseWriter, r *http.Request) {
+	username, _ := d.auth.Username(r)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"username": username})
 }
 
 func (d *Dashboard) handleStream(w http.ResponseWriter, r *http.Request) {

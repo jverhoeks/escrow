@@ -276,3 +276,17 @@ func TestHandleStats_Window(t *testing.T) {
 	assert.Equal(t, 0, s.Blocked, "old block outside 1h window should not count")
 	assert.Equal(t, 1, s.Allowed)
 }
+
+func TestHandleMe_ReturnsAuthenticatedUser(t *testing.T) {
+	handler, _ := newTestDashboard(t)
+	req := authenticatedRequest(t, http.MethodGet, "/dashboard/api/me", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Username string `json:"username"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Equal(t, "admin", out.Username)
+}
