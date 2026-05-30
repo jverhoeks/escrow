@@ -608,6 +608,49 @@
       background: var(--bg-secondary);
     }
 
+    /* ── CVE / Access log / Upstream tables ──────────────────────────────────── */
+    .cve-columns, .cve-item { grid-template-columns: 90px 200px 80px 1fr 110px 90px; }
+    .log-columns, .log-item { grid-template-columns: 90px 110px 70px 1fr 70px 80px 1fr; }
+    .upstream-columns, .upstream-item { grid-template-columns: 90px 80px 70px 1fr 70px 90px 90px; }
+    .cve-columns, .log-columns, .upstream-columns {
+      display: grid; gap: 12px; padding: 8px 24px;
+      border-bottom: 1px solid var(--border); background: var(--bg-secondary);
+      font-size: 11px; font-weight: 700; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;
+    }
+    .cve-item, .log-item, .upstream-item {
+      display: grid; gap: 12px; padding: 10px 24px;
+      border-bottom: 1px solid var(--border); align-items: center;
+      font-size: 13px; transition: background 0.1s;
+    }
+    .cve-item:hover, .log-item:hover, .upstream-item:hover { background: var(--bg-secondary); }
+    .cve-item .mono, .log-item .mono, .upstream-item .mono {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* Severity pills — color + label, never color alone */
+    .sev-pill {
+      display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+      font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+      color: #fff; letter-spacing: 0.3px;
+    }
+    .sev-pill::before { content: ""; }
+    .sev-critical { background: #b91c1c; }
+    .sev-critical::before { content: "⛔"; }
+    .sev-high     { background: var(--status-blocked); }
+    .sev-high::before { content: "✕"; }
+    .sev-medium   { background: var(--status-warned); }
+    .sev-medium::before { content: "!"; }
+    .sev-low      { background: var(--info); }
+    .sev-low::before { content: "ℹ"; }
+    .sev-unknown  { background: var(--text-secondary); }
+    .sev-unknown::before { content: "?"; }
+    /* HTTP status coloring (icon + number, redundant with text) */
+    .http-2xx { color: var(--status-allowed); font-weight: 600; }
+    .http-3xx { color: var(--info); font-weight: 600; }
+    .http-4xx { color: var(--status-warned); font-weight: 600; }
+    .http-5xx { color: var(--status-blocked); font-weight: 600; }
+
     .pkg-name {
       color: var(--text-primary);
       font-weight: 500;
@@ -841,7 +884,9 @@
     <div class="nav-tab" id="tab-graphs" onclick="setTab('graphs')">Analytics</div>
     <div class="nav-tab" id="tab-packages" onclick="setTab('packages')">Packages</div>
     <div class="nav-tab" id="tab-tree" onclick="setTab('tree')">Package Tree</div>
+    <div class="nav-tab" id="tab-cves" onclick="setTab('cves')">CVEs</div>
     <div class="nav-tab" id="tab-logs" onclick="setTab('logs')">Access Logs</div>
+    <div class="nav-tab" id="tab-upstream" onclick="setTab('upstream')">Upstream</div>
   </div>
   <div class="eco-filters">
     <span class="eco-label">Ecosystem</span>
@@ -946,12 +991,66 @@
   <div class="tree-container" id="tree-container"></div>
 </div>
 
+<!-- ── CVEs View ────────────────────────────────────────────────────────────────── -->
+<div id="view-cves" class="panel" style="display: none;">
+  <div class="panel-header">
+    <span class="panel-header-title">Blocked Vulnerabilities (CVE)</span>
+    <div class="panel-header-actions">
+      <span class="panel-count" id="cve-count">— advisories</span>
+      <button class="btn-secondary" onclick="loadCVEs()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="cve-columns">
+    <div>Severity</div>
+    <div>Advisory</div>
+    <div>Ecosystem</div>
+    <div>Package</div>
+    <div>Version</div>
+    <div>Last Seen</div>
+  </div>
+  <div id="cve-list" style="flex: 1; overflow-y: auto;"></div>
+</div>
+
 <!-- ── Access Logs View ────────────────────────────────────────────────────────── -->
 <div id="view-logs" class="panel" style="display: none;">
   <div class="panel-header">
-    <span class="panel-header-title">Access Logs</span>
+    <span class="panel-header-title">Access Logs <span style="color: var(--text-tertiary); font-weight: 400; font-size: 12px;">(clients → escrow)</span></span>
+    <div class="panel-header-actions">
+      <span class="panel-count" id="access-count">— requests</span>
+      <button class="btn-secondary" onclick="loadAccessLogs()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="log-columns">
+    <div>Time</div>
+    <div>Client</div>
+    <div>Method</div>
+    <div>Path</div>
+    <div>Status</div>
+    <div>Bytes</div>
+    <div>User-Agent</div>
   </div>
   <div id="access-logs" style="flex: 1; overflow-y: auto;"></div>
+</div>
+
+<!-- ── Upstream Fetch Log View ─────────────────────────────────────────────────── -->
+<div id="view-upstream" class="panel" style="display: none;">
+  <div class="panel-header">
+    <span class="panel-header-title">Upstream Fetches <span style="color: var(--text-tertiary); font-weight: 400; font-size: 12px;">(escrow → registries · cache misses)</span></span>
+    <div class="panel-header-actions">
+      <span class="panel-count" id="upstream-count">— fetches</span>
+      <button class="btn-secondary" onclick="loadUpstream()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="upstream-columns">
+    <div>Time</div>
+    <div>Ecosystem</div>
+    <div>Method</div>
+    <div>URL</div>
+    <div>Status</div>
+    <div>Bytes</div>
+    <div>Latency</div>
+  </div>
+  <div id="upstream-list" style="flex: 1; overflow-y: auto;"></div>
 </div>
 
 <script>
@@ -1156,79 +1255,67 @@ function connect(eco) {
 
 // ── Charts ───────────────────────────────────────────────────────────────────
 
+const ECO_COLORS = {
+  npm: '#e85d5d', pypi: '#4aa3d6', cargo: '#d39330', go: '#33b5b5', composer: '#8b5cf6', nuget: '#7c93e8', maven: '#c2682b'
+};
+
+function stackedOptions() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+    scales: {
+      x: { stacked: true, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
+      y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }
+    }
+  };
+}
+
 function initCharts() {
   const ctx1 = document.getElementById('chart-allowed')?.getContext('2d');
   const ctx2 = document.getElementById('chart-denied')?.getContext('2d');
   if (!ctx1 || !ctx2) return;
-
-  const labels = ['npm', 'pypi', 'cargo', 'go', 'composer'];
-  const colors = {
-    npm: 'rgba(34, 197, 94, 0.6)',
-    pypi: 'rgba(59, 130, 246, 0.6)',
-    cargo: 'rgba(249, 115, 22, 0.6)',
-    go: 'rgba(6, 182, 212, 0.6)',
-    composer: 'rgba(139, 92, 246, 0.6)'
-  };
-
-  chartAllowed = new Chart(ctx1, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Allowed',
-        data: [0, 0, 0, 0, 0],
-        backgroundColor: [colors.npm, colors.pypi, colors.cargo, colors.go, colors.composer],
-        borderWidth: 0
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true } }
-    }
-  });
-
-  chartDenied = new Chart(ctx2, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Denied',
-        data: [0, 0, 0, 0, 0],
-        backgroundColor: [colors.npm, colors.pypi, colors.cargo, colors.go, colors.composer],
-        borderWidth: 0
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true } }
-    }
-  });
-
+  chartAllowed = new Chart(ctx1, { type: 'bar', data: { labels: [], datasets: [] }, options: stackedOptions() });
+  chartDenied = new Chart(ctx2, { type: 'bar', data: { labels: [], datasets: [] }, options: stackedOptions() });
   chartsInitialized = true;
+}
+
+// Build one stacked dataset per ecosystem from the timeseries series map.
+function buildDatasets(seriesForAction) {
+  const ecos = Object.keys(seriesForAction || {}).sort();
+  return ecos.map(eco => ({
+    label: eco,
+    data: seriesForAction[eco],
+    backgroundColor: ECO_COLORS[eco] || '#94a3b8',
+    borderWidth: 0,
+    stack: 'all'
+  }));
 }
 
 function updateCharts() {
   if (!chartsInitialized) return;
-  const window24h = 24 * 60 * 60 * 1000;
-  const now = Date.now();
-  const recent = allEvents.filter(e => e.timestamp && new Date(e.timestamp).getTime() > now - window24h);
-
-  const ecos = ['npm', 'pypi', 'cargo', 'go', 'composer'];
-  const allowed = ecos.map(eco => recent.filter(e => e.ecosystem === eco && e.action !== 'block').length);
-  const denied = ecos.map(eco => recent.filter(e => e.ecosystem === eco && e.action === 'block').length);
-
-  if (chartAllowed) {
-    chartAllowed.data.datasets[0].data = allowed;
-    chartAllowed.update();
-  }
-  if (chartDenied) {
-    chartDenied.data.datasets[0].data = denied;
-    chartDenied.update();
-  }
+  fetch(BASE + '/api/stats/timeseries?window=24h&bucket=1h')
+    .then(r => r.json())
+    .then(ts => {
+      const labels = (ts.buckets || []).map(b => new Date(b).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
+      const series = ts.series || {};
+      const filt = obj => {
+        if (!currentEco) return obj || {};
+        return obj && obj[currentEco] ? { [currentEco]: obj[currentEco] } : {};
+      };
+      if (chartAllowed) {
+        chartAllowed.data.labels = labels;
+        chartAllowed.data.datasets = buildDatasets(filt(series.allowed));
+        chartAllowed.update();
+      }
+      if (chartDenied) {
+        chartDenied.data.labels = labels;
+        chartDenied.data.datasets = buildDatasets(filt(series.denied));
+        chartDenied.update();
+      }
+    })
+    .catch(() => {});
 }
 
 // ── Packages ─────────────────────────────────────────────────────────────────
@@ -1293,108 +1380,117 @@ function renderPackages(pkgs) {
 // ── Package Tree ─────────────────────────────────────────────────────────────
 
 function loadPackageTree() {
-  const url = BASE + '/api/packages' + (currentEco ? '?eco=' + encodeURIComponent(currentEco) : '');
-  fetch(url).then(r => r.json()).then(data => renderPackageTree(data || [])).catch(() => {});
+  const url = BASE + '/api/packages/tree' + (currentEco ? '?eco=' + encodeURIComponent(currentEco) : '');
+  fetch(url).then(r => r.json()).then(data => renderPackageTree(data || [])).catch(() => renderPackageTree([]));
 }
 
-function renderPackageTree(pkgs) {
+function collapsibleHeader(toggleChar) {
+  const header = document.createElement('div');
+  header.className = 'tree-header';
+  header.onclick = (e) => {
+    const kids = e.currentTarget.nextElementSibling;
+    if (!kids) return;
+    kids.classList.toggle('hidden');
+    e.currentTarget.querySelector('.tree-toggle').textContent = kids.classList.contains('hidden') ? '▶' : '▼';
+  };
+  const toggle = document.createElement('div');
+  toggle.className = 'tree-toggle';
+  toggle.textContent = toggleChar;
+  header.appendChild(toggle);
+  return header;
+}
+
+// renderPackageTree consumes /api/packages/tree:
+// [{ ecosystem, packages: [{ namespace, name, versions: [{version, action, signal, reason, size, cached, cve_count, hit_count}] }] }]
+function renderPackageTree(ecosystems) {
   const container = document.getElementById('tree-container');
   container.innerHTML = '';
+  if (!ecosystems.length) {
+    container.innerHTML = '<div style="padding: 24px; color: var(--text-tertiary); font-size: 13px;">No packages seen yet.</div>';
+    return;
+  }
 
-  const byEco = {};
-  pkgs.forEach(p => {
-    if (!byEco[p.ecosystem]) byEco[p.ecosystem] = {};
-    if (!byEco[p.ecosystem][p.name]) byEco[p.ecosystem][p.name] = [];
-    byEco[p.ecosystem][p.name].push(p);
-  });
-
-  Object.keys(byEco).sort().forEach(eco => {
+  ecosystems.forEach(ecoGroup => {
     const ecoNode = document.createElement('div');
     ecoNode.className = 'tree-node';
 
-    const ecoHeader = document.createElement('div');
-    ecoHeader.className = 'tree-header';
-    ecoHeader.onclick = (e) => {
-      e.currentTarget.nextElementSibling?.classList.toggle('hidden');
-      e.currentTarget.querySelector('.tree-toggle').textContent = e.currentTarget.nextElementSibling?.classList.contains('hidden') ? '▶' : '▼';
-    };
-
-    const toggle = document.createElement('div');
-    toggle.className = 'tree-toggle';
-    toggle.textContent = '▼';
-
-    const label = document.createElement('div');
-    label.className = 'tree-label';
-    label.innerHTML = `<span class="eco-badge ${eco}">${eco}</span>`;
-
-    ecoHeader.append(toggle, label);
+    const ecoHeader = collapsibleHeader('▼');
+    const ecoLabel = document.createElement('div');
+    ecoLabel.className = 'tree-label';
+    ecoLabel.appendChild(ecoBadge(ecoGroup.ecosystem));
+    ecoHeader.appendChild(ecoLabel);
     ecoNode.appendChild(ecoHeader);
 
     const pkgList = document.createElement('div');
     pkgList.className = 'tree-children';
 
-    Object.keys(byEco[eco]).sort().forEach(pkgName => {
-      const versions = byEco[eco][pkgName];
-
+    (ecoGroup.packages || []).forEach(p => {
       const pkgNode = document.createElement('div');
       pkgNode.className = 'tree-node';
 
-      const pkgHeader = document.createElement('div');
-      pkgHeader.className = 'tree-header';
+      const pkgHeader = collapsibleHeader('▼');
       pkgHeader.style.marginLeft = '0';
-      pkgHeader.onclick = (e) => {
-        e.currentTarget.nextElementSibling?.classList.toggle('hidden');
-        e.currentTarget.querySelector('.tree-toggle').textContent = e.currentTarget.nextElementSibling?.classList.contains('hidden') ? '▶' : '▼';
-      };
-
-      const pkgToggle = document.createElement('div');
-      pkgToggle.className = 'tree-toggle';
-      pkgToggle.textContent = '▼';
-
       const pkgLabel = document.createElement('div');
       pkgLabel.className = 'tree-label';
-      pkgLabel.textContent = pkgName; // Already safe: pkgName comes from allEvents
-
-      pkgHeader.append(pkgToggle, pkgLabel);
+      const displayName = p.namespace ? (p.namespace + (ecoGroup.ecosystem === 'npm' ? '/' : ecoGroup.ecosystem === 'maven' ? ':' : '/') + p.name) : p.name;
+      pkgLabel.textContent = displayName;
+      pkgLabel.title = displayName;
+      // version-count chip
+      const cnt = document.createElement('span');
+      cnt.style.cssText = 'font-size:11px;color:var(--text-tertiary);margin-left:8px;';
+      cnt.textContent = (p.versions || []).length + ' ver';
+      pkgLabel.appendChild(cnt);
+      pkgHeader.appendChild(pkgLabel);
       pkgNode.appendChild(pkgHeader);
 
       const versionList = document.createElement('div');
       versionList.className = 'tree-children';
 
-      versions.sort((a, b) => (b.version || '').localeCompare(a.version || '')).forEach(v => {
+      (p.versions || []).forEach(v => {
         const verItem = document.createElement('div');
         verItem.className = 'pkg-tree-item';
 
         const stIcon = v.action === 'block' ? '✕' : v.action === 'warn' ? '⚠' : '✓';
+        const stLabel = v.action === 'block' ? 'Blocked' : v.action === 'warn' ? 'Warned' : 'Allowed';
         const stClass = v.action === 'block' ? 'status-blocked' : v.action === 'warn' ? 'status-warned' : 'status-allowed';
 
         const mainRow = document.createElement('div');
-        mainRow.style.display = 'flex';
-        mainRow.style.alignItems = 'center';
-        mainRow.style.gap = '8px';
+        mainRow.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
 
         const statusSpan = document.createElement('span');
         statusSpan.className = 'status-icon ' + stClass;
-        statusSpan.style.fontSize = '14px';
-        statusSpan.textContent = stIcon;
+        statusSpan.style.fontSize = '13px';
+        statusSpan.textContent = stIcon + ' ' + stLabel;
+        statusSpan.style.fontWeight = '600';
 
         const versionSpan = document.createElement('span');
         versionSpan.className = 'pkg-tree-version';
         versionSpan.textContent = v.version || '—';
 
-        const hitsSpan = document.createElement('span');
-        hitsSpan.style.fontSize = '11px';
-        hitsSpan.style.color = 'var(--text-tertiary)';
-        hitsSpan.textContent = (v.hit_count || 0) + '× hits';
+        const meta = document.createElement('span');
+        meta.style.cssText = 'font-size:11px;color:var(--text-tertiary);';
+        const parts = [];
+        parts.push((v.hit_count || 0) + '× hits');
+        if (v.size != null && v.size >= 0) parts.push(fmtBytes(v.size));
+        else parts.push('size —');
+        parts.push(v.cached ? '● cached' : '○ uncached');
+        meta.textContent = parts.join('  ·  ');
 
-        mainRow.append(statusSpan, versionSpan, hitsSpan);
+        mainRow.append(statusSpan, versionSpan, meta);
+
+        if (v.cve_count > 0) {
+          const cve = document.createElement('span');
+          cve.className = 'sev-pill sev-high';
+          cve.style.fontSize = '10px';
+          cve.textContent = v.cve_count + ' CVE' + (v.cve_count === 1 ? '' : 's');
+          mainRow.appendChild(cve);
+        }
+
         verItem.appendChild(mainRow);
 
         if (v.signal) {
           const signalDiv = document.createElement('div');
-          signalDiv.style.fontSize = '11px';
-          signalDiv.style.color = 'var(--text-tertiary)';
-          signalDiv.style.marginTop = '4px';
+          signalDiv.style.cssText = 'font-size:11px;color:var(--text-tertiary);margin-top:4px;';
           signalDiv.textContent = v.signal + (v.reason ? ' · ' + v.reason : '');
           verItem.appendChild(signalDiv);
         }
@@ -1411,11 +1507,165 @@ function renderPackageTree(pkgs) {
   });
 }
 
-// ── Access Logs (stub) ───────────────────────────────────────────────────────
+// ── CVEs ───────────────────────────────────────────────────────────────────
+
+function ecoBadge(eco) {
+  const span = document.createElement('span');
+  span.className = 'eco-badge ' + (eco || '');
+  span.textContent = eco || '';
+  return span;
+}
+
+function sevClass(sev) {
+  switch ((sev || '').toUpperCase()) {
+    case 'CRITICAL': return 'sev-critical';
+    case 'HIGH': return 'sev-high';
+    case 'MEDIUM': return 'sev-medium';
+    case 'LOW': return 'sev-low';
+    default: return 'sev-unknown';
+  }
+}
+
+function loadCVEs() {
+  const url = BASE + '/api/cves' + (currentEco ? '?eco=' + encodeURIComponent(currentEco) : '');
+  fetch(url).then(r => r.json()).then(data => renderCVEs(data || [])).catch(() => renderCVEs([]));
+}
+
+function renderCVEs(rows) {
+  const list = document.getElementById('cve-list');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding: 24px; color: var(--text-tertiary); font-size: 13px;">No vulnerability-blocked packages recorded.</div>';
+  }
+  rows.forEach(c => {
+    const item = document.createElement('div');
+    item.className = 'cve-item';
+
+    const sev = document.createElement('div');
+    const pill = document.createElement('span');
+    pill.className = 'sev-pill ' + sevClass(c.severity);
+    pill.textContent = (c.severity || 'UNKNOWN').toUpperCase();
+    sev.appendChild(pill);
+
+    const id = document.createElement('div');
+    id.className = 'mono';
+    const idLabel = (c.id || '').toUpperCase();
+    if (/^(CVE|GHSA)/.test(idLabel)) {
+      const a = document.createElement('a');
+      a.href = idLabel.startsWith('GHSA') ? 'https://github.com/advisories/' + c.id : 'https://osv.dev/vulnerability/' + c.id;
+      a.target = '_blank'; a.rel = 'noopener';
+      a.style.color = 'var(--accent)';
+      a.textContent = c.id;
+      id.appendChild(a);
+    } else {
+      id.textContent = c.id || '—';
+    }
+    id.title = c.id || '';
+
+    const eco = document.createElement('div');
+    eco.appendChild(ecoBadge(c.ecosystem));
+
+    const pkg = document.createElement('div');
+    pkg.className = 'pkg-name';
+    pkg.textContent = c.package || '—';
+    pkg.title = (c.package || '') + ' · ' + (c.reason || '');
+
+    const ver = document.createElement('div');
+    ver.className = 'mono';
+    ver.textContent = c.version || '—';
+
+    const last = document.createElement('div');
+    last.style.color = 'var(--text-tertiary)';
+    last.style.fontSize = '12px';
+    last.textContent = c.last_seen ? new Date(c.last_seen).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+
+    item.append(sev, id, eco, pkg, ver, last);
+    list.appendChild(item);
+  });
+  document.getElementById('cve-count').textContent = rows.length + ' advisor' + (rows.length === 1 ? 'y' : 'ies');
+}
+
+// ── Access Logs (clients → escrow) ───────────────────────────────────────────
+
+function httpClass(status) {
+  if (status >= 500) return 'http-5xx';
+  if (status >= 400) return 'http-4xx';
+  if (status >= 300) return 'http-3xx';
+  if (status >= 200) return 'http-2xx';
+  return '';
+}
+
+function fmtBytes(n) {
+  if (!n || n < 0) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
 
 function loadAccessLogs() {
-  const logsDiv = document.getElementById('access-logs');
-  logsDiv.innerHTML = '<div style="padding: 24px; color: var(--text-tertiary); font-size: 13px;">Access logs not yet implemented. Check upstream logs via your reverse proxy.</div>';
+  fetch(BASE + '/api/accesslog?n=500').then(r => r.json()).then(data => renderAccessLogs(data || [])).catch(() => renderAccessLogs([]));
+}
+
+function renderAccessLogs(rows) {
+  const list = document.getElementById('access-logs');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding: 24px; color: var(--text-tertiary); font-size: 13px;">No access log available. Set <code>access_log_path</code> in escrow.toml to enable.</div>';
+  }
+  rows.forEach(r => {
+    const item = document.createElement('div');
+    item.className = 'log-item';
+    const cell = (txt, cls, title) => { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = txt; if (title) d.title = title; return d; };
+
+    const t = cell(r.timestamp ? fmtTime(r.timestamp) : '—'); t.style.color = 'var(--text-tertiary)'; t.style.fontSize = '12px';
+    const status = cell(r.status || '—', httpClass(r.status));
+    item.append(
+      t,
+      cell(r.host || '—', 'mono'),
+      cell(r.method || '—'),
+      cell(r.path || '—', 'mono', r.path),
+      status,
+      cell(fmtBytes(r.bytes)),
+      cell(r.user_agent || '—', 'mono', r.user_agent)
+    );
+    list.appendChild(item);
+  });
+  document.getElementById('access-count').textContent = rows.length + ' request' + (rows.length === 1 ? '' : 's');
+}
+
+// ── Upstream Fetches (escrow → registries) ───────────────────────────────────
+
+function loadUpstream() {
+  const url = BASE + '/api/upstreamlog?n=500' + (currentEco ? '&eco=' + encodeURIComponent(currentEco) : '');
+  fetch(url).then(r => r.json()).then(data => renderUpstream(data || [])).catch(() => renderUpstream([]));
+}
+
+function renderUpstream(rows) {
+  const list = document.getElementById('upstream-list');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding: 24px; color: var(--text-tertiary); font-size: 13px;">No upstream fetches recorded yet (every entry is a cache miss).</div>';
+  }
+  rows.forEach(r => {
+    const item = document.createElement('div');
+    item.className = 'upstream-item';
+    const cell = (txt, cls, title) => { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = txt; if (title) d.title = title; return d; };
+
+    const t = cell(r.timestamp ? fmtTime(r.timestamp) : '—'); t.style.color = 'var(--text-tertiary)'; t.style.fontSize = '12px';
+    const eco = document.createElement('div');
+    eco.appendChild(ecoBadge(r.ecosystem));
+    item.append(
+      t,
+      eco,
+      cell(r.method || '—'),
+      cell(r.url || '—', 'mono', r.url),
+      cell(r.status || '—', httpClass(r.status)),
+      cell(fmtBytes(r.bytes)),
+      cell(r.ms != null ? r.ms.toFixed(0) + ' ms' : '—')
+    );
+    list.appendChild(item);
+  });
+  document.getElementById('upstream-count').textContent = rows.length + ' fetch' + (rows.length === 1 ? '' : 'es');
 }
 
 // ── Tab Navigation ──────────────────────────────────────────────────────────
@@ -1425,15 +1675,15 @@ function setTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
 
-  document.getElementById('view-live').style.display = tab === 'live' ? 'flex' : 'none';
-  document.getElementById('view-graphs').style.display = tab === 'graphs' ? 'flex' : 'none';
-  document.getElementById('view-packages').style.display = tab === 'packages' ? 'flex' : 'none';
-  document.getElementById('view-tree').style.display = tab === 'tree' ? 'flex' : 'none';
-  document.getElementById('view-logs').style.display = tab === 'logs' ? 'flex' : 'none';
+  ['live','graphs','packages','tree','cves','logs','upstream'].forEach(v => {
+    document.getElementById('view-' + v).style.display = tab === v ? 'flex' : 'none';
+  });
 
   if (tab === 'packages') loadPackages();
   if (tab === 'tree') loadPackageTree();
+  if (tab === 'cves') loadCVEs();
   if (tab === 'logs') loadAccessLogs();
+  if (tab === 'upstream') loadUpstream();
   if (tab === 'graphs') {
     if (!chartsInitialized) initCharts();
     updateCharts();
@@ -1452,6 +1702,12 @@ function setEco(eco) {
     loadPackages();
   } else if (currentTab === 'tree') {
     loadPackageTree();
+  } else if (currentTab === 'cves') {
+    loadCVEs();
+  } else if (currentTab === 'upstream') {
+    loadUpstream();
+  } else if (currentTab === 'graphs') {
+    updateCharts();
   }
 }
 
