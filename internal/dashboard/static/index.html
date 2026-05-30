@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>escrow dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-L0iIMjvnDyczT9T6KO+p5AxRco0XwUQV20B7gsP5ktXmDQEC87dtbRt6Q6gvgvKI" crossorigin="anonymous"></script>
   <style>
     :root {
       --bg-primary: #ffffff;
@@ -946,14 +945,10 @@
     <span class="panel-header-title">24-Hour Analytics</span>
   </div>
   <div class="graph-container">
-    <div class="graph-title">Allowed Packages by Ecosystem</div>
-    <div class="chart-wrapper">
-      <canvas id="chart-allowed"></canvas>
-    </div>
-    <div class="graph-title">Denied Packages by Ecosystem</div>
-    <div class="chart-wrapper">
-      <canvas id="chart-denied"></canvas>
-    </div>
+    <div class="graph-title">Allowed Packages by Ecosystem <span style="color:var(--text-tertiary);font-weight:400;font-size:12px;">· last 24h, hourly</span></div>
+    <div class="chart-wrapper" id="chart-allowed"></div>
+    <div class="graph-title">Denied Packages by Ecosystem <span style="color:var(--text-tertiary);font-weight:400;font-size:12px;">· last 24h, hourly</span></div>
+    <div class="chart-wrapper" id="chart-denied"></div>
   </div>
 </div>
 
@@ -1258,39 +1253,98 @@ function connect(eco) {
 const ECO_COLORS = {
   npm: '#e85d5d', pypi: '#4aa3d6', cargo: '#d39330', go: '#33b5b5', composer: '#8b5cf6', nuget: '#7c93e8', maven: '#c2682b'
 };
-
-function stackedOptions() {
-  return {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: 'index', intersect: false },
-    plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
-    scales: {
-      x: { stacked: true, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
-      y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }
-    }
-  };
-}
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function initCharts() {
-  const ctx1 = document.getElementById('chart-allowed')?.getContext('2d');
-  const ctx2 = document.getElementById('chart-denied')?.getContext('2d');
-  if (!ctx1 || !ctx2) return;
-  chartAllowed = new Chart(ctx1, { type: 'bar', data: { labels: [], datasets: [] }, options: stackedOptions() });
-  chartDenied = new Chart(ctx2, { type: 'bar', data: { labels: [], datasets: [] }, options: stackedOptions() });
+  // No external library: charts are rendered as inline SVG in updateCharts().
   chartsInitialized = true;
 }
 
-// Build one stacked dataset per ecosystem from the timeseries series map.
-function buildDatasets(seriesForAction) {
-  const ecos = Object.keys(seriesForAction || {}).sort();
-  return ecos.map(eco => ({
-    label: eco,
-    data: seriesForAction[eco],
-    backgroundColor: ECO_COLORS[eco] || '#94a3b8',
-    borderWidth: 0,
-    stack: 'all'
-  }));
+function svgEl(name, attrs) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+// Render a stacked-column chart of an action's per-ecosystem hourly counts into containerId.
+// buckets: RFC3339 strings; seriesForAction: { eco: [counts per bucket] }.
+function renderStackedChart(containerId, buckets, seriesForAction) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+
+  let ecos = Object.keys(seriesForAction || {}).sort();
+  if (currentEco) ecos = ecos.filter(e => e === currentEco);
+  const n = buckets.length;
+
+  // Column totals + global max for the y-scale.
+  const totals = new Array(n).fill(0);
+  ecos.forEach(eco => (seriesForAction[eco] || []).forEach((v, i) => { totals[i] += (v || 0); }));
+  const maxTotal = Math.max(1, ...totals);
+
+  if (!ecos.length || maxTotal === 1 && totals.every(t => t === 0)) {
+    container.innerHTML = '<div style="padding:24px;color:var(--text-tertiary);font-size:13px;">No data in the last 24 hours.</div>';
+    return;
+  }
+
+  const W = 800, H = 220, padL = 36, padB = 28, padT = 8, padR = 8;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const colW = plotW / Math.max(1, n);
+  const barW = Math.max(2, colW * 0.7);
+
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', height: '240', preserveAspectRatio: 'none' });
+
+  // y gridlines + labels (0, mid, max)
+  [0, 0.5, 1].forEach(frac => {
+    const y = padT + plotH - frac * plotH;
+    svg.appendChild(svgEl('line', { x1: padL, y1: y, x2: W - padR, y2: y, stroke: 'var(--border)', 'stroke-width': 1 }));
+    const t = svgEl('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', 'font-size': 10, fill: 'var(--text-tertiary)' });
+    t.textContent = Math.round(frac * maxTotal);
+    svg.appendChild(t);
+  });
+
+  // columns
+  for (let i = 0; i < n; i++) {
+    const x = padL + i * colW + (colW - barW) / 2;
+    let yCursor = padT + plotH;
+    ecos.forEach(eco => {
+      const v = (seriesForAction[eco] || [])[i] || 0;
+      if (!v) return;
+      const h = (v / maxTotal) * plotH;
+      yCursor -= h;
+      const rect = svgEl('rect', { x, y: yCursor, width: barW, height: h, fill: ECO_COLORS[eco] || '#94a3b8' });
+      const title = svgEl('title');
+      title.textContent = `${eco}: ${v} (${new Date(buckets[i]).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})})`;
+      rect.appendChild(title);
+      svg.appendChild(rect);
+    });
+  }
+
+  // x-axis labels (every ~4th bucket)
+  const step = Math.max(1, Math.ceil(n / 6));
+  for (let i = 0; i < n; i += step) {
+    const x = padL + i * colW + colW / 2;
+    const t = svgEl('text', { x, y: H - 10, 'text-anchor': 'middle', 'font-size': 10, fill: 'var(--text-tertiary)' });
+    t.textContent = new Date(buckets[i]).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    svg.appendChild(t);
+  }
+
+  container.appendChild(svg);
+
+  // legend (label + color swatch — color is never the sole cue)
+  const legend = document.createElement('div');
+  legend.style.cssText = 'display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:var(--text-secondary);';
+  ecos.forEach(eco => {
+    const item = document.createElement('span');
+    item.style.cssText = 'display:inline-flex;align-items:center;gap:5px;';
+    const sw = document.createElement('span');
+    sw.style.cssText = `width:14px;height:10px;border-radius:2px;background:${ECO_COLORS[eco] || '#94a3b8'};`;
+    const lbl = document.createElement('span');
+    lbl.textContent = eco;
+    item.append(sw, lbl);
+    legend.appendChild(item);
+  });
+  container.appendChild(legend);
 }
 
 function updateCharts() {
@@ -1298,22 +1352,10 @@ function updateCharts() {
   fetch(BASE + '/api/stats/timeseries?window=24h&bucket=1h')
     .then(r => r.json())
     .then(ts => {
-      const labels = (ts.buckets || []).map(b => new Date(b).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
+      const buckets = ts.buckets || [];
       const series = ts.series || {};
-      const filt = obj => {
-        if (!currentEco) return obj || {};
-        return obj && obj[currentEco] ? { [currentEco]: obj[currentEco] } : {};
-      };
-      if (chartAllowed) {
-        chartAllowed.data.labels = labels;
-        chartAllowed.data.datasets = buildDatasets(filt(series.allowed));
-        chartAllowed.update();
-      }
-      if (chartDenied) {
-        chartDenied.data.labels = labels;
-        chartDenied.data.datasets = buildDatasets(filt(series.denied));
-        chartDenied.update();
-      }
+      renderStackedChart('chart-allowed', buckets, series.allowed || {});
+      renderStackedChart('chart-denied', buckets, series.denied || {});
     })
     .catch(() => {});
 }
