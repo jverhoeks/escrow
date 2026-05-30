@@ -97,6 +97,7 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Delete("/api/block", d.handleBlockRemove)
 	protected.Get("/api/blocklist", d.handleBlockList)
 	protected.Get("/api/packages", d.handlePackages)
+	protected.Get("/api/packages/tree", d.handlePackagesTree)
 	protected.Post("/api/cache/flush", d.handleCacheFlush)
 	r.Mount(base, protected)
 }
@@ -418,6 +419,30 @@ func blobCached(ctx context.Context, c cache.Cache, ecosystem, name, version str
 		return false
 	}
 	return c.HasBlob(ctx, key)
+}
+
+// blobSize returns the cached blob size for ecosystems with predictable keys,
+// or -1 when unknown. Mirrors blobCached.
+func blobSize(ctx context.Context, c cache.Cache, ecosystem, name, version string) int64 {
+	var key string
+	switch ecosystem {
+	case "npm":
+		basename := name
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			basename = name[i+1:]
+		}
+		key = fmt.Sprintf("npm/%s/-/%s-%s.tgz", name, basename, version)
+	case "cargo":
+		key = fmt.Sprintf("cargo/crates/%s/%s/download", name, version)
+	case "nuget":
+		id := strings.ToLower(name)
+		ver := strings.ToLower(version)
+		key = fmt.Sprintf("nuget/pkgs/%s/%s/%s.%s.nupkg", id, ver, id, ver)
+	}
+	if key == "" {
+		return -1
+	}
+	return c.BlobSize(ctx, key)
 }
 
 func splitPackage(pkg string) (name, version string) {
