@@ -60,6 +60,13 @@ type PolicyConfig struct {
 	Publisher  *PublisherPolicyConfig  `toml:"publisher"`
 	Popularity *PopularityPolicyConfig `toml:"popularity"`
 	PyPI       *PyPIPolicyConfig       `toml:"pypi"`
+
+	// StrictSignals controls fail-open vs fail-closed behavior for transient
+	// signal failures (network errors, panics, parse failures the signal
+	// itself didn't handle). Valid values: "allow" (default — fail open;
+	// transient errors don't block), "warn" (log + emit warn decision), or
+	// "block" (fail closed; refuse to install if a signal couldn't run).
+	StrictSignals string `toml:"strict_signals"`
 }
 
 type AgePolicyConfig struct {
@@ -295,6 +302,13 @@ func (c Config) Validate() []error {
 	}
 	if c.Policy != nil && c.Policy.Age != nil && c.Policy.Age.MinDays < 0 {
 		errs = append(errs, fmt.Errorf("policy.age.min_days %d is negative; negative values allow all packages through the age gate", c.Policy.Age.MinDays))
+	}
+	if c.Policy != nil {
+		switch c.Policy.StrictSignals {
+		case "", "allow", "warn", "block":
+		default:
+			errs = append(errs, fmt.Errorf("policy.strict_signals %q is not one of allow/warn/block", c.Policy.StrictSignals))
+		}
 	}
 	return errs
 }

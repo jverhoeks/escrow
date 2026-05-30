@@ -15,10 +15,186 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// ── config write-renovate ─────────────────────────────────────────────────────
+
+// runConfigWriteRenovate generates a renovate.json that routes Renovate's
+// datasource lookups through the escrow proxy.
+//
+// Renovate has its own HTTP client for version lookups — it does NOT use
+// ~/.cargo/config.toml, ~/.m2/settings.xml, or most other tool configs.
+// The exceptions are: npm (~/.npmrc ✓), PyPI (PIP_INDEX_URL env ✓),
+// Go (GOPROXY env ✓). For everything else, renovate.json is required.
+//
+// Coverage:
+//   npm/pnpm    auto via ~/.npmrc       no renovate.json needed
+//   PyPI        auto via PIP_INDEX_URL  no renovate.json needed
+//   Go          auto via GOPROXY        no renovate.json needed
+//   Cargo       hardcoded crates.io     renovate.json required ← this command
+//   Maven       hardcoded Maven Central renovate.json required ← this command
+//   NuGet       hardcoded nuget.org     renovate.json required ← this command
+//   Composer    hardcoded packagist.org renovate.json required ← this command
+func runConfigWriteRenovate(args []string) {
+	fs := flag.NewFlagSet("config write-renovate", flag.ExitOnError)
+	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems")
+	proxyURL := fs.String("proxy-url", "http://127.0.0.1:7888", "base URL of the escrow proxy")
+	output := fs.String("output", "renovate.json", "output file path (use - for stdout)")
+	minAge := fs.Int("min-age", 7, "minimumReleaseAge in days to add to packageRules (0 = omit)")
+	ageOnly := fs.Bool("age-only", false, "emit only minimumReleaseAge rules — no proxy registryUrls (for teams without an escrow proxy)")
+	fs.Parse(args) //nolint:errcheck
+
+	if !*ageOnly {
+		if err := validateProxyURL(*proxyURL); err != nil {
+			die("--proxy-url: %v", err)
+		}
+	}
+
+	ecos := parseEcosystems(*ecosystems)
+	base := strings.TrimRight(*proxyURL, "/")
+	content := buildRenovateConfig(ecos, base, *minAge, *ageOnly)
+
+	if *output == "-" {
+		fmt.Print(content)
+		return
+	}
+	if err := os.WriteFile(*output, []byte(content), 0644); err != nil {
+		die("writing %s: %v", *output, err)
+	}
+	fmt.Printf("✓ wrote %s\n", *output)
+	fmt.Println()
+
+	if *ageOnly {
+		fmt.Printf("  minimumReleaseAge: %d days (all ecosystems)\n", *minAge)
+		fmt.Println("  No proxy registryUrls — age gate only.")
+		fmt.Println("  Pair with 'escrow-cli config write' for proxy protection at install time.")
+		return
+	}
+
+	fmt.Println("Renovate coverage:")
+	fmt.Println("  npm/pnpm    ✓  auto via NPM_CONFIG_REGISTRY env / ~/.npmrc")
+	fmt.Println("  PyPI        ✓  auto via PIP_INDEX_URL env")
+	fmt.Println("  Go          ✓  auto via GOPROXY env")
+	fmt.Println("  cargo       ~  Renovate queries crates.io directly (git index,")
+	fmt.Println("                  not sparse HTTP). Escrow gates cargo at build time")
+	fmt.Println("                  via ~/.cargo/config.toml — run: escrow-cli config write --ecosystems cargo --git")
+	for _, eco := range ecos {
+		switch eco {
+		case "maven":
+			fmt.Println("  maven       ✓  via renovate.json registryUrls")
+		case "nuget":
+			fmt.Println("  nuget       ✓  via renovate.json registryUrls")
+		case "composer":
+			fmt.Println("  composer    ✓  via renovate.json registryUrls")
+		}
+	}
+	if *minAge > 0 {
+		fmt.Printf("\n  minimumReleaseAge: %d days (minor/patch), %d days (major)\n", *minAge, *minAge*2)
+	}
+	fmt.Println()
+	fmt.Println("Note: for cloud-hosted Renovate (GitHub App) the proxy must be")
+	fmt.Println("network-accessible. For self-hosted Renovate, 127.0.0.1 works.")
+}
+
+// buildRenovateConfig generates renovate.json content.
+// minAgeDays > 0 adds minimumReleaseAge packageRules.
+// ageOnly = true skips all proxy registryUrls and emits only age rules.
+func buildRenovateConfig(ecosystems []string, base string, minAgeDays int, ageOnly bool) string {
+	ecoSet := make(map[string]bool)
+	for _, e := range ecosystems {
+		ecoSet[e] = true
+	}
+
+	var sb strings.Builder
+	sb.WriteString("{\n")
+	sb.WriteString(`  "$schema": "https://docs.renovatebot.com/renovate-schema.json",` + "\n")
+	sb.WriteString(`  "extends": ["config:recommended"],` + "\n")
+
+	if !ageOnly {
+		sb.WriteString("\n")
+		sb.WriteString("  // npm, PyPI (pip/uv), and Go are auto-detected via NPM_CONFIG_REGISTRY,\n")
+		sb.WriteString("  // PIP_INDEX_URL, and GOPROXY env vars — no extra config needed here.\n")
+		sb.WriteString("\n")
+		sb.WriteString("  // Cargo: Renovate uses git-clone for custom registries; escrow serves\n")
+		sb.WriteString("  // sparse HTTP. Escrow gates cargo at build time via ~/.cargo/config.toml.\n")
+		sb.WriteString("\n")
+	}
+
+	hasEntries := false
+
+	if !ageOnly {
+		// Maven / Gradle
+		if ecoSet["maven"] {
+			sb.WriteString(`  "maven": {` + "\n")
+			sb.WriteString(`    "registryUrls": ["` + base + `/maven2/"]` + "\n")
+			sb.WriteString("  },\n")
+			hasEntries = true
+		}
+		// NuGet
+		if ecoSet["nuget"] {
+			sb.WriteString(`  "nuget": {` + "\n")
+			sb.WriteString(`    "registryUrls": ["` + base + `/nuget/v3/index.json"]` + "\n")
+			sb.WriteString("  },\n")
+			hasEntries = true
+		}
+		// Composer
+		if ecoSet["composer"] {
+			sb.WriteString(`  "packagist": {` + "\n")
+			sb.WriteString(`    "registryUrls": ["` + base + `"]` + "\n")
+			sb.WriteString("  },\n")
+			hasEntries = true
+		}
+	}
+
+	// minimumReleaseAge packageRules — works for ALL ecosystems including cargo.
+	// Tested: Renovate correctly holds back versions younger than the threshold
+	// and files them in pendingVersions until they age past it.
+	if minAgeDays > 0 {
+		sb.WriteString(`  "packageRules": [` + "\n")
+		sb.WriteString("    {\n")
+		sb.WriteString(`      "matchUpdateTypes": ["minor", "patch"],` + "\n")
+		sb.WriteString(fmt.Sprintf(`      "minimumReleaseAge": "%d days"`, minAgeDays) + "\n")
+		sb.WriteString("    },\n")
+		sb.WriteString("    {\n")
+		sb.WriteString(`      "matchUpdateTypes": ["major"],` + "\n")
+		sb.WriteString(fmt.Sprintf(`      "minimumReleaseAge": "%d days"`, minAgeDays*2) + "\n")
+		sb.WriteString("    },\n")
+		sb.WriteString("    {\n")
+		sb.WriteString(`      "matchManagers": ["cargo"],` + "\n")
+		sb.WriteString(`      "postUpgradeTasks": {` + "\n")
+		sb.WriteString(`        "commands": ["cargo audit --deny warnings"],` + "\n")
+		sb.WriteString(`        "fileFilters": ["Cargo.lock"],` + "\n")
+		sb.WriteString(`        "executionMode": "branch"` + "\n")
+		sb.WriteString("      }\n")
+		sb.WriteString("    }\n")
+		sb.WriteString("  ],\n")
+		hasEntries = true
+	}
+
+	if hasEntries && !ageOnly {
+		sb.WriteString(`  "hostRules": [` + "\n")
+		sb.WriteString("    {\n")
+		sb.WriteString(`      "matchHost": "127.0.0.1",` + "\n")
+		sb.WriteString(`      "insecureRegistry": true` + "\n")
+		sb.WriteString("    }\n")
+		sb.WriteString("  ]\n")
+	} else if !hasEntries {
+		sb.WriteString(`  "enabled": true` + "\n")
+	} else {
+		// age-only: close cleanly after packageRules (trailing comma already written above)
+		// remove trailing comma from packageRules close
+		result := sb.String()
+		result = strings.TrimSuffix(strings.TrimRight(result, "\n"), ",") + "\n"
+		return result + "}\n"
+	}
+	sb.WriteString("}\n")
+
+	return sb.String()
+}
+
 func runConfigWrite(args []string) {
 	fs := flag.NewFlagSet("config write", flag.ExitOnError)
 	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems")
 	proxyURL := fs.String("proxy-url", "http://127.0.0.1:7888", "base URL of the escrow proxy")
+	gitCLI := fs.Bool("git", false, "set [net] git-fetch-with-cli=true in cargo config so git deps and index updates use the system git, not cargo's libgit2 (prevents git-protocol 404s when a network proxy is active)")
 	fs.Parse(args) //nolint:errcheck
 
 	if err := validateProxyURL(*proxyURL); err != nil {
@@ -29,7 +205,13 @@ func runConfigWrite(args []string) {
 	base := strings.TrimRight(*proxyURL, "/")
 
 	for _, eco := range ecos {
-		if err := writeEcoConfig(eco, base); err != nil {
+		var err error
+		if eco == "cargo" && *gitCLI {
+			err = writeCargoConfigWithGitCLI(base)
+		} else {
+			err = writeEcoConfig(eco, base)
+		}
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: %s: %v\n", eco, err)
 		} else {
 			fmt.Printf("✓ %s config written\n", eco)
@@ -285,8 +467,10 @@ func checkEcoLocalAll(eco, dir string) []toolCheck {
 	return nil
 }
 
-// validateProxyURL rejects proxy URLs that would break config file formats
-// or allow injection into XML, JSON, or INI/TOML values.
+// validateProxyURL rejects proxy URLs that could break config file formats
+// or inject into XML, JSON, INI/TOML values, Groovy/shell strings.
+// The full set of rejected characters: whitespace, all shell metacharacters,
+// all quote characters, redirection symbols, and TOML/Groovy escapes.
 func validateProxyURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -298,9 +482,9 @@ func validateProxyURL(raw string) error {
 	if u.Host == "" {
 		return fmt.Errorf("URL must include a host")
 	}
-	// Guard against characters that break config file formats.
-	if strings.ContainsAny(raw, "\n\r\"'<>") {
-		return fmt.Errorf("URL contains characters not safe for config files")
+	// Reject any character that requires escaping in shell, Groovy, XML, JSON, or TOML.
+	if strings.ContainsAny(raw, " \t\n\r\"'<>`$;&|()*?[]{}\\") {
+		return fmt.Errorf("URL contains characters not safe for config files (whitespace, quotes, or shell metacharacters)")
 	}
 	return nil
 }
@@ -521,8 +705,10 @@ func writePypiConfig(home, base string) error {
 
 	// poetry: no global "default registry" setting exists; inject PIP_INDEX_URL
 	// into shell profiles — poetry respects this env var as a fallback source.
-	block := "# BEGIN escrow-python\nexport PIP_INDEX_URL=" + indexURL +
-		"\nexport UV_INDEX_URL=" + indexURL + "\n# END escrow-python\n"
+	// shellQuote prevents shell-metacharacter injection from the proxy URL.
+	q := shellQuote(indexURL)
+	block := "# BEGIN escrow-python\nexport PIP_INDEX_URL=" + q +
+		"\nexport UV_INDEX_URL=" + q + "\n# END escrow-python\n"
 	profiles := shellProfiles(home)
 	for _, p := range profiles {
 		if err := upsertShellBlock(p, block, "# BEGIN escrow-python", "# END escrow-python"); err != nil {
@@ -551,7 +737,8 @@ func shellProfiles(home string) []string {
 
 func writeGoConfig(home, base string) error {
 	goProxy := base + "/go,off"
-	block := "# BEGIN escrow-go\nexport GOPROXY=" + goProxy + "\nexport GONOSUMDB=*\n# END escrow-go\n"
+	// shellQuote prevents shell injection from a proxy URL containing $, ;, &, etc.
+	block := "# BEGIN escrow-go\nexport GOPROXY=" + shellQuote(goProxy) + "\nexport GONOSUMDB='*'\n# END escrow-go\n"
 	for _, p := range shellProfiles(home) {
 		if err := upsertShellBlock(p, block, "# BEGIN escrow-go", "# END escrow-go"); err != nil {
 			return fmt.Errorf("%s: %v", filepath.Base(p), err)
@@ -615,6 +802,30 @@ func removeGoMarkers(profile string) bool {
 // ── cargo ─────────────────────────────────────────────────────────────────────
 
 func writeCargoConfig(home, base string) error {
+	return writeCargoConfigOpts(home, base, false)
+}
+
+// writeCargoConfigWithGitCLI writes the escrow cargo config AND sets
+// [net] git-fetch-with-cli = true.
+//
+// With git-fetch-with-cli enabled, all git operations (git dependencies in
+// Cargo.toml, git-based index updates) use the system git binary instead of
+// cargo's embedded libgit2. This prevents git-protocol 404s when a network
+// layer (pf redirect, corporate proxy) intercepts TCP and the escrow proxy
+// does not speak the git smart-HTTP protocol.
+func writeCargoConfigWithGitCLI(base string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	if err := writeCargoConfigOpts(home, base, true); err != nil {
+		return err
+	}
+	fmt.Println("  [net] git-fetch-with-cli = true  (git deps use system git, not libgit2)")
+	return nil
+}
+
+func writeCargoConfigOpts(home, base string, gitFetchWithCLI bool) error {
 	cfgPath := filepath.Join(home, ".cargo", "config.toml")
 	if err := backupFile(cfgPath); err != nil {
 		return fmt.Errorf("backing up %s: %v", cfgPath, err)
@@ -622,9 +833,8 @@ func writeCargoConfig(home, base string) error {
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
 		return err
 	}
-
 	existing, _ := os.ReadFile(cfgPath)
-	merged, err := mergeCargoConfig(existing, base+"/cargo/")
+	merged, err := mergeCargoConfig(existing, base+"/cargo/", gitFetchWithCLI)
 	if err != nil {
 		return err
 	}
@@ -633,7 +843,8 @@ func writeCargoConfig(home, base string) error {
 
 // mergeCargoConfig uses the TOML library to parse the existing config, set the
 // escrow source entries, and re-encode. All non-escrow sections are preserved.
-func mergeCargoConfig(existing []byte, registryURL string) ([]byte, error) {
+// If gitFetchWithCLI is true, [net] git-fetch-with-cli = true is also set.
+func mergeCargoConfig(existing []byte, registryURL string, gitFetchWithCLI bool) ([]byte, error) {
 	var cfg map[string]interface{}
 	if len(bytes.TrimSpace(existing)) > 0 {
 		if err := toml.Unmarshal(existing, &cfg); err != nil {
@@ -648,7 +859,6 @@ func mergeCargoConfig(existing []byte, registryURL string) ([]byte, error) {
 	if source == nil {
 		source = make(map[string]interface{})
 	}
-
 	cratesIO, _ := source["crates-io"].(map[string]interface{})
 	if cratesIO == nil {
 		cratesIO = make(map[string]interface{})
@@ -657,6 +867,15 @@ func mergeCargoConfig(existing []byte, registryURL string) ([]byte, error) {
 	source["crates-io"] = cratesIO
 	source["escrow"] = map[string]interface{}{"registry": registryURL}
 	cfg["source"] = source
+
+	if gitFetchWithCLI {
+		net, _ := cfg["net"].(map[string]interface{})
+		if net == nil {
+			net = make(map[string]interface{})
+		}
+		net["git-fetch-with-cli"] = true
+		cfg["net"] = net
+	}
 
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
@@ -894,7 +1113,7 @@ func writeCargoConfigLocal(dir, base string) error {
 	path := filepath.Join(cargoDir, "config.toml")
 	backupFile(path) //nolint:errcheck
 	existing, _ := os.ReadFile(path)
-	merged, err := mergeCargoConfig(existing, base+"/cargo/")
+	merged, err := mergeCargoConfig(existing, base+"/cargo/", false)
 	if err != nil {
 		return err
 	}

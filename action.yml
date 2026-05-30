@@ -38,6 +38,13 @@ outputs:
   proxy-url:
     description: 'Escrow proxy base URL (e.g. http://127.0.0.1:7888)'
     value: ${{ steps.start.outputs.proxy-url }}
+  renovate-config:
+    description: >
+      Renovate JSON config fragment routing cargo/maven/nuget/composer
+      datasource lookups through escrow. Renovate auto-detects npm/PyPI/Go
+      via the env vars already exported — only these four need explicit config.
+      Pass as RENOVATE_CONFIG env var to renovatebot/github-action.
+    value: ${{ steps.renovate-cfg.outputs.config }}
 
 runs:
   using: composite
@@ -237,7 +244,45 @@ runs:
           esac
         done
 
-    # ── 6. Register post-job supply chain report ──────────────────────────────
+    # ── 6. Emit Renovate config for cargo/maven/nuget/composer ───────────────
+    # Renovate's npm/PyPI/Go datasources auto-detect via the env vars already
+    # exported above (NPM_CONFIG_REGISTRY, PIP_INDEX_URL, GOPROXY).
+    # Cargo, Maven, NuGet, Composer have hardcoded defaults and need explicit
+    # registryUrls — emit them as a JSON fragment the user can pass via
+    # RENOVATE_CONFIG env var to renovatebot/github-action.
+    - name: Emit Renovate config
+      id: renovate-cfg
+      shell: bash
+      env:
+        ESCROW_PORT: ${{ inputs.port }}
+        ESCROW_ECOSYSTEMS: ${{ inputs.ecosystems }}
+      run: |
+        PROXY="http://127.0.0.1:${ESCROW_PORT}"
+        # Build config fragment for ecosystems that Renovate cannot auto-detect.
+        PARTS=()
+        IFS=',' read -ra ECOS <<< "$ESCROW_ECOSYSTEMS"
+        for eco in "${ECOS[@]}"; do
+          case "${eco// /}" in
+            # allowCustomCrateRegistries is a Renovate security gate required for non-crates.io registries
+            cargo)    PARTS+=("\"allowCustomCrateRegistries\":true,\"cargo\":{\"registryUrls\":[\"${PROXY}/cargo/\"]}");;
+            maven)    PARTS+=("\"maven\":{\"registryUrls\":[\"${PROXY}/maven2/\"]}");;
+            nuget)    PARTS+=("\"nuget\":{\"registryUrls\":[\"${PROXY}/nuget/v3/index.json\"]}");;
+            composer) PARTS+=("\"packagist\":{\"registryUrls\":[\"${PROXY}\"]}");;
+          esac
+        done
+
+        # Assemble JSON; add hostRules to allow HTTP (insecure) access to localhost.
+        if [ ${#PARTS[@]} -gt 0 ]; then
+          IFS=','; BODY="${PARTS[*]}"; unset IFS
+          CONFIG="{${BODY},\"hostRules\":[{\"matchHost\":\"127.0.0.1\",\"insecureRegistry\":true}]}"
+        else
+          CONFIG="{}"
+        fi
+
+        echo "config=${CONFIG}" >> "$GITHUB_OUTPUT"
+        echo "  renovate-config emitted for: ${ESCROW_ECOSYSTEMS}"
+
+    # ── 7. Register post-job supply chain report ──────────────────────────────
     # Composite actions don't support native post-steps, so we register a script
     # via ACTIONS_RUNNER_HOOK_JOB_COMPLETED which the runner executes after all
     # job steps finish (success or failure). Any existing hook is chained.

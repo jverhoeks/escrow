@@ -1,176 +1,1051 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>escrow dashboard</title>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
-body { background: #0a0f1a; color: #e2e8f0; font-family: 'SF Mono','Fira Code','Courier New',monospace; font-size: 13px; display: flex; flex-direction: column; }
-.topbar { background: #0f1929; border-bottom: 1px solid #1e3a5f; padding: 0 20px; height: 44px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
-.logo { color: #60a5fa; font-weight: bold; letter-spacing: 2px; font-size: 14px; }
-.logo span { color: #94a3b8; font-weight: normal; font-size: 11px; margin-left: 8px; }
-.topbar-right { display: flex; align-items: center; gap: 16px; }
-#live-badge { background: #16a34a22; color: #4ade80; border: 1px solid #16a34a55; padding: 2px 8px; border-radius: 4px; font-size: 10px; }
-#live-badge.off { color: #64748b; border-color: #1e3a5f; background: none; }
-.user-info { color: #94a3b8; font-size: 11px; }
-.logout-btn { color: #64748b; font-size: 11px; text-decoration: none; border: 1px solid #1e3a5f; padding: 3px 10px; border-radius: 4px; }
-.nav-bar { background: #0f1929; border-bottom: 1px solid #1e3a5f; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; height: 36px; flex-shrink: 0; }
-.nav-tabs { display: flex; height: 100%; }
-.nav-tab { padding: 0 16px; color: #64748b; font-size: 11px; cursor: pointer; border-bottom: 2px solid transparent; display: flex; align-items: center; letter-spacing: 0.5px; }
-.nav-tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
-.eco-filters { display: flex; align-items: center; gap: 6px; }
-.eco-label { color: #475569; font-size: 10px; margin-right: 2px; }
-.eco-chip { padding: 2px 10px; border-radius: 3px; font-size: 10px; cursor: pointer; border: 1px solid #1e3a5f; color: #64748b; background: none; font-family: inherit; letter-spacing: 0.5px; text-transform: uppercase; }
-.eco-chip.sel-all      { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
-.eco-chip.sel-npm      { background: #14532d22; color: #4ade80; border-color: #16a34a55; }
-.eco-chip.sel-pypi     { background: #1e3a8a22; color: #93c5fd; border-color: #3b82f655; }
-.eco-chip.sel-cargo    { background: #431407aa; color: #fb923c; border-color: #ea580c55; }
-.eco-chip.sel-composer { background: #1e1b4b22; color: #a5b4fc; border-color: #6366f155; }
-.main { display: flex; flex: 1; overflow: hidden; }
-.feed-panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #1e3a5f; overflow: hidden; }
-.panel-header { padding: 8px 16px; border-bottom: 1px solid #1e3a5f; color: #64748b; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
-.col-headers { display: flex; align-items: baseline; gap: 10px; padding: 5px 16px 4px; border-bottom: 1px solid #0f1929; font-size: 9px; color: #475569; letter-spacing: 0.5px; text-transform: uppercase; flex-shrink: 0; }
-#feed { flex: 1; overflow-y: auto; }
-.feed-item { padding: 7px 16px; border-bottom: 1px solid #0f1929; display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
-.feed-item:hover { background: #0f1929; }
-.ts { color: #64748b; font-size: 10px; min-width: 56px; }
-.eco-tag { font-size: 9px; padding: 1px 5px; border-radius: 2px; min-width: 54px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
-.eco-tag.npm      { background: #14532d22; color: #4ade80; border: 1px solid #16a34a33; }
-.eco-tag.pypi     { background: #1e3a8a22; color: #93c5fd; border: 1px solid #3b82f633; }
-.eco-tag.go       { background: #083344aa; color: #67e8f9; border: 1px solid #0891b233; }
-.eco-tag.cargo    { background: #431407aa; color: #fb923c; border: 1px solid #ea580c33; }
-.eco-tag.composer { background: #1e1b4b22; color: #a5b4fc; border: 1px solid #6366f133; }
-.pkg { color: #cbd5e1; flex: 1; min-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sig { color: #64748b; font-size: 10px; min-width: 120px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st { font-size: 14px; min-width: 24px; text-align: center; }
-.st.block { color: #ef4444; }
-.st.warn  { color: #f59e0b; }
-.st.allow { color: #22c55e; }
-.policy-strip { background: #0f1929; border-top: 1px solid #1e3a5f; padding: 5px 16px; font-size: 10px; color: #475569; display: flex; gap: 16px; flex-shrink: 0; }
-.policy-strip span { color: #60a5fa; }
-.stats-panel { width: 240px; display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
-.stat-card { padding: 14px 16px; border-bottom: 1px solid #1e3a5f; }
-.stat-label { color: #64748b; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
-.stat-value { font-size: 26px; font-weight: bold; line-height: 1; }
-.stat-value.blocked { color: #ef4444; }
-.stat-value.warned  { color: #f59e0b; }
-.stat-value.allowed { color: #22c55e; }
-.top-section { padding: 12px 16px; flex: 1; }
-.top-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 11px; border-bottom: 1px solid #0f1929; }
-.top-name { color: #cbd5e1; }
-.top-count { color: #ef4444; }
-.approve-btn { background: none; border: 1px solid #334155; color: #64748b; font-size: 9px; padding: 1px 6px; border-radius: 2px; cursor: pointer; letter-spacing: 0.5px; font-family: inherit; }
-.approve-btn:hover { border-color: #22c55e; color: #22c55e; }
-.approve-btn.approved { border-color: #334155; color: #334155; cursor: default; }
-.block-btn { background: none; border: 1px solid #334155; color: #64748b; font-size: 9px; padding: 1px 6px; border-radius: 2px; cursor: pointer; letter-spacing: 0.5px; font-family: inherit; }
-.block-btn:hover { border-color: #ef4444; color: #ef4444; }
-.block-btn.blocked { border-color: #334155; color: #334155; cursor: default; }
-.status-manual-block { color: #f97316; font-size: 14px; min-width: 24px; text-align: center; }
-.status-override { color: #a78bfa; font-size: 14px; min-width: 24px; text-align: center; }
-/* packages view */
-.refresh-btn { background: none; border: 1px solid #1e3a5f; color: #64748b; font-size: 10px; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-family: inherit; letter-spacing: 0.5px; }
-.refresh-btn:hover { border-color: #3b82f6; color: #60a5fa; }
-.pkg-row { padding: 6px 16px; border-bottom: 1px solid #0f1929; display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
-.pkg-row:hover { background: #0f1929; }
-.pkg-name { color: #cbd5e1; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pkg-ver  { color: #64748b; font-size: 11px; min-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pkg-last { color: #334155; font-size: 10px; min-width: 56px; }
-.pkg-hits { color: #475569; font-size: 10px; min-width: 36px; text-align: right; }
-.cached-badge { font-size: 9px; padding: 1px 5px; border-radius: 2px; background: #14532d22; color: #4ade80; border: 1px solid #16a34a33; letter-spacing: 0.5px; white-space: nowrap; }
-.uncached-badge { font-size: 9px; padding: 1px 5px; border-radius: 2px; background: #1e1e2e; color: #334155; border: 1px solid #1e3a5f; letter-spacing: 0.5px; white-space: nowrap; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>escrow dashboard</title>
+  <style>
+    :root {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f8fafc;
+      --bg-tertiary: #e2e8f0;
+      --text-primary: #0f172a;
+      --text-secondary: #64748b;
+      --text-tertiary: #94a3b8;
+      --border: #cbd5e1;
+      --surface: #ffffff;
+      --accent: #2563eb;
+      --danger: #dc2626;
+      --warning: #ea580c;
+      --success: #16a34a;
+      --info: #0284c7;
+
+      --status-allowed: #16a34a;
+      --status-blocked: #dc2626;
+      --status-warned: #ea580c;
+
+      --eco-npm: #22c55e;
+      --eco-pypi: #3b82f6;
+      --eco-cargo: #f97316;
+      --eco-go: #06b6d4;
+      --eco-composer: #8b5cf6;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #0f172a;
+        --bg-secondary: #1e293b;
+        --bg-tertiary: #334155;
+        --text-primary: #f1f5f9;
+        --text-secondary: #cbd5e1;
+        --text-tertiary: #94a3b8;
+        --border: #475569;
+        --surface: #1e293b;
+        --accent: #60a5fa;
+      }
+    }
+
+    :root.light-mode {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f8fafc;
+      --bg-tertiary: #e2e8f0;
+      --text-primary: #0f172a;
+      --text-secondary: #64748b;
+      --text-tertiary: #94a3b8;
+      --border: #cbd5e1;
+      --surface: #ffffff;
+      --accent: #2563eb;
+    }
+
+    :root.dark-mode {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-tertiary: #334155;
+      --text-primary: #f1f5f9;
+      --text-secondary: #cbd5e1;
+      --text-tertiary: #94a3b8;
+      --border: #475569;
+      --surface: #1e293b;
+      --accent: #60a5fa;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      transition: background-color 0.2s, color 0.2s;
+    }
+
+    /* ── Header & Navigation ────────────────────────────────────────────────── */
+
+    .topbar {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--text-primary);
+      letter-spacing: -0.5px;
+    }
+
+    .logo-icon {
+      width: 24px;
+      height: 24px;
+      background: linear-gradient(135deg, var(--accent), var(--status-allowed));
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: white;
+      font-size: 12px;
+    }
+
+    .logo-text span {
+      font-weight: 400;
+      font-size: 13px;
+      color: var(--text-tertiary);
+      margin-left: 4px;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(22, 163, 74, 0.1);
+      color: var(--status-allowed);
+      border: 1px solid rgba(22, 163, 74, 0.3);
+    }
+
+    .live-badge.off {
+      background: rgba(100, 116, 139, 0.1);
+      color: var(--text-tertiary);
+      border-color: var(--border);
+    }
+
+    .live-badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--status-allowed);
+      animation: pulse 2s infinite;
+    }
+
+    .live-badge.off .live-badge-dot {
+      background: var(--text-tertiary);
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .theme-toggle {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: all 0.2s;
+    }
+
+    .theme-toggle:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(37, 99, 235, 0.05);
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .logout-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-weight: 500;
+    }
+
+    .logout-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(37, 99, 235, 0.05);
+    }
+
+    /* ── Navigation Tabs ────────────────────────────────────────────────────── */
+
+    .nav-bar {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 44px;
+      flex-shrink: 0;
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 2px;
+    }
+
+    .nav-tab {
+      padding: 8px 16px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      display: flex;
+      align-items: center;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .nav-tab:hover {
+      color: var(--text-primary);
+    }
+
+    .nav-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .eco-filters {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .eco-label {
+      color: var(--text-tertiary);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .eco-chips {
+      display: flex;
+      gap: 4px;
+    }
+
+    .eco-chip {
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      background: transparent;
+      font-weight: 500;
+      transition: all 0.2s;
+      font-family: inherit;
+      text-transform: uppercase;
+    }
+
+    .eco-chip:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .eco-chip.active {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+
+    /* ── Main Content ────────────────────────────────────────────────────────── */
+
+    .main-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      gap: 1px;
+      background: var(--border);
+    }
+
+    .panel {
+      background: var(--bg-primary);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      background: var(--bg-secondary);
+    }
+
+    .panel-header-title {
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--text-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .panel-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-count {
+      color: var(--text-tertiary);
+      font-size: 12px;
+    }
+
+    .btn-secondary {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-weight: 500;
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(37, 99, 235, 0.05);
+    }
+
+    /* ── Live Feed Panel ────────────────────────────────────────────────────── */
+
+    #feed-panel {
+      flex: 1.5;
+    }
+
+    .feed-columns {
+      display: grid;
+      grid-template-columns: 60px 70px 1fr 120px 50px 60px;
+      gap: 12px;
+      padding: 8px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+
+    #feed {
+      flex: 1;
+      overflow-y: auto;
+      background: var(--bg-primary);
+    }
+
+    .feed-item {
+      display: grid;
+      grid-template-columns: 60px 70px 1fr 120px 50px 60px;
+      gap: 12px;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+      transition: background 0.1s;
+      font-size: 13px;
+    }
+
+    .feed-item:hover {
+      background: var(--bg-secondary);
+    }
+
+    .feed-time {
+      color: var(--text-tertiary);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+    }
+
+    .eco-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-align: center;
+      text-transform: uppercase;
+      white-space: nowrap;
+      display: inline-block;
+    }
+
+    .eco-badge.npm { background: rgba(34, 197, 94, 0.15); color: var(--eco-npm); }
+    .eco-badge.pypi { background: rgba(59, 130, 246, 0.15); color: var(--eco-pypi); }
+    .eco-badge.cargo { background: rgba(249, 115, 22, 0.15); color: var(--eco-cargo); }
+    .eco-badge.go { background: rgba(6, 182, 212, 0.15); color: var(--eco-go); }
+    .eco-badge.composer { background: rgba(139, 92, 246, 0.15); color: var(--eco-composer); }
+
+    .feed-pkg {
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-weight: 500;
+    }
+
+    .feed-reason {
+      color: var(--text-secondary);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .status-icon {
+      font-size: 18px;
+      font-weight: 700;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .status-allowed { color: var(--status-allowed); }
+    .status-blocked { color: var(--status-blocked); }
+    .status-warned { color: var(--status-warned); }
+
+    .feed-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .btn-action {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-weight: 600;
+    }
+
+    .btn-action:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .btn-action.approve:hover {
+      border-color: var(--status-allowed);
+      color: var(--status-allowed);
+    }
+
+    .btn-action.block:hover {
+      border-color: var(--status-blocked);
+      color: var(--status-blocked);
+    }
+
+    .btn-action.disabled {
+      opacity: 0.5;
+      cursor: default;
+      border-color: var(--border);
+    }
+
+    /* ── Stats Panel ────────────────────────────────────────────────────────── */
+
+    #stats-panel {
+      width: 280px;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-primary);
+    }
+
+    .stat-card {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .stat-value.allowed { color: var(--status-allowed); }
+    .stat-value.blocked { color: var(--status-blocked); }
+    .stat-value.warned { color: var(--status-warned); }
+
+    .stat-footer {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 6px;
+    }
+
+    /* ── Graphs Panel ────────────────────────────────────────────────────────── */
+
+    .graph-container {
+      padding: 16px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .graph-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .chart-wrapper {
+      position: relative;
+      height: 220px;
+      margin-bottom: 24px;
+    }
+
+    /* ── Packages View ────────────────────────────────────────────────────────── */
+
+    #pkg-panel {
+      flex: 1;
+    }
+
+    .pkg-columns {
+      display: grid;
+      grid-template-columns: 70px 70px 200px 1fr 80px 80px 50px;
+      gap: 12px;
+      padding: 8px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+
+    #pkg-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .pkg-item {
+      display: grid;
+      grid-template-columns: 70px 70px 200px 1fr 80px 80px 50px;
+      gap: 12px;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+      transition: background 0.1s;
+    }
+
+    .pkg-item:hover {
+      background: var(--bg-secondary);
+    }
+
+    /* ── CVE / Access log / Upstream tables ──────────────────────────────────── */
+    .cve-columns, .cve-item { grid-template-columns: 90px 200px 80px 1fr 110px 90px; }
+    .log-columns, .log-item { grid-template-columns: 90px 110px 70px 1fr 70px 80px 1fr; }
+    .upstream-columns, .upstream-item { grid-template-columns: 90px 80px 70px 1fr 70px 90px 90px; }
+    .cve-columns, .log-columns, .upstream-columns {
+      display: grid; gap: 12px; padding: 8px 24px;
+      border-bottom: 1px solid var(--border); background: var(--bg-secondary);
+      font-size: 11px; font-weight: 700; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;
+    }
+    .cve-item, .log-item, .upstream-item {
+      display: grid; gap: 12px; padding: 10px 24px;
+      border-bottom: 1px solid var(--border); align-items: center;
+      font-size: 13px; transition: background 0.1s;
+    }
+    .cve-item:hover, .log-item:hover, .upstream-item:hover { background: var(--bg-secondary); }
+    .cve-item .mono, .log-item .mono, .upstream-item .mono {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* Severity pills — color + label, never color alone */
+    .sev-pill {
+      display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+      font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+      color: #fff; letter-spacing: 0.3px;
+    }
+    .sev-pill::before { content: ""; }
+    .sev-critical { background: #b91c1c; }
+    .sev-critical::before { content: "⛔"; }
+    .sev-high     { background: var(--status-blocked); }
+    .sev-high::before { content: "✕"; }
+    .sev-medium   { background: var(--status-warned); }
+    .sev-medium::before { content: "!"; }
+    .sev-low      { background: var(--info); }
+    .sev-low::before { content: "ℹ"; }
+    .sev-unknown  { background: var(--text-secondary); }
+    .sev-unknown::before { content: "?"; }
+    /* HTTP status coloring (icon + number, redundant with text) */
+    .http-2xx { color: var(--status-allowed); font-weight: 600; }
+    .http-3xx { color: var(--info); font-weight: 600; }
+    .http-4xx { color: var(--status-warned); font-weight: 600; }
+    .http-5xx { color: var(--status-blocked); font-weight: 600; }
+
+    .pkg-name {
+      color: var(--text-primary);
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pkg-ver {
+      color: var(--text-secondary);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pkg-signal {
+      color: var(--text-secondary);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pkg-hits {
+      color: var(--text-secondary);
+      font-size: 12px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .pkg-last {
+      color: var(--text-tertiary);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .cache-badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-align: center;
+      font-weight: 600;
+    }
+
+    .cache-badge.cached {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--status-allowed);
+    }
+
+    .cache-badge.uncached {
+      background: rgba(100, 116, 139, 0.1);
+      color: var(--text-tertiary);
+    }
+
+    /* ── Package Tree View ────────────────────────────────────────────────────── */
+
+    .tree-container {
+      padding: 12px 24px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .tree-node {
+      margin-bottom: 2px;
+    }
+
+    .tree-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.2s;
+    }
+
+    .tree-header:hover {
+      background: var(--bg-secondary);
+    }
+
+    .tree-toggle {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+
+    .tree-toggle.empty {
+      width: 20px;
+      visibility: hidden;
+    }
+
+    .tree-label {
+      font-weight: 500;
+      color: var(--text-primary);
+      flex: 1;
+    }
+
+    .tree-eco-label {
+      color: var(--text-secondary);
+      font-size: 12px;
+      margin-left: 8px;
+    }
+
+    .tree-children {
+      margin-left: 20px;
+    }
+
+    .tree-children.hidden {
+      display: none;
+    }
+
+    .pkg-tree-item {
+      padding: 6px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-bottom: 2px;
+      transition: background 0.2s;
+    }
+
+    .pkg-tree-item:hover {
+      background: var(--bg-secondary);
+    }
+
+    .pkg-tree-name {
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    .pkg-tree-version {
+      color: var(--text-secondary);
+      font-size: 12px;
+      margin-left: 8px;
+    }
+
+    .pkg-tree-meta {
+      display: flex;
+      gap: 12px;
+      margin-top: 4px;
+      padding-left: 24px;
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+
+    /* ── Access Log View ────────────────────────────────────────────────────── */
+
+    .log-item {
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .log-time {
+      color: var(--text-tertiary);
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+      display: inline-block;
+      min-width: 100px;
+    }
+
+    .log-method {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 2px;
+      font-weight: 600;
+      background: rgba(37, 99, 235, 0.1);
+      color: var(--accent);
+      margin-left: 8px;
+    }
+
+    .log-url {
+      color: var(--text-primary);
+      font-family: 'SF Mono', 'Monaco', monospace;
+      margin-left: 8px;
+    }
+
+    /* ── Scrollbars ──────────────────────────────────────────────────────────── */
+
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-tertiary);
+    }
+  </style>
 </head>
 <body>
+
+<!-- ── Topbar ──────────────────────────────────────────────────────────────────── -->
 <div class="topbar">
-  <div><span class="logo">ESCROW<span>package proxy</span></span><span id="app-version" style="color:#334155;font-size:10px;margin-left:10px;letter-spacing:1px;"></span></div>
+  <div class="logo">
+    <div class="logo-icon">E</div>
+    <div class="logo-text">ESCROW<span>Package Proxy</span></div>
+    <span style="color: var(--text-tertiary); font-size: 12px; margin-left: 8px;" id="app-version"></span>
+  </div>
   <div class="topbar-right">
-    <span id="live-badge">● LIVE</span>
-    <span class="user-info">admin</span>
-    <a class="logout-btn" href="logout">logout</a>
-  </div>
-</div>
-<div class="nav-bar">
-  <div class="nav-tabs">
-    <div class="nav-tab active" id="tab-live"     onclick="setTab('live')">Live Feed</div>
-    <div class="nav-tab"        id="tab-packages" onclick="setTab('packages')">Packages</div>
-  </div>
-  <div class="eco-filters">
-    <span class="eco-label">ECOSYSTEM</span>
-    <button class="eco-chip sel-all" id="chip-all"      onclick="setEco('')">All</button>
-    <button class="eco-chip"         id="chip-npm"      onclick="setEco('npm')">npm</button>
-    <button class="eco-chip"         id="chip-pypi"     onclick="setEco('pypi')">PyPI</button>
-    <button class="eco-chip"         id="chip-cargo"    onclick="setEco('cargo')">Cargo</button>
-    <button class="eco-chip"         id="chip-composer" onclick="setEco('composer')">Composer</button>
+    <div class="live-badge" id="live-badge">
+      <span class="live-badge-dot"></span>
+      <span>LIVE</span>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Toggle theme">🌓</button>
+    <div class="user-info">
+      <span id="username">admin</span>
+    </div>
+    <a class="logout-btn" href="logout">Logout</a>
   </div>
 </div>
 
-<!-- Live Feed view -->
-<div id="main-live" class="main">
-  <div class="feed-panel">
-    <div class="panel-header">
-      <span>PACKAGE EVENTS</span>
-      <span id="feed-count" style="color:#334155"></span>
-    </div>
-    <div class="col-headers">
-      <span style="min-width:56px">time</span>
-      <span style="min-width:62px">eco</span>
-      <span style="flex:1">package</span>
-      <span style="min-width:160px">signal / reason</span>
-      <span style="min-width:54px">status</span>
-    </div>
-    <div id="feed"></div>
-    <div style="flex:1"></div>
-    <div class="policy-strip">
-      <span>age <span id="p-age">—</span></span>
-      <span>osv <span id="p-osv">—</span></span>
-      <span>publisher <span id="p-pub">—</span></span>
-      <span>popularity <span id="p-pop">—</span></span>
+<!-- ── Navigation ──────────────────────────────────────────────────────────────── -->
+<div class="nav-bar">
+  <div class="nav-tabs">
+    <div class="nav-tab active" id="tab-live" onclick="setTab('live')">Live Feed</div>
+    <div class="nav-tab" id="tab-graphs" onclick="setTab('graphs')">Analytics</div>
+    <div class="nav-tab" id="tab-packages" onclick="setTab('packages')">Packages</div>
+    <div class="nav-tab" id="tab-tree" onclick="setTab('tree')">Package Tree</div>
+    <div class="nav-tab" id="tab-cves" onclick="setTab('cves')">CVEs</div>
+    <div class="nav-tab" id="tab-logs" onclick="setTab('logs')">Access Logs</div>
+    <div class="nav-tab" id="tab-upstream" onclick="setTab('upstream')">Upstream</div>
+  </div>
+  <div class="eco-filters">
+    <span class="eco-label">Ecosystem</span>
+    <div class="eco-chips">
+      <button class="eco-chip active" id="chip-all" onclick="setEco('')">All</button>
+      <button class="eco-chip" id="chip-npm" onclick="setEco('npm')">npm</button>
+      <button class="eco-chip" id="chip-pypi" onclick="setEco('pypi')">PyPI</button>
+      <button class="eco-chip" id="chip-cargo" onclick="setEco('cargo')">Cargo</button>
+      <button class="eco-chip" id="chip-composer" onclick="setEco('composer')">Composer</button>
     </div>
   </div>
-  <div class="stats-panel">
+</div>
+
+<!-- ── Live Feed View ──────────────────────────────────────────────────────────── -->
+<div id="view-live" class="main-container" style="display: flex;">
+  <div id="feed-panel" class="panel">
+    <div class="panel-header">
+      <span class="panel-header-title">Package Events</span>
+      <span class="panel-count" id="feed-count">— events</span>
+    </div>
+    <div class="feed-columns">
+      <div>Time</div>
+      <div>Ecosystem</div>
+      <div>Package</div>
+      <div>Signal / Reason</div>
+      <div>Status</div>
+      <div>Action</div>
+    </div>
+    <div id="feed"></div>
+  </div>
+  <div id="stats-panel" class="panel">
     <div class="stat-card">
       <div class="stat-label">Blocked</div>
       <div class="stat-value blocked" id="stat-blocked">—</div>
+      <div class="stat-footer">this session</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Warned</div>
       <div class="stat-value warned" id="stat-warned">—</div>
+      <div class="stat-footer">this session</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Allowed</div>
       <div class="stat-value allowed" id="stat-allowed">—</div>
+      <div class="stat-footer">this session</div>
     </div>
-    <div class="top-section">
-      <div class="panel-header" style="padding:0 0 8px;margin-bottom:8px;border-bottom:1px solid #1e3a5f">TOP BLOCKED</div>
-      <div id="top-blocked"></div>
+    <div style="flex: 1; padding: 16px; border-bottom: 1px solid var(--border); overflow-y: auto;">
+      <div class="stat-label" style="text-align: left; margin-bottom: 12px;">Top Blocked</div>
+      <div id="top-blocked" style="font-size: 12px; line-height: 1.8;"></div>
     </div>
   </div>
 </div>
 
-<!-- Packages view -->
-<div id="main-packages" class="main" style="display:none">
-  <div class="feed-panel">
+<!-- ── Analytics View ──────────────────────────────────────────────────────────── -->
+<div id="view-graphs" class="panel" style="display: none;">
+  <div class="panel-header">
+    <span class="panel-header-title">24-Hour Analytics</span>
+  </div>
+  <div class="graph-container">
+    <div class="graph-title">Allowed Packages by Ecosystem <span style="color:var(--text-tertiary);font-weight:400;font-size:12px;">· last 24h, hourly</span></div>
+    <div class="chart-wrapper" id="chart-allowed"></div>
+    <div class="graph-title">Denied Packages by Ecosystem <span style="color:var(--text-tertiary);font-weight:400;font-size:12px;">· last 24h, hourly</span></div>
+    <div class="chart-wrapper" id="chart-denied"></div>
+  </div>
+</div>
+
+<!-- ── Packages List View ──────────────────────────────────────────────────────── -->
+<div id="view-packages" class="main-container" style="display: none;">
+  <div id="pkg-panel" class="panel">
     <div class="panel-header">
-      <span>PACKAGE INVENTORY</span>
-      <div style="display:flex;align-items:center;gap:10px">
-        <span id="pkg-count" style="color:#334155"></span>
-        <button class="refresh-btn" onclick="loadPackages()">↻ Refresh</button>
+      <span class="panel-header-title">Package Inventory</span>
+      <div class="panel-header-actions">
+        <span class="panel-count" id="pkg-count">— packages</span>
+        <button class="btn-secondary" onclick="loadPackages()">↻ Refresh</button>
       </div>
     </div>
-    <div class="col-headers">
-      <span style="min-width:56px">last seen</span>
-      <span style="min-width:62px">eco</span>
-      <span style="flex:1">package</span>
-      <span style="min-width:110px">version</span>
-      <span style="min-width:160px">signal / reason</span>
-      <span style="min-width:54px">status</span>
-      <span style="min-width:36px;text-align:right">hits</span>
-      <span style="min-width:64px">cache</span>
+    <div class="pkg-columns">
+      <div>Last Seen</div>
+      <div>Ecosystem</div>
+      <div>Package</div>
+      <div>Signal / Reason</div>
+      <div>Status</div>
+      <div>Hits</div>
+      <div>Cache</div>
     </div>
-    <div id="pkg-list" style="flex:1;overflow-y:auto"></div>
+    <div id="pkg-list"></div>
   </div>
+</div>
+
+<!-- ── Package Tree View ───────────────────────────────────────────────────────── -->
+<div id="view-tree" class="panel" style="display: none;">
+  <div class="panel-header">
+    <span class="panel-header-title">Package Hierarchy</span>
+    <div class="panel-header-actions">
+      <button class="btn-secondary" onclick="loadPackageTree()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="tree-container" id="tree-container"></div>
+</div>
+
+<!-- ── CVEs View ────────────────────────────────────────────────────────────────── -->
+<div id="view-cves" class="panel" style="display: none;">
+  <div class="panel-header">
+    <span class="panel-header-title">Blocked Vulnerabilities (CVE)</span>
+    <div class="panel-header-actions">
+      <span class="panel-count" id="cve-count">— advisories</span>
+      <button class="btn-secondary" onclick="loadCVEs()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="cve-columns">
+    <div>Severity</div>
+    <div>Advisory</div>
+    <div>Ecosystem</div>
+    <div>Package</div>
+    <div>Version</div>
+    <div>Last Seen</div>
+  </div>
+  <div id="cve-list" style="flex: 1; overflow-y: auto;"></div>
+</div>
+
+<!-- ── Access Logs View ────────────────────────────────────────────────────────── -->
+<div id="view-logs" class="panel" style="display: none;">
+  <div class="panel-header">
+    <span class="panel-header-title">Access Logs <span style="color: var(--text-tertiary); font-weight: 400; font-size: 12px;">(clients → escrow)</span></span>
+    <div class="panel-header-actions">
+      <span class="panel-count" id="access-count">— requests</span>
+      <button class="btn-secondary" onclick="loadAccessLogs()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="log-columns">
+    <div>Time</div>
+    <div>Client</div>
+    <div>Method</div>
+    <div>Path</div>
+    <div>Status</div>
+    <div>Bytes</div>
+    <div>User-Agent</div>
+  </div>
+  <div id="access-logs" style="flex: 1; overflow-y: auto;"></div>
+</div>
+
+<!-- ── Upstream Fetch Log View ─────────────────────────────────────────────────── -->
+<div id="view-upstream" class="panel" style="display: none;">
+  <div class="panel-header">
+    <span class="panel-header-title">Upstream Fetches <span style="color: var(--text-tertiary); font-weight: 400; font-size: 12px;">(escrow → registries · cache misses)</span></span>
+    <div class="panel-header-actions">
+      <span class="panel-count" id="upstream-count">— fetches</span>
+      <button class="btn-secondary" onclick="loadUpstream()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="upstream-columns">
+    <div>Time</div>
+    <div>Ecosystem</div>
+    <div>Method</div>
+    <div>URL</div>
+    <div>Status</div>
+    <div>Bytes</div>
+    <div>Latency</div>
+  </div>
+  <div id="upstream-list" style="flex: 1; overflow-y: auto;"></div>
 </div>
 
 <script>
@@ -179,9 +1054,39 @@ let currentEco = '';
 let currentTab = 'live';
 let es = null;
 let allEvents = [];
+let chartsInitialized = false;
+let chartAllowed = null;
+let chartDenied = null;
+
+// ── Theme Management ─────────────────────────────────────────────────────────
+
+function initTheme() {
+  const stored = localStorage.getItem('escrow-theme');
+  const prefsDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = stored || (prefsDark ? 'dark' : 'light');
+  applyTheme(theme);
+}
+
+function applyTheme(theme) {
+  document.documentElement.className = theme + '-mode';
+  localStorage.setItem('escrow-theme', theme);
+  updateThemeToggle();
+}
+
+function updateThemeToggle() {
+  const isDark = document.documentElement.classList.contains('dark-mode');
+  document.getElementById('theme-toggle').textContent = isDark ? '☀️' : '🌙';
+}
+
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const isDark = document.documentElement.classList.contains('dark-mode');
+  applyTheme(isDark ? 'light' : 'dark');
+});
+
+// ── Time Formatting ─────────────────────────────────────────────────────────
 
 function fmtTime(ts) {
-  return new Date(ts).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  return new Date(ts).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
 }
 
 // ── Live Feed ────────────────────────────────────────────────────────────────
@@ -189,42 +1094,51 @@ function fmtTime(ts) {
 function makeRow(e) {
   const row = document.createElement('div');
   row.className = 'feed-item';
-  const ts = document.createElement('span');
-  ts.className = 'ts';
+
+  const ts = document.createElement('div');
+  ts.className = 'feed-time';
   ts.textContent = fmtTime(e.timestamp);
-  const eco = document.createElement('span');
-  eco.className = 'eco-tag ' + (e.ecosystem || '');
+
+  const eco = document.createElement('div');
+  eco.className = 'eco-badge ' + (e.ecosystem || '');
   eco.textContent = e.ecosystem || '';
-  const pkg = document.createElement('span');
-  pkg.className = 'pkg';
-  pkg.title = e.package || '';
+
+  const pkg = document.createElement('div');
+  pkg.className = 'feed-pkg';
   pkg.textContent = e.package || '';
+  pkg.title = e.package || '';
+
   const sigText = e.signal ? (e.signal + (e.reason ? ' · ' + e.reason : '')) : '—';
-  const sig = document.createElement('span');
-  sig.className = 'sig';
-  sig.title = sigText;
-  sig.textContent = sigText;
-  const stClass = e.action === 'block' ? 'block' : e.action === 'warn' ? 'warn' : 'allow';
-  const stIcon  = e.action === 'block' ? '✕' : e.action === 'warn' ? '⚠' : '✓';
-  const st = document.createElement('span');
-  st.className = 'st ' + stClass;
-  st.title = (e.action || 'allow').toUpperCase();
+  const reason = document.createElement('div');
+  reason.className = 'feed-reason';
+  reason.textContent = sigText;
+  reason.title = sigText;
+
+  const stIcon = e.action === 'block' ? '✕' : e.action === 'warn' ? '⚠' : '✓';
+  const stClass = e.action === 'block' ? 'status-blocked' : e.action === 'warn' ? 'status-warned' : 'status-allowed';
+  const st = document.createElement('div');
+  st.className = 'status-icon ' + stClass;
   st.textContent = stIcon;
-  row.append(ts, eco, pkg, sig, st);
+  st.title = (e.action || 'allow').toUpperCase();
+
+  const actions = document.createElement('div');
+  actions.className = 'feed-actions';
+
   if (e.action === 'block') {
-    const approveBtn = document.createElement('button');
-    approveBtn.textContent = 'Approve';
-    approveBtn.className = 'approve-btn';
-    approveBtn.onclick = () => approvePackage(e, approveBtn, st);
-    row.append(approveBtn);
+    const btn = document.createElement('button');
+    btn.className = 'btn-action approve';
+    btn.textContent = 'Approve';
+    btn.onclick = () => approvePackage(e, btn, st);
+    actions.appendChild(btn);
+  } else {
+    const btn = document.createElement('button');
+    btn.className = 'btn-action block';
+    btn.textContent = 'Block';
+    btn.onclick = () => blockPackage(e, btn, st);
+    actions.appendChild(btn);
   }
-  if (e.action !== 'block') {
-    const blockBtn = document.createElement('button');
-    blockBtn.textContent = 'Block';
-    blockBtn.className = 'block-btn';
-    blockBtn.onclick = () => blockPackage(e, blockBtn, st);
-    row.append(blockBtn);
-  }
+
+  row.append(ts, eco, pkg, reason, st, actions);
   return row;
 }
 
@@ -238,7 +1152,7 @@ function rebuildFeed() {
 
 function prependRow(e) {
   allEvents.unshift(e);
-  if (allEvents.length > 500) allEvents.pop();
+  if (allEvents.length > 1000) allEvents.pop();
   if (currentEco && e.ecosystem !== currentEco) return;
   const feed = document.getElementById('feed');
   feed.insertBefore(makeRow(e), feed.firstChild);
@@ -247,46 +1161,26 @@ function prependRow(e) {
 
 function updateStats() {
   fetch(BASE + '/api/stats').then(r => r.json()).then(s => {
-    document.getElementById('stat-blocked').textContent = s.blocked;
-    document.getElementById('stat-warned').textContent = s.warned;
-    document.getElementById('stat-allowed').textContent = s.allowed;
+    document.getElementById('stat-blocked').textContent = s.blocked || 0;
+    document.getElementById('stat-warned').textContent = s.warned || 0;
+    document.getElementById('stat-allowed').textContent = s.allowed || 0;
     const top = document.getElementById('top-blocked');
     top.textContent = '';
-    (s.top_blocked || []).forEach(t => {
-      const row = document.createElement('div');
-      row.className = 'top-row';
-      const name = document.createElement('span');
-      name.className = 'top-name';
-      name.textContent = t.package;
-      const count = document.createElement('span');
-      count.className = 'top-count';
-      count.textContent = t.count + 'x';
-      row.append(name, count);
-      top.appendChild(row);
+    (s.top_blocked || []).slice(0, 5).forEach(t => {
+      const item = document.createElement('div');
+      item.style.marginBottom = '8px';
+      const pkgDiv = document.createElement('div');
+      pkgDiv.style.color = 'var(--text-primary)';
+      pkgDiv.style.fontWeight = '500';
+      pkgDiv.textContent = t.package;
+      const countDiv = document.createElement('div');
+      countDiv.style.color = 'var(--text-tertiary)';
+      countDiv.style.fontSize = '11px';
+      countDiv.textContent = t.count + '× blocked';
+      item.append(pkgDiv, countDiv);
+      top.appendChild(item);
     });
   }).catch(() => {});
-}
-
-function connect(eco) {
-  if (es) { es.close(); es = null; }
-  const url = BASE + '/api/stream' + (eco ? '?eco=' + encodeURIComponent(eco) : '');
-  es = new EventSource(url);
-  es.onopen = () => {
-    const b = document.getElementById('live-badge');
-    b.className = '';
-    b.textContent = '● LIVE';
-  };
-  es.onmessage = ev => {
-    prependRow(JSON.parse(ev.data));
-    updateStats();
-  };
-  es.onerror = () => {
-    const b = document.getElementById('live-badge');
-    b.className = 'off';
-    b.textContent = '○ RECONNECTING';
-    es.close();
-    setTimeout(() => connect(eco), 3000);
-  };
 }
 
 async function approvePackage(event, btn, statusEl) {
@@ -294,18 +1188,22 @@ async function approvePackage(event, btn, statusEl) {
   const atIdx = pkg.lastIndexOf('@');
   const name = atIdx > 0 ? pkg.slice(0, atIdx) : pkg;
   const version = atIdx > 0 ? pkg.slice(atIdx + 1) : '';
-  const today = new Date().toISOString().slice(0, 10);
   try {
     const resp = await fetch(BASE + '/api/allow', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ecosystem: event.ecosystem, name, version, reason: 'approved via dashboard on ' + today})
+      headers: {'Content-Type': 'application/json', 'X-Escrow-Request': '1'},
+      body: JSON.stringify({ecosystem: event.ecosystem, name, version, reason: 'approved via dashboard'})
     });
     if (resp.ok) {
-      btn.textContent = '✓ Approved'; btn.classList.add('approved'); btn.disabled = true;
-      statusEl.textContent = '✓'; statusEl.title = 'OVERRIDE'; statusEl.className = 'status-override';
-    } else { btn.textContent = 'Error'; }
-  } catch(e) { btn.textContent = 'Error'; }
+      btn.textContent = '✓ Done';
+      btn.disabled = true;
+      btn.classList.add('disabled');
+    } else {
+      btn.textContent = 'Error';
+    }
+  } catch(e) {
+    btn.textContent = 'Error';
+  }
 }
 
 async function blockPackage(event, btn, statusEl) {
@@ -313,36 +1211,156 @@ async function blockPackage(event, btn, statusEl) {
   const atIdx = pkg.lastIndexOf('@');
   const name = atIdx > 0 ? pkg.slice(0, atIdx) : pkg;
   const version = atIdx > 0 ? pkg.slice(atIdx + 1) : '';
-  const today = new Date().toISOString().slice(0, 10);
   try {
     const resp = await fetch(BASE + '/api/block', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ecosystem: event.ecosystem, name, version, reason: 'blocked via dashboard on ' + today})
+      headers: {'Content-Type': 'application/json', 'X-Escrow-Request': '1'},
+      body: JSON.stringify({ecosystem: event.ecosystem, name, version, reason: 'blocked via dashboard'})
     });
     if (resp.ok) {
-      btn.textContent = '✓ Blocked'; btn.classList.add('blocked'); btn.disabled = true;
-      statusEl.textContent = '✕'; statusEl.title = 'BLOCK'; statusEl.className = 'st block';
-    } else { btn.textContent = 'Error'; }
-  } catch(e) { btn.textContent = 'Error'; }
+      btn.textContent = '✓ Done';
+      btn.disabled = true;
+      btn.classList.add('disabled');
+    } else {
+      btn.textContent = 'Error';
+    }
+  } catch(e) {
+    btn.textContent = 'Error';
+  }
 }
 
-async function blockPkgEntry(p, btn, statusEl) {
-  const today = new Date().toISOString().slice(0, 10);
-  try {
-    const resp = await fetch(BASE + '/api/block', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ecosystem: p.ecosystem, name: p.name, version: p.version, reason: 'blocked via dashboard on ' + today})
+function connect(eco) {
+  if (es) { es.close(); es = null; }
+  const url = BASE + '/api/stream' + (eco ? '?eco=' + encodeURIComponent(eco) : '');
+  es = new EventSource(url);
+  es.onopen = () => {
+    document.getElementById('live-badge').classList.remove('off');
+  };
+  es.onmessage = ev => {
+    prependRow(JSON.parse(ev.data));
+    updateStats();
+    if (currentTab === 'graphs') updateCharts();
+  };
+  es.onerror = () => {
+    document.getElementById('live-badge').classList.add('off');
+    es.close();
+    setTimeout(() => connect(eco), 3000);
+  };
+}
+
+// ── Charts ───────────────────────────────────────────────────────────────────
+
+const ECO_COLORS = {
+  npm: '#e85d5d', pypi: '#4aa3d6', cargo: '#d39330', go: '#33b5b5', composer: '#8b5cf6', nuget: '#7c93e8', maven: '#c2682b'
+};
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function initCharts() {
+  // No external library: charts are rendered as inline SVG in updateCharts().
+  chartsInitialized = true;
+}
+
+function svgEl(name, attrs) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+// Render a stacked-column chart of an action's per-ecosystem hourly counts into containerId.
+// buckets: RFC3339 strings; seriesForAction: { eco: [counts per bucket] }.
+function renderStackedChart(containerId, buckets, seriesForAction) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+
+  let ecos = Object.keys(seriesForAction || {}).sort();
+  if (currentEco) ecos = ecos.filter(e => e === currentEco);
+  const n = buckets.length;
+
+  // Column totals + global max for the y-scale.
+  const totals = new Array(n).fill(0);
+  ecos.forEach(eco => (seriesForAction[eco] || []).forEach((v, i) => { totals[i] += (v || 0); }));
+  const maxTotal = Math.max(1, ...totals);
+
+  if (!ecos.length || maxTotal === 1 && totals.every(t => t === 0)) {
+    container.innerHTML = '<div style="padding:24px;color:var(--text-tertiary);font-size:13px;">No data in the last 24 hours.</div>';
+    return;
+  }
+
+  const W = 800, H = 220, padL = 36, padB = 28, padT = 8, padR = 8;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const colW = plotW / Math.max(1, n);
+  const barW = Math.max(2, colW * 0.7);
+
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', height: '240', preserveAspectRatio: 'none' });
+
+  // y gridlines + labels (0, mid, max)
+  [0, 0.5, 1].forEach(frac => {
+    const y = padT + plotH - frac * plotH;
+    svg.appendChild(svgEl('line', { x1: padL, y1: y, x2: W - padR, y2: y, stroke: 'var(--border)', 'stroke-width': 1 }));
+    const t = svgEl('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', 'font-size': 10, fill: 'var(--text-tertiary)' });
+    t.textContent = Math.round(frac * maxTotal);
+    svg.appendChild(t);
+  });
+
+  // columns
+  for (let i = 0; i < n; i++) {
+    const x = padL + i * colW + (colW - barW) / 2;
+    let yCursor = padT + plotH;
+    ecos.forEach(eco => {
+      const v = (seriesForAction[eco] || [])[i] || 0;
+      if (!v) return;
+      const h = (v / maxTotal) * plotH;
+      yCursor -= h;
+      const rect = svgEl('rect', { x, y: yCursor, width: barW, height: h, fill: ECO_COLORS[eco] || '#94a3b8' });
+      const title = svgEl('title');
+      title.textContent = `${eco}: ${v} (${new Date(buckets[i]).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})})`;
+      rect.appendChild(title);
+      svg.appendChild(rect);
     });
-    if (resp.ok) {
-      btn.textContent = '✓ Blocked'; btn.classList.add('blocked'); btn.disabled = true;
-      statusEl.textContent = '✕'; statusEl.title = 'BLOCK'; statusEl.className = 'st block';
-    } else { btn.textContent = 'Error'; }
-  } catch(e) { btn.textContent = 'Error'; }
+  }
+
+  // x-axis labels (every ~4th bucket)
+  const step = Math.max(1, Math.ceil(n / 6));
+  for (let i = 0; i < n; i += step) {
+    const x = padL + i * colW + colW / 2;
+    const t = svgEl('text', { x, y: H - 10, 'text-anchor': 'middle', 'font-size': 10, fill: 'var(--text-tertiary)' });
+    t.textContent = new Date(buckets[i]).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    svg.appendChild(t);
+  }
+
+  container.appendChild(svg);
+
+  // legend (label + color swatch — color is never the sole cue)
+  const legend = document.createElement('div');
+  legend.style.cssText = 'display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:var(--text-secondary);';
+  ecos.forEach(eco => {
+    const item = document.createElement('span');
+    item.style.cssText = 'display:inline-flex;align-items:center;gap:5px;';
+    const sw = document.createElement('span');
+    sw.style.cssText = `width:14px;height:10px;border-radius:2px;background:${ECO_COLORS[eco] || '#94a3b8'};`;
+    const lbl = document.createElement('span');
+    lbl.textContent = eco;
+    item.append(sw, lbl);
+    legend.appendChild(item);
+  });
+  container.appendChild(legend);
 }
 
-// ── Packages view ────────────────────────────────────────────────────────────
+function updateCharts() {
+  if (!chartsInitialized) return;
+  fetch(BASE + '/api/stats/timeseries?window=24h&bucket=1h')
+    .then(r => r.json())
+    .then(ts => {
+      const buckets = ts.buckets || [];
+      const series = ts.series || {};
+      renderStackedChart('chart-allowed', buckets, series.allowed || {});
+      renderStackedChart('chart-denied', buckets, series.denied || {});
+    })
+    .catch(() => {});
+}
+
+// ── Packages ─────────────────────────────────────────────────────────────────
 
 function loadPackages() {
   const url = BASE + '/api/packages' + (currentEco ? '?eco=' + encodeURIComponent(currentEco) : '');
@@ -351,126 +1369,408 @@ function loadPackages() {
 
 function renderPackages(pkgs) {
   const list = document.getElementById('pkg-list');
-  list.textContent = '';
+  list.innerHTML = '';
   pkgs.forEach(p => {
     const row = document.createElement('div');
-    row.className = 'pkg-row';
+    row.className = 'pkg-item';
 
-    const ts = document.createElement('span');
-    ts.className = 'pkg-last';
-    ts.textContent = fmtTime(p.last_seen);
+    const lastSeen = document.createElement('div');
+    lastSeen.className = 'pkg-last';
+    lastSeen.textContent = p.last_seen ? new Date(p.last_seen).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}) : '—';
 
-    const ecoTag = document.createElement('span');
-    ecoTag.className = 'eco-tag ' + (p.ecosystem || '');
+    const ecoTag = document.createElement('div');
+    ecoTag.className = 'eco-badge ' + (p.ecosystem || '');
     ecoTag.textContent = p.ecosystem || '';
 
-    const name = document.createElement('span');
+    const name = document.createElement('div');
     name.className = 'pkg-name';
     name.textContent = p.name;
     name.title = p.name;
 
-    const ver = document.createElement('span');
-    ver.className = 'pkg-ver';
-    ver.textContent = p.version;
-    ver.title = p.version;
-
     const sigText = p.signal ? (p.signal + (p.reason ? ' · ' + p.reason : '')) : '—';
-    const sig = document.createElement('span');
-    sig.className = 'sig';
-    sig.textContent = sigText;
-    sig.title = sigText;
+    const signal = document.createElement('div');
+    signal.className = 'pkg-signal';
+    signal.textContent = sigText;
+    signal.title = sigText;
 
-    const stClass = p.action === 'block' ? 'block' : p.action === 'warn' ? 'warn' : 'allow';
-    const stIcon  = p.action === 'block' ? '✕' : p.action === 'warn' ? '⚠' : '✓';
-    const st = document.createElement('span');
-    st.className = 'st ' + stClass;
-    st.title = (p.action || 'allow').toUpperCase();
+    const stIcon = p.action === 'block' ? '✕' : p.action === 'warn' ? '⚠' : '✓';
+    const stClass = p.action === 'block' ? 'status-blocked' : p.action === 'warn' ? 'status-warned' : 'status-allowed';
+    const st = document.createElement('div');
+    st.className = 'status-icon ' + stClass;
     st.textContent = stIcon;
 
-    const hits = document.createElement('span');
+    const hits = document.createElement('div');
     hits.className = 'pkg-hits';
-    hits.textContent = p.hit_count + 'x';
-    hits.title = p.hit_count + ' request' + (p.hit_count === 1 ? '' : 's');
+    hits.textContent = (p.hit_count || 0) + '×';
+    hits.title = (p.hit_count || 0) + ' request(s)';
 
-    const cache = document.createElement('span');
+    const cache = document.createElement('div');
     if (p.cached) {
-      cache.className = 'cached-badge';
+      cache.className = 'cache-badge cached';
       cache.textContent = '● cached';
-    } else if (p.ecosystem === 'npm' || p.ecosystem === 'cargo') {
-      cache.className = 'uncached-badge';
+    } else {
+      cache.className = 'cache-badge uncached';
       cache.textContent = '○ —';
     }
 
-    row.append(ts, ecoTag, name, ver, sig, st, hits, cache);
-
-    if (p.action === 'block') {
-      const btn = document.createElement('button');
-      btn.textContent = 'Approve';
-      btn.className = 'approve-btn';
-      btn.onclick = () => approvePkgEntry(p, btn, st);
-      row.append(btn);
-    }
-    if (p.action !== 'block') {
-      const blockBtn = document.createElement('button');
-      blockBtn.textContent = 'Block';
-      blockBtn.className = 'block-btn';
-      blockBtn.onclick = () => blockPkgEntry(p, blockBtn, st);
-      row.append(blockBtn);
-    }
+    row.append(lastSeen, ecoTag, name, signal, st, hits, cache);
     list.appendChild(row);
   });
   document.getElementById('pkg-count').textContent = pkgs.length + ' packages';
 }
 
-async function approvePkgEntry(p, btn, statusEl) {
-  const today = new Date().toISOString().slice(0, 10);
-  try {
-    const resp = await fetch(BASE + '/api/allow', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ecosystem: p.ecosystem, name: p.name, version: p.version, reason: 'approved via dashboard on ' + today})
-    });
-    if (resp.ok) {
-      btn.textContent = '✓ Approved'; btn.classList.add('approved'); btn.disabled = true;
-      statusEl.textContent = '✓'; statusEl.title = 'OVERRIDE'; statusEl.className = 'status-override';
-    } else { btn.textContent = 'Error'; }
-  } catch(e) { btn.textContent = 'Error'; }
+// ── Package Tree ─────────────────────────────────────────────────────────────
+
+function loadPackageTree() {
+  const url = BASE + '/api/packages/tree' + (currentEco ? '?eco=' + encodeURIComponent(currentEco) : '');
+  fetch(url).then(r => r.json()).then(data => renderPackageTree(data || [])).catch(() => renderPackageTree([]));
 }
 
-// ── Navigation ───────────────────────────────────────────────────────────────
+function collapsibleHeader(toggleChar) {
+  const header = document.createElement('div');
+  header.className = 'tree-header';
+  header.onclick = (e) => {
+    const kids = e.currentTarget.nextElementSibling;
+    if (!kids) return;
+    kids.classList.toggle('hidden');
+    e.currentTarget.querySelector('.tree-toggle').textContent = kids.classList.contains('hidden') ? '▶' : '▼';
+  };
+  const toggle = document.createElement('div');
+  toggle.className = 'tree-toggle';
+  toggle.textContent = toggleChar;
+  header.appendChild(toggle);
+  return header;
+}
+
+// renderPackageTree consumes /api/packages/tree:
+// [{ ecosystem, packages: [{ namespace, name, versions: [{version, action, signal, reason, size, cached, cve_count, hit_count}] }] }]
+function renderPackageTree(ecosystems) {
+  const container = document.getElementById('tree-container');
+  container.innerHTML = '';
+  if (!ecosystems.length) {
+    container.innerHTML = '<div style="padding: 24px; color: var(--text-tertiary); font-size: 13px;">No packages seen yet.</div>';
+    return;
+  }
+
+  ecosystems.forEach(ecoGroup => {
+    const ecoNode = document.createElement('div');
+    ecoNode.className = 'tree-node';
+
+    const ecoHeader = collapsibleHeader('▼');
+    const ecoLabel = document.createElement('div');
+    ecoLabel.className = 'tree-label';
+    ecoLabel.appendChild(ecoBadge(ecoGroup.ecosystem));
+    ecoHeader.appendChild(ecoLabel);
+    ecoNode.appendChild(ecoHeader);
+
+    const pkgList = document.createElement('div');
+    pkgList.className = 'tree-children';
+
+    (ecoGroup.packages || []).forEach(p => {
+      const pkgNode = document.createElement('div');
+      pkgNode.className = 'tree-node';
+
+      const pkgHeader = collapsibleHeader('▼');
+      pkgHeader.style.marginLeft = '0';
+      const pkgLabel = document.createElement('div');
+      pkgLabel.className = 'tree-label';
+      const displayName = p.namespace ? (p.namespace + (ecoGroup.ecosystem === 'npm' ? '/' : ecoGroup.ecosystem === 'maven' ? ':' : '/') + p.name) : p.name;
+      pkgLabel.textContent = displayName;
+      pkgLabel.title = displayName;
+      // version-count chip
+      const cnt = document.createElement('span');
+      cnt.style.cssText = 'font-size:11px;color:var(--text-tertiary);margin-left:8px;';
+      cnt.textContent = (p.versions || []).length + ' ver';
+      pkgLabel.appendChild(cnt);
+      pkgHeader.appendChild(pkgLabel);
+      pkgNode.appendChild(pkgHeader);
+
+      const versionList = document.createElement('div');
+      versionList.className = 'tree-children';
+
+      (p.versions || []).forEach(v => {
+        const verItem = document.createElement('div');
+        verItem.className = 'pkg-tree-item';
+
+        const stIcon = v.action === 'block' ? '✕' : v.action === 'warn' ? '⚠' : '✓';
+        const stLabel = v.action === 'block' ? 'Blocked' : v.action === 'warn' ? 'Warned' : 'Allowed';
+        const stClass = v.action === 'block' ? 'status-blocked' : v.action === 'warn' ? 'status-warned' : 'status-allowed';
+
+        const mainRow = document.createElement('div');
+        mainRow.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+
+        const statusSpan = document.createElement('span');
+        statusSpan.className = 'status-icon ' + stClass;
+        statusSpan.style.fontSize = '13px';
+        statusSpan.textContent = stIcon + ' ' + stLabel;
+        statusSpan.style.fontWeight = '600';
+
+        const versionSpan = document.createElement('span');
+        versionSpan.className = 'pkg-tree-version';
+        versionSpan.textContent = v.version || '—';
+
+        const meta = document.createElement('span');
+        meta.style.cssText = 'font-size:11px;color:var(--text-tertiary);';
+        const parts = [];
+        parts.push((v.hit_count || 0) + '× hits');
+        if (v.size != null && v.size >= 0) parts.push(fmtBytes(v.size));
+        else parts.push('size —');
+        parts.push(v.cached ? '● cached' : '○ uncached');
+        meta.textContent = parts.join('  ·  ');
+
+        mainRow.append(statusSpan, versionSpan, meta);
+
+        if (v.cve_count > 0) {
+          const cve = document.createElement('span');
+          cve.className = 'sev-pill sev-high';
+          cve.style.fontSize = '10px';
+          cve.textContent = v.cve_count + ' CVE' + (v.cve_count === 1 ? '' : 's');
+          mainRow.appendChild(cve);
+        }
+
+        verItem.appendChild(mainRow);
+
+        if (v.signal) {
+          const signalDiv = document.createElement('div');
+          signalDiv.style.cssText = 'font-size:11px;color:var(--text-tertiary);margin-top:4px;';
+          signalDiv.textContent = v.signal + (v.reason ? ' · ' + v.reason : '');
+          verItem.appendChild(signalDiv);
+        }
+
+        versionList.appendChild(verItem);
+      });
+
+      pkgNode.appendChild(versionList);
+      pkgList.appendChild(pkgNode);
+    });
+
+    ecoNode.appendChild(pkgList);
+    container.appendChild(ecoNode);
+  });
+}
+
+// ── CVEs ───────────────────────────────────────────────────────────────────
+
+function ecoBadge(eco) {
+  const span = document.createElement('span');
+  span.className = 'eco-badge ' + (eco || '');
+  span.textContent = eco || '';
+  return span;
+}
+
+function sevClass(sev) {
+  switch ((sev || '').toUpperCase()) {
+    case 'CRITICAL': return 'sev-critical';
+    case 'HIGH': return 'sev-high';
+    case 'MEDIUM': return 'sev-medium';
+    case 'LOW': return 'sev-low';
+    default: return 'sev-unknown';
+  }
+}
+
+function loadCVEs() {
+  const url = BASE + '/api/cves' + (currentEco ? '?eco=' + encodeURIComponent(currentEco) : '');
+  fetch(url).then(r => r.json()).then(data => renderCVEs(data || [])).catch(() => renderCVEs([]));
+}
+
+function renderCVEs(rows) {
+  const list = document.getElementById('cve-list');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding: 24px; color: var(--text-tertiary); font-size: 13px;">No vulnerability-blocked packages recorded.</div>';
+  }
+  rows.forEach(c => {
+    const item = document.createElement('div');
+    item.className = 'cve-item';
+
+    const sev = document.createElement('div');
+    const pill = document.createElement('span');
+    pill.className = 'sev-pill ' + sevClass(c.severity);
+    pill.textContent = (c.severity || 'UNKNOWN').toUpperCase();
+    sev.appendChild(pill);
+
+    const id = document.createElement('div');
+    id.className = 'mono';
+    const idLabel = (c.id || '').toUpperCase();
+    if (/^(CVE|GHSA)/.test(idLabel)) {
+      const a = document.createElement('a');
+      a.href = idLabel.startsWith('GHSA') ? 'https://github.com/advisories/' + c.id : 'https://osv.dev/vulnerability/' + c.id;
+      a.target = '_blank'; a.rel = 'noopener';
+      a.style.color = 'var(--accent)';
+      a.textContent = c.id;
+      id.appendChild(a);
+    } else {
+      id.textContent = c.id || '—';
+    }
+    id.title = c.id || '';
+
+    const eco = document.createElement('div');
+    eco.appendChild(ecoBadge(c.ecosystem));
+
+    const pkg = document.createElement('div');
+    pkg.className = 'pkg-name';
+    pkg.textContent = c.package || '—';
+    pkg.title = (c.package || '') + ' · ' + (c.reason || '');
+
+    const ver = document.createElement('div');
+    ver.className = 'mono';
+    ver.textContent = c.version || '—';
+
+    const last = document.createElement('div');
+    last.style.color = 'var(--text-tertiary)';
+    last.style.fontSize = '12px';
+    last.textContent = c.last_seen ? new Date(c.last_seen).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+
+    item.append(sev, id, eco, pkg, ver, last);
+    list.appendChild(item);
+  });
+  document.getElementById('cve-count').textContent = rows.length + ' advisor' + (rows.length === 1 ? 'y' : 'ies');
+}
+
+// ── Access Logs (clients → escrow) ───────────────────────────────────────────
+
+function httpClass(status) {
+  if (status >= 500) return 'http-5xx';
+  if (status >= 400) return 'http-4xx';
+  if (status >= 300) return 'http-3xx';
+  if (status >= 200) return 'http-2xx';
+  return '';
+}
+
+function fmtBytes(n) {
+  if (!n || n < 0) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function loadAccessLogs() {
+  fetch(BASE + '/api/accesslog?n=500').then(r => r.json()).then(data => renderAccessLogs(data || [])).catch(() => renderAccessLogs([]));
+}
+
+function renderAccessLogs(rows) {
+  const list = document.getElementById('access-logs');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding: 24px; color: var(--text-tertiary); font-size: 13px;">No access log available. Set <code>access_log_path</code> in escrow.toml to enable.</div>';
+  }
+  rows.forEach(r => {
+    const item = document.createElement('div');
+    item.className = 'log-item';
+    const cell = (txt, cls, title) => { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = txt; if (title) d.title = title; return d; };
+
+    const t = cell(r.timestamp ? fmtTime(r.timestamp) : '—'); t.style.color = 'var(--text-tertiary)'; t.style.fontSize = '12px';
+    const status = cell(r.status || '—', httpClass(r.status));
+    item.append(
+      t,
+      cell(r.host || '—', 'mono'),
+      cell(r.method || '—'),
+      cell(r.path || '—', 'mono', r.path),
+      status,
+      cell(fmtBytes(r.bytes)),
+      cell(r.user_agent || '—', 'mono', r.user_agent)
+    );
+    list.appendChild(item);
+  });
+  document.getElementById('access-count').textContent = rows.length + ' request' + (rows.length === 1 ? '' : 's');
+}
+
+// ── Upstream Fetches (escrow → registries) ───────────────────────────────────
+
+function loadUpstream() {
+  const url = BASE + '/api/upstreamlog?n=500' + (currentEco ? '&eco=' + encodeURIComponent(currentEco) : '');
+  fetch(url).then(r => r.json()).then(data => renderUpstream(data || [])).catch(() => renderUpstream([]));
+}
+
+function renderUpstream(rows) {
+  const list = document.getElementById('upstream-list');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding: 24px; color: var(--text-tertiary); font-size: 13px;">No upstream fetches recorded yet (every entry is a cache miss).</div>';
+  }
+  rows.forEach(r => {
+    const item = document.createElement('div');
+    item.className = 'upstream-item';
+    const cell = (txt, cls, title) => { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = txt; if (title) d.title = title; return d; };
+
+    const t = cell(r.timestamp ? fmtTime(r.timestamp) : '—'); t.style.color = 'var(--text-tertiary)'; t.style.fontSize = '12px';
+    const eco = document.createElement('div');
+    eco.appendChild(ecoBadge(r.ecosystem));
+    item.append(
+      t,
+      eco,
+      cell(r.method || '—'),
+      cell(r.url || '—', 'mono', r.url),
+      cell(r.status || '—', httpClass(r.status)),
+      cell(fmtBytes(r.bytes)),
+      cell(r.ms != null ? r.ms.toFixed(0) + ' ms' : '—')
+    );
+    list.appendChild(item);
+  });
+  document.getElementById('upstream-count').textContent = rows.length + ' fetch' + (rows.length === 1 ? '' : 'es');
+}
+
+// ── Tab Navigation ──────────────────────────────────────────────────────────
 
 function setTab(tab) {
   currentTab = tab;
-  document.getElementById('tab-live').classList.toggle('active', tab === 'live');
-  document.getElementById('tab-packages').classList.toggle('active', tab === 'packages');
-  document.getElementById('main-live').style.display     = tab === 'live'     ? '' : 'none';
-  document.getElementById('main-packages').style.display = tab === 'packages' ? '' : 'none';
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+
+  ['live','graphs','packages','tree','cves','logs','upstream'].forEach(v => {
+    document.getElementById('view-' + v).style.display = tab === v ? 'flex' : 'none';
+  });
+
   if (tab === 'packages') loadPackages();
+  if (tab === 'tree') loadPackageTree();
+  if (tab === 'cves') loadCVEs();
+  if (tab === 'logs') loadAccessLogs();
+  if (tab === 'upstream') loadUpstream();
+  if (tab === 'graphs') {
+    if (!chartsInitialized) initCharts();
+    updateCharts();
+  }
 }
 
 function setEco(eco) {
   currentEco = eco;
-  document.getElementById('chip-all').className      = 'eco-chip' + (eco === ''         ? ' sel-all'      : '');
-  document.getElementById('chip-npm').className      = 'eco-chip' + (eco === 'npm'      ? ' sel-npm'      : '');
-  document.getElementById('chip-pypi').className     = 'eco-chip' + (eco === 'pypi'     ? ' sel-pypi'     : '');
-  document.getElementById('chip-cargo').className    = 'eco-chip' + (eco === 'cargo'    ? ' sel-cargo'    : '');
-  document.getElementById('chip-composer').className = 'eco-chip' + (eco === 'composer' ? ' sel-composer' : '');
+  document.querySelectorAll('.eco-chip').forEach(c => c.classList.remove('active'));
+  document.getElementById('chip-' + (eco || 'all')).classList.add('active');
+
   if (currentTab === 'live') {
     connect(eco);
     rebuildFeed();
-  } else {
+  } else if (currentTab === 'packages') {
     loadPackages();
+  } else if (currentTab === 'tree') {
+    loadPackageTree();
+  } else if (currentTab === 'cves') {
+    loadCVEs();
+  } else if (currentTab === 'upstream') {
+    loadUpstream();
+  } else if (currentTab === 'graphs') {
+    updateCharts();
   }
 }
 
-// ── Init ─────────────────────────────────────────────────────────────────────
+// ── Init ────────────────────────────────────────────────────────────────────
 
-// Fetch version from healthz on load
-fetch('/healthz').then(r=>r.json()).then(h=>{ const v=document.getElementById('app-version'); if(v&&h.version) v.textContent=h.version; }).catch(()=>{});
+initTheme();
+fetch('/healthz').then(r => r.json()).then(h => {
+  if (h.version) document.getElementById('app-version').textContent = h.version;
+}).catch(() => {});
+fetch(BASE + '/api/me').then(r => r.json()).then(m => {
+  if (m.username) document.getElementById('username').textContent = m.username;
+}).catch(() => {});
 
 fetch(BASE + '/api/events?n=100')
   .then(r => r.json())
-  .then(events => { allEvents = events || []; rebuildFeed(); connect(currentEco); updateStats(); })
+  .then(events => {
+    allEvents = events || [];
+    rebuildFeed();
+    connect(currentEco);
+    updateStats();
+  })
   .catch(() => connect(currentEco));
 
 setInterval(updateStats, 10000);

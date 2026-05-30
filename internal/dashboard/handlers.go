@@ -17,6 +17,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/upstreamlog"
 	"github.com/rs/zerolog"
 )
 
@@ -32,26 +33,45 @@ type Dashboard struct {
 	allowList    *allow.List // may be nil
 	blockList    *block.List // may be nil
 	cache        cache.Cache // may be nil
+
+	accessLogPath    string // may be empty
+	accessLogMaxDays int
+	upstreamLog      *upstreamlog.Log // may be nil
 }
 
-func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache) *Dashboard {
+func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache, accessLogPath string, accessLogMaxDays int, upstreamLog *upstreamlog.Log) *Dashboard {
 	return &Dashboard{
-		cfg:          cfg,
-		auth:         NewAuth(cfg.Username, cfg.Password, cfg.Secret),
-		loginLimiter: newLoginRateLimiter(),
-		log:          log,
-		logger:       logger,
-		allowList:    allowList,
-		blockList:    blockList,
-		cache:        c,
+		cfg:              cfg,
+		auth:             NewAuth(cfg.Username, cfg.Password, cfg.Secret),
+		loginLimiter:     newLoginRateLimiter(),
+		log:              log,
+		logger:           logger,
+		allowList:        allowList,
+		blockList:        blockList,
+		cache:            c,
+		accessLogPath:    accessLogPath,
+		accessLogMaxDays: accessLogMaxDays,
+		upstreamLog:      upstreamLog,
 	}
 }
 
 // originOK returns false when the request comes from a different origin (CSRF guard).
+// A mutating dashboard request must either:
+//  1. carry an Origin header matching the dashboard's host, OR
+//  2. carry the X-Escrow-Request: 1 header.
+//
+// The X-Escrow-Request header is a CSRF "custom header" check — browsers will
+// only let same-origin JS set it (CORS preflight requirements), so a
+// cross-origin <form>/<img>/<script> can't forge it. Allowing requests with no
+// Origin AND no custom header used to let an attacker submit a hidden form
+// from any web page; now those requests are rejected.
 func (d *Dashboard) originOK(r *http.Request) bool {
+	if r.Header.Get("X-Escrow-Request") == "1" {
+		return true
+	}
 	origin := r.Header.Get("Origin")
 	if origin == "" {
-		return true // non-browser API call
+		return false
 	}
 	return strings.HasPrefix(origin, "http://"+r.Host) ||
 		strings.HasPrefix(origin, "https://"+r.Host)
@@ -66,9 +86,14 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected := chi.NewRouter()
 	protected.Use(d.auth.Middleware(base + "/login"))
 	protected.Get("/", d.handleIndex)
+	protected.Get("/api/me", d.handleMe)
 	protected.Get("/api/stream", d.handleStream)
 	protected.Get("/api/events", d.handleEvents)
 	protected.Get("/api/stats", d.handleStats)
+	protected.Get("/api/stats/timeseries", d.handleTimeseries)
+	protected.Get("/api/upstreamlog", d.handleUpstreamLog)
+	protected.Get("/api/accesslog", d.handleAccessLog)
+	protected.Get("/api/cves", d.handleCVEs)
 	protected.Post("/api/allow", d.handleAllow)
 	protected.Delete("/api/allow", d.handleAllowRemove)
 	protected.Get("/api/allowlist", d.handleAllowList)
@@ -76,6 +101,7 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Delete("/api/block", d.handleBlockRemove)
 	protected.Get("/api/blocklist", d.handleBlockList)
 	protected.Get("/api/packages", d.handlePackages)
+	protected.Get("/api/packages/tree", d.handlePackagesTree)
 	protected.Post("/api/cache/flush", d.handleCacheFlush)
 	r.Mount(base, protected)
 }
@@ -125,6 +151,14 @@ func (d *Dashboard) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(data)
+}
+
+// handleMe returns the currently authenticated dashboard user so the UI can
+// display the real operator name instead of a hard-coded placeholder.
+func (d *Dashboard) handleMe(w http.ResponseWriter, r *http.Request) {
+	username, _ := d.auth.Username(r)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"username": username})
 }
 
 func (d *Dashboard) handleStream(w http.ResponseWriter, r *http.Request) {
@@ -397,6 +431,30 @@ func blobCached(ctx context.Context, c cache.Cache, ecosystem, name, version str
 		return false
 	}
 	return c.HasBlob(ctx, key)
+}
+
+// blobSize returns the cached blob size for ecosystems with predictable keys,
+// or -1 when unknown. Mirrors blobCached.
+func blobSize(ctx context.Context, c cache.Cache, ecosystem, name, version string) int64 {
+	var key string
+	switch ecosystem {
+	case "npm":
+		basename := name
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			basename = name[i+1:]
+		}
+		key = fmt.Sprintf("npm/%s/-/%s-%s.tgz", name, basename, version)
+	case "cargo":
+		key = fmt.Sprintf("cargo/crates/%s/%s/download", name, version)
+	case "nuget":
+		id := strings.ToLower(name)
+		ver := strings.ToLower(version)
+		key = fmt.Sprintf("nuget/pkgs/%s/%s/%s.%s.nupkg", id, ver, id, ver)
+	}
+	if key == "" {
+		return -1
+	}
+	return c.BlobSize(ctx, key)
 }
 
 func splitPackage(pkg string) (name, version string) {

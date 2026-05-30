@@ -36,7 +36,7 @@ func newTestDashboard(t *testing.T) (http.Handler, *allow.List) {
 	evLog := eventlog.New(50)
 	logger := zerolog.Nop()
 
-	dash := dashboard.New(cfg, evLog, logger, al, nil, nil)
+	dash := dashboard.New(cfg, evLog, logger, al, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 	return r, al
@@ -60,6 +60,7 @@ func authenticatedRequest(t *testing.T, method, path string, body []byte) *http.
 	} else {
 		req = httptest.NewRequest(method, path, nil)
 	}
+	req.Header.Set("X-Escrow-Request", "1")
 	req.AddCookie(cookie)
 	return req
 }
@@ -145,7 +146,7 @@ func TestHandleAllowList_NilAllowList(t *testing.T) {
 	}
 	evLog := eventlog.New(50)
 	logger := zerolog.Nop()
-	dash := dashboard.New(cfg, evLog, logger, nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, logger, nil, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -170,7 +171,7 @@ func TestHandleAllow_NilAllowList(t *testing.T) {
 	}
 	evLog := eventlog.New(50)
 	logger := zerolog.Nop()
-	dash := dashboard.New(cfg, evLog, logger, nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, logger, nil, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -196,7 +197,7 @@ func TestHandleAllow_UnauthenticatedRejected(t *testing.T) {
 	}
 	al, err := allow.New("")
 	require.NoError(t, err)
-	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al, nil, nil)
+	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -225,7 +226,7 @@ func TestHandleEvents_Since(t *testing.T) {
 	cfg := config.DashboardConfig{Enabled: true, Path: "/dashboard",
 		Username: "admin", Password: "pass",
 		Secret: "aabbccddeeff00112233445566778899"}
-	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -261,7 +262,7 @@ func TestHandleStats_Window(t *testing.T) {
 	cfg := config.DashboardConfig{Enabled: true, Path: "/dashboard",
 		Username: "admin", Password: "pass",
 		Secret: "aabbccddeeff00112233445566778899"}
-	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), nil, nil, nil, "", 0, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -274,4 +275,18 @@ func TestHandleStats_Window(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&s))
 	assert.Equal(t, 0, s.Blocked, "old block outside 1h window should not count")
 	assert.Equal(t, 1, s.Allowed)
+}
+
+func TestHandleMe_ReturnsAuthenticatedUser(t *testing.T) {
+	handler, _ := newTestDashboard(t)
+	req := authenticatedRequest(t, http.MethodGet, "/dashboard/api/me", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Username string `json:"username"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Equal(t, "admin", out.Username)
 }

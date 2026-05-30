@@ -142,11 +142,25 @@ func (d *Disk) evictOldestBlobs() {
 }
 
 func (d *Disk) metaPath(key string) string {
-	return filepath.Join(d.root, "meta", sanitize(key)+".json")
+	return d.safeJoin("meta", sanitize(key)+".json")
 }
 
 func (d *Disk) blobPath(key string) string {
-	return filepath.Join(d.root, "blobs", sanitize(key))
+	return d.safeJoin("blobs", sanitize(key))
+}
+
+// safeJoin joins under d.root and verifies the result stays inside it. If the
+// joined path escapes the root (which sanitize() should already prevent) it
+// returns a fixed "invalid" path inside the root so writes go to a known safe
+// quarantine location rather than overwriting arbitrary files.
+func (d *Disk) safeJoin(subdir, rel string) string {
+	p := filepath.Join(d.root, subdir, rel)
+	clean := filepath.Clean(p)
+	rootClean := filepath.Clean(d.root) + string(os.PathSeparator)
+	if clean != filepath.Clean(d.root) && !strings.HasPrefix(clean, rootClean) {
+		return filepath.Join(d.root, subdir, "invalid")
+	}
+	return p
 }
 
 // sanitize converts a cache key to a safe relative path. It rejects keys
@@ -154,7 +168,7 @@ func (d *Disk) blobPath(key string) string {
 func sanitize(key string) string {
 	rel := strings.ReplaceAll(key, "/", string(os.PathSeparator))
 	rel = filepath.Clean(rel)
-	if strings.Contains(rel, ".."+string(os.PathSeparator)) || rel == ".." {
+	if strings.Contains(rel, ".."+string(os.PathSeparator)) || rel == ".." || strings.HasPrefix(rel, "..") {
 		return "invalid"
 	}
 	return strings.TrimPrefix(rel, string(os.PathSeparator))
@@ -249,6 +263,14 @@ func (d *Disk) SetBlob(_ context.Context, key string, r io.Reader) error {
 func (d *Disk) HasBlob(_ context.Context, key string) bool {
 	_, err := os.Stat(d.blobPath(key))
 	return err == nil
+}
+
+func (d *Disk) BlobSize(_ context.Context, key string) int64 {
+	info, err := os.Stat(d.blobPath(key))
+	if err != nil {
+		return -1
+	}
+	return info.Size()
 }
 
 func (d *Disk) Flush() error {

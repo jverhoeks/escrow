@@ -113,7 +113,7 @@ func (s *OSVSignal) Check(ctx context.Context, pkg Package) (SignalReport, error
 
 func (s *OSVSignal) toReport(resp osvResponse) SignalReport {
 	minRank := severityRank[s.minSeverity]
-	var matchingIDs []string
+	var matching []Vuln
 	for _, v := range resp.Vulns {
 		sev := ""
 		if v.DatabaseSpecific != nil && v.DatabaseSpecific.Severity != "" {
@@ -122,20 +122,25 @@ func (s *OSVSignal) toReport(resp osvResponse) SignalReport {
 		// If severity is unknown or at/above threshold, include it
 		rank, known := severityRank[sev]
 		if !known || rank >= minRank {
-			matchingIDs = append(matchingIDs, v.ID)
+			matching = append(matching, Vuln{ID: v.ID, Severity: sev})
 		}
 	}
-	if len(matchingIDs) == 0 {
+	if len(matching) == 0 {
 		return SignalReport{Signal: s.Name(), Result: SignalPass, Reason: "no known vulnerabilities at or above " + s.minSeverity}
 	}
+	ids := make([]string, 0, len(matching))
+	for _, v := range matching {
+		ids = append(ids, v.ID)
+	}
 	limit := 3
-	if len(matchingIDs) < limit {
-		limit = len(matchingIDs)
+	if len(ids) < limit {
+		limit = len(ids)
 	}
 	return SignalReport{
 		Signal: s.Name(),
 		Result: SignalFail,
 		Reason: fmt.Sprintf("%d vulnerability/vulnerabilities at or above %s: %s",
-			len(matchingIDs), s.minSeverity, strings.Join(matchingIDs[:limit], ", ")),
+			len(ids), s.minSeverity, strings.Join(ids[:limit], ", ")),
+		Vulns: matching,
 	}
 }

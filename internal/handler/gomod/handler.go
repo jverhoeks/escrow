@@ -17,6 +17,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
+	"github.com/jverhoeks/escrow/internal/upstream"
 )
 
 const (
@@ -109,7 +110,7 @@ func (h *Handler) serveInfo(w http.ResponseWriter, r *http.Request, escapedModul
 		if resp.StatusCode != http.StatusOK {
 			return &proxyResult{status: resp.StatusCode}, nil
 		}
-		bodyBytes, err := io.ReadAll(resp.Body)
+		bodyBytes, err := upstream.ReadBody(resp.Body)
 		if err != nil {
 			return nil, err
 		}
@@ -143,6 +144,7 @@ func (h *Handler) serveInfo(w http.ResponseWriter, r *http.Request, escapedModul
 				Action:    string(d.Action),
 				Signal:    d.Signal,
 				Reason:    d.Reason,
+				Vulns:     d.Vulns,
 			})
 		}
 		if d.Action == policy.ActionBlock && h.webhook != nil {
@@ -197,7 +199,7 @@ func (h *Handler) serveMod(w http.ResponseWriter, r *http.Request, escapedModule
 		io.Copy(w, resp.Body)
 		return
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := upstream.ReadBody(resp.Body)
 	if err != nil {
 		http.Error(w, "upstream read error", http.StatusBadGateway)
 		return
@@ -260,7 +262,7 @@ func (h *Handler) servePassthrough(w http.ResponseWriter, r *http.Request, escap
 		io.Copy(w, resp.Body)
 		return
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := upstream.ReadBody(resp.Body)
 	if err != nil {
 		http.Error(w, "upstream read error", http.StatusBadGateway)
 		return
@@ -288,7 +290,7 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 		if resp.StatusCode != http.StatusOK {
 			return &proxyResult{status: resp.StatusCode}, nil
 		}
-		bodyBytes, err := io.ReadAll(resp.Body)
+		bodyBytes, err := upstream.ReadBody(resp.Body)
 		if err != nil {
 			return nil, err
 		}
@@ -321,6 +323,7 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 					Action:    string(d.Action),
 					Signal:    d.Signal,
 					Reason:    d.Reason,
+					Vulns:     d.Vulns,
 				})
 			}
 			if h.webhook != nil {
@@ -336,6 +339,7 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 				Action:    string(d.Action),
 				Signal:    d.Signal,
 				Reason:    d.Reason,
+				Vulns:     d.Vulns,
 			})
 		}
 		// Cache the allowed @latest response with a short TTL.

@@ -8,7 +8,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/trust"
 )
+
+func TestPackageEvent_VulnsRoundTrip(t *testing.T) {
+	l := eventlog.New(10)
+	l.Record(eventlog.PackageEvent{
+		Ecosystem: "npm", Package: "x@1.0.0", Action: "block", Signal: "osv",
+		Vulns: []trust.Vuln{{ID: "GHSA-aaaa", Severity: "CRITICAL"}},
+	})
+	evs := l.Events("")
+	require.Len(t, evs, 1)
+	require.Len(t, evs[0].Vulns, 1)
+	require.Equal(t, "GHSA-aaaa", evs[0].Vulns[0].ID)
+}
 
 func TestLog_RecordAndRetrieve(t *testing.T) {
 	l := eventlog.New(10)

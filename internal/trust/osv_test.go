@@ -13,6 +13,28 @@ import (
 	"github.com/jverhoeks/escrow/internal/trust"
 )
 
+func TestOSV_ReportCarriesStructuredVulns(t *testing.T) {
+	body := `{"vulns":[
+		{"id":"GHSA-aaaa","database_specific":{"severity":"CRITICAL"}},
+		{"id":"GHSA-bbbb","database_specific":{"severity":"HIGH"}}
+	]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	c := cache.NewMemory()
+	defer c.Close()
+	s := trust.NewOSVSignal("HIGH", srv.Client(), c, srv.URL)
+	rep, err := s.Check(context.Background(), trust.Package{Ecosystem: trust.EcosystemNPM, Name: "x", Version: "1.0.0"})
+	require.NoError(t, err)
+	require.Equal(t, trust.SignalFail, rep.Result)
+	require.Len(t, rep.Vulns, 2)
+	require.Equal(t, "GHSA-aaaa", rep.Vulns[0].ID)
+	require.Equal(t, "CRITICAL", rep.Vulns[0].Severity)
+	require.Equal(t, "HIGH", rep.Vulns[1].Severity)
+}
+
 func TestOSVSignal_VulnerabilityFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/v1/query", r.URL.Path)

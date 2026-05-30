@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jverhoeks/escrow/internal/trust"
 )
 
 // Dashboard audit actions (stored in the Action field of PackageEvent).
@@ -20,13 +22,14 @@ const (
 )
 
 type PackageEvent struct {
-	Timestamp time.Time `json:"timestamp"`
-	Ecosystem string    `json:"ecosystem"`
-	Package   string    `json:"package"`
-	Action    string    `json:"action"`
-	Signal    string    `json:"signal"`
-	Reason    string    `json:"reason"`
-	Operator  string    `json:"operator,omitempty"` // set for dashboard audit actions
+	Timestamp time.Time    `json:"timestamp"`
+	Ecosystem string       `json:"ecosystem"`
+	Package   string       `json:"package"`
+	Action    string       `json:"action"`
+	Signal    string       `json:"signal"`
+	Reason    string       `json:"reason"`
+	Operator  string       `json:"operator,omitempty"` // set for dashboard audit actions
+	Vulns     []trust.Vuln `json:"vulns,omitempty"`
 }
 
 type Stats struct {

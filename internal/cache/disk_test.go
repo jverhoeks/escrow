@@ -227,6 +227,22 @@ func TestDisk_PurgeTicker_TriggersEviction(t *testing.T) {
 	}
 }
 
+func TestDisk_BlobSize(t *testing.T) {
+	d, err := cache.NewDisk(t.TempDir())
+	require.NoError(t, err)
+	defer d.Close()
+
+	ctx := context.Background()
+	require.NoError(t, d.SetBlob(ctx, "npm/x/-/x-1.0.0.tgz", bytes.NewReader([]byte("hello world"))))
+
+	if got := d.BlobSize(ctx, "npm/x/-/x-1.0.0.tgz"); got != 11 {
+		t.Fatalf("BlobSize = %d, want 11", got)
+	}
+	if got := d.BlobSize(ctx, "npm/missing"); got != -1 {
+		t.Fatalf("BlobSize(missing) = %d, want -1", got)
+	}
+}
+
 func TestDisk_SanitizePathTraversal(t *testing.T) {
 	c, _ := cache.NewDisk(t.TempDir())
 	defer c.Close()

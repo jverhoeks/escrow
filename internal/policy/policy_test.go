@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -11,6 +12,22 @@ import (
 
 func makeResult(reports ...trust.SignalReport) trust.TrustResult {
 	return trust.TrustResult{Reports: reports}
+}
+
+func TestEvaluate_BlockDecisionCarriesVulns(t *testing.T) {
+	cfg := &config.PolicyConfig{OSV: &config.OSVPolicyConfig{Action: "block"}}
+	e := policy.New(cfg)
+	result := trust.TrustResult{
+		Package: trust.Package{Ecosystem: trust.EcosystemNPM, Name: "x", Version: "1.0.0"},
+		Reports: []trust.SignalReport{{
+			Signal: "osv", Result: trust.SignalFail, Reason: "1 vuln",
+			Vulns: []trust.Vuln{{ID: "GHSA-aaaa", Severity: "CRITICAL"}},
+		}},
+	}
+	d := e.Evaluate(result)
+	require.Equal(t, policy.ActionBlock, d.Action)
+	require.Len(t, d.Vulns, 1)
+	require.Equal(t, "GHSA-aaaa", d.Vulns[0].ID)
 }
 
 func TestPolicy_NoConfig_Allows(t *testing.T) {
@@ -62,4 +79,26 @@ func TestPolicy_BlockBeatsWarn(t *testing.T) {
 	)
 	d := eng.Evaluate(result)
 	assert.Equal(t, policy.ActionBlock, d.Action, "block takes priority over warn")
+}
+
+func TestPolicy_StrictSignals_DefaultFailsOpen(t *testing.T) {
+	eng := policy.New(&config.PolicyConfig{})
+	result := makeResult(trust.SignalReport{Signal: "osv", Result: trust.SignalError, Reason: "boom"})
+	d := eng.Evaluate(result)
+	assert.Equal(t, policy.ActionAllow, d.Action, "unset strict_signals must preserve fail-open behavior")
+}
+
+func TestPolicy_StrictSignals_BlockFailsClosed(t *testing.T) {
+	eng := policy.New(&config.PolicyConfig{StrictSignals: "block"})
+	result := makeResult(trust.SignalReport{Signal: "osv", Result: trust.SignalError, Reason: "network down"})
+	d := eng.Evaluate(result)
+	assert.Equal(t, policy.ActionBlock, d.Action)
+	assert.Equal(t, "osv", d.Signal)
+}
+
+func TestPolicy_StrictSignals_Warn(t *testing.T) {
+	eng := policy.New(&config.PolicyConfig{StrictSignals: "warn"})
+	result := makeResult(trust.SignalReport{Signal: "publisher", Result: trust.SignalError, Reason: "5xx"})
+	d := eng.Evaluate(result)
+	assert.Equal(t, policy.ActionWarn, d.Action)
 }

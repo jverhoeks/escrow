@@ -17,6 +17,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
+	"github.com/jverhoeks/escrow/internal/upstream"
 )
 
 const (
@@ -251,7 +252,7 @@ func (h *Handler) fetchVersionMeta(ctx context.Context, name string) map[string]
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := upstream.ReadBody(resp.Body)
 	if err != nil {
 		return map[string]versionMeta{}
 	}
@@ -321,6 +322,7 @@ func (h *Handler) checkTrust(r *http.Request, w http.ResponseWriter, name, versi
 			Action:    string(d.Action),
 			Signal:    d.Signal,
 			Reason:    d.Reason,
+			Vulns:     d.Vulns,
 		})
 	}
 	if d.Action == policy.ActionBlock && h.webhook != nil {

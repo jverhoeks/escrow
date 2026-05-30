@@ -137,6 +137,48 @@ jobs:
 
 Escrow sets `NPM_CONFIG_REGISTRY`, `PIP_INDEX_URL`, `GOPROXY`, etc. automatically so every install command routes through the proxy. The package cache is stored in GitHub Actions cache and restored on every run — warm cache runs require zero upstream calls.
 
+### Composing with Renovate
+
+Renovate discovers new versions using its own HTTP client — it does **not** use the same registry config as your package managers. The escrow security check still fires at install/build time:
+
+```
+Renovate: finds "lodash 4.17.22 exists" → queries registry directly (discovery only)
+Developer: npm install after accepting PR  → escrow checks age + OSV ← this is the gate
+```
+
+**What Renovate auto-detects (no extra config):**
+
+| Ecosystem | Auto-detected? | Notes |
+|---|:-:|---|
+| npm | ❌ | Renovate explicitly rejects `localhost` registries from `.npmrc` (security feature) |
+| PyPI | ✅ | Reads `PIP_INDEX_URL` env var |
+| Go | ✅ | Reads `GOPROXY` env var |
+| Cargo | ❌ | Uses git-clone for custom registries; sparse HTTP not supported |
+| Maven | ⚠️ | Only if pom.xml has `<repositories>` pointing to escrow |
+| NuGet / Composer | ⚠️ | Merge/hunt strategy; need project config |
+
+**For maven/nuget/composer with a network-accessible escrow instance**, generate and commit a `renovate.json`:
+
+```bash
+escrow-cli config write-renovate --ecosystems maven,nuget,composer
+```
+
+**In GitHub Actions** — PyPI and Go are covered by the exported env vars; for maven/nuget/composer use the `renovate-config` output:
+
+```yaml
+- uses: jverhoeks/escrow@v1
+  id: escrow
+  with:
+    ecosystems: 'npm,pypi,go,cargo,maven,nuget,composer'
+
+- uses: renovatebot/github-action@v40
+  env:
+    RENOVATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # PyPI + Go auto-detected via PIP_INDEX_URL / GOPROXY already exported above
+    # Maven/NuGet/Composer: explicit registryUrls (npm/cargo: go direct by design)
+    RENOVATE_CONFIG: ${{ steps.escrow.outputs.renovate-config }}
+```
+
 | Input | Default | Description |
 |---|---|---|
 | `ecosystems` | `npm,pypi,go,cargo` | Comma-separated list to enable |
@@ -171,6 +213,29 @@ Step-by-step guides for global setup, per-project setup, verify, and remove for 
 | maven | [docs/quickstart/maven.md](docs/quickstart/maven.md) |
 | gradle | [docs/quickstart/gradle.md](docs/quickstart/gradle.md) |
 | **GitHub Actions** | [docs/github-actions.md](docs/github-actions.md) |
+
+---
+
+## 🆚 Comparison with alternatives
+
+| Feature | JFrog Curation | escrow |
+|---------|:--------------:|:------:|
+| Server-side age gate | ✅ configurable | ✅ `min_days` |
+| OSV / malware scan | ✅ via Xray | ✅ osv.dev |
+| npm | ✅ | ✅ |
+| PyPI | ✅ | ✅ |
+| Go modules | ✅ | ✅ |
+| Maven / Gradle | ✅ | ✅ |
+| Cargo / Rust | ⚠️ "varying levels of support" | ✅ full age + OSV |
+| NuGet | ❓ not confirmed | ✅ |
+| Composer | ❓ not confirmed | ✅ |
+| On block | silently substitutes safe older version | blocks + dashboard approval |
+| Cost | 💰 commercial (Artifactory add-on) | **free / OSS** |
+| Self-hosted | ✅ | ✅ |
+
+**Notable difference:** Curation silently swaps a blocked package for an older safe version — frictionless but invisible to developers. Escrow blocks outright and surfaces it in the dashboard, requiring an explicit human approval decision. Which is better depends on your workflow.
+
+**Cargo is the key gap to watch.** JFrog documents Cargo as having "varying levels of support", which likely means its time-delay policy does not apply to Cargo yet. Escrow is currently the only proxy with confirmed server-side age enforcement for Cargo.
 
 ---
 

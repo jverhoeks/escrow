@@ -308,6 +308,7 @@ func (h *Handler) versionAllowed(ctx context.Context, name, version string, file
 			Action:    string(d.Action),
 			Signal:    d.Signal,
 			Reason:    d.Reason,
+			Vulns:     d.Vulns,
 		})
 	}
 	if d.Action == policy.ActionBlock && h.webhook != nil {

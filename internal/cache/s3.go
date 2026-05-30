@@ -135,6 +135,15 @@ func (s *S3Cache) HasBlob(ctx context.Context, key string) bool {
 	return err == nil
 }
 
+func (s *S3Cache) BlobSize(ctx context.Context, key string) int64 {
+	k := s.blobKey(key)
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &s.bucket, Key: &k})
+	if err != nil || out.ContentLength == nil {
+		return -1
+	}
+	return *out.ContentLength
+}
+
 // Flush is not implemented for S3; use the AWS console or CLI to clear the bucket.
 func (s *S3Cache) Flush() error { return nil }
 
