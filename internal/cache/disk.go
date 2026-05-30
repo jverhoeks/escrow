@@ -265,6 +265,14 @@ func (d *Disk) HasBlob(_ context.Context, key string) bool {
 	return err == nil
 }
 
+func (d *Disk) BlobSize(_ context.Context, key string) int64 {
+	info, err := os.Stat(d.blobPath(key))
+	if err != nil {
+		return -1
+	}
+	return info.Size()
+}
+
 func (d *Disk) Flush() error {
 	d.mem.DeleteAll()
 	for _, sub := range []string{"meta", "blobs"} {

@@ -91,6 +91,14 @@ func (m *Memory) HasBlob(_ context.Context, key string) bool {
 	return err == nil
 }
 
+func (m *Memory) BlobSize(_ context.Context, key string) int64 {
+	info, err := os.Stat(filepath.Join(m.tempDir, sanitize(key)))
+	if err != nil {
+		return -1
+	}
+	return info.Size()
+}
+
 func (m *Memory) Flush() error {
 	m.mu.Lock()
 	m.meta = make(map[string]memEntry)
