@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -116,6 +117,11 @@ func New(opts Options, log zerolog.Logger) *Server {
 	}
 	r.Get("/healthz", metrics.HealthHandler(opts.Version, opts.StorageBackend, opts.UpstreamURLs, opts.CacheDir))
 	r.Handle("/metrics", metrics.MetricsHandler())
+	// Serve a favicon directly. The npm proxy is mounted at root (/{package}),
+	// so without this a browser's /favicon.ico request is treated as a package
+	// fetch and proxied upstream (registry.npmjs.org/favicon.ico → 404),
+	// polluting the access and upstream logs. A static route wins over /{package}.
+	r.Get("/favicon.ico", faviconHandler)
 
 	writeTimeout := time.Duration(opts.WriteTimeoutSeconds) * time.Second
 	if writeTimeout == 0 {
@@ -140,6 +146,23 @@ func New(opts Options, log zerolog.Logger) *Server {
 		IdleTimeout:       idleTimeout,
 	}
 	return s
+}
+
+// faviconSVG is the dashboard's "E" mark, served at /favicon.ico so browsers
+// (and the dashboard tab) get an icon without the request falling through to
+// the npm proxy. SVG favicons are supported by all current browsers.
+const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">` +
+	`<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+	`<stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#16a34a"/>` +
+	`</linearGradient></defs>` +
+	`<rect width="32" height="32" rx="7" fill="url(#g)"/>` +
+	`<text x="16" y="22" font-family="-apple-system,Segoe UI,sans-serif" font-size="20" ` +
+	`font-weight="700" fill="#fff" text-anchor="middle">E</text></svg>`
+
+func faviconHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = io.WriteString(w, faviconSVG)
 }
 
 func (s *Server) Router() *chi.Mux { return s.router }
