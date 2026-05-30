@@ -47,6 +47,7 @@ func authReq(t *testing.T, method, path string, body []byte) *http.Request {
 	} else {
 		req = httptest.NewRequest(method, path, nil)
 	}
+	req.Header.Set("X-Escrow-Request", "1")
 	req.AddCookie(cookie)
 	return req
 }

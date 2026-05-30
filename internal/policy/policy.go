@@ -76,7 +76,12 @@ func (e *Engine) Evaluate(result trust.TrustResult) Decision {
 		if r.Result == trust.SignalPass || r.Result == trust.SignalSkip {
 			continue
 		}
-		a := e.actionFor(r)
+		var a Action
+		if r.Result == trust.SignalError {
+			a = cfgAction(e.cfg.StrictSignals)
+		} else {
+			a = e.actionFor(r)
+		}
 		d := Decision{Action: a, Signal: r.Signal, Reason: r.Reason}
 		if a == ActionBlock {
 			return d

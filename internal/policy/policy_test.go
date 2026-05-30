@@ -63,3 +63,25 @@ func TestPolicy_BlockBeatsWarn(t *testing.T) {
 	d := eng.Evaluate(result)
 	assert.Equal(t, policy.ActionBlock, d.Action, "block takes priority over warn")
 }
+
+func TestPolicy_StrictSignals_DefaultFailsOpen(t *testing.T) {
+	eng := policy.New(&config.PolicyConfig{})
+	result := makeResult(trust.SignalReport{Signal: "osv", Result: trust.SignalError, Reason: "boom"})
+	d := eng.Evaluate(result)
+	assert.Equal(t, policy.ActionAllow, d.Action, "unset strict_signals must preserve fail-open behavior")
+}
+
+func TestPolicy_StrictSignals_BlockFailsClosed(t *testing.T) {
+	eng := policy.New(&config.PolicyConfig{StrictSignals: "block"})
+	result := makeResult(trust.SignalReport{Signal: "osv", Result: trust.SignalError, Reason: "network down"})
+	d := eng.Evaluate(result)
+	assert.Equal(t, policy.ActionBlock, d.Action)
+	assert.Equal(t, "osv", d.Signal)
+}
+
+func TestPolicy_StrictSignals_Warn(t *testing.T) {
+	eng := policy.New(&config.PolicyConfig{StrictSignals: "warn"})
+	result := makeResult(trust.SignalReport{Signal: "publisher", Result: trust.SignalError, Reason: "5xx"})
+	d := eng.Evaluate(result)
+	assert.Equal(t, policy.ActionWarn, d.Action)
+}

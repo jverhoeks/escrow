@@ -296,7 +296,9 @@ func readNpmrcKey(path, key string) string {
 	return ""
 }
 
-// readTomlKey reads a simple key = "value" from a TOML file (single depth only).
+// readTomlKey reads a simple top-level `key = "value"` from a TOML file.
+// Skips comment lines and inline TOML comments. Requires the key to be
+// followed by `=` or whitespace to avoid prefix collisions.
 func readTomlKey(path, key string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -304,15 +306,32 @@ func readTomlKey(path, key string) string {
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, key) {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				v := strings.TrimSpace(parts[1])
-				v = strings.Trim(v, `"`)
-				if v != "" {
-					return v
-				}
-			}
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Match `key` followed by `=` or whitespace, not a longer key like `keyX`.
+		if !strings.HasPrefix(line, key) {
+			continue
+		}
+		rest := line[len(key):]
+		if rest == "" || (rest[0] != '=' && rest[0] != ' ' && rest[0] != '\t') {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		v := strings.TrimSpace(parts[1])
+		// Strip inline TOML comment after the value.
+		if i := strings.Index(v, " #"); i >= 0 {
+			v = strings.TrimSpace(v[:i])
+		}
+		// Strip surrounding quotes if present.
+		if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+			v = v[1 : len(v)-1]
+		}
+		if v != "" {
+			return v
 		}
 	}
 	return ""

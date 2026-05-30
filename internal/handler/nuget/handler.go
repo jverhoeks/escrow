@@ -17,6 +17,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
+	"github.com/jverhoeks/escrow/internal/upstream"
 )
 
 const (
@@ -131,7 +132,7 @@ func (h *Handler) serveRegistration(w http.ResponseWriter, r *http.Request) {
 			return nil, fmt.Errorf("upstream %d", resp.StatusCode)
 		}
 		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
+		body, err := upstream.ReadBody(resp.Body)
 		if err != nil {
 			return nil, err
 		}
@@ -176,7 +177,7 @@ func (h *Handler) serveVersionList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer resp.Body.Close()
-		regData, err = io.ReadAll(resp.Body)
+		regData, err = upstream.ReadBody(resp.Body)
 		if err != nil {
 			http.Error(w, "upstream read error", http.StatusBadGateway)
 			return

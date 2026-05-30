@@ -14,7 +14,19 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-const defaultAccessLogMaxDays = 30
+const (
+	defaultAccessLogMaxDays = 30
+	maxLogFieldBytes        = 512 // cap UA/Referer to bound line size
+)
+
+// truncateField clamps an attacker-controllable header to a sane length so a
+// single hostile request can't produce a multi-megabyte log line.
+func truncateField(s string) string {
+	if len(s) > maxLogFieldBytes {
+		return s[:maxLogFieldBytes]
+	}
+	return s
+}
 
 // AccessLogger writes one line per request in Apache Combined Log Format:
 //
@@ -62,16 +74,23 @@ func NewAccessLogger(path string, maxDays int) (*AccessLogger, error) {
 }
 
 // rotate renames the current log file to add a date suffix and opens a new one.
-// Must be called with al.mu held.
+// Must be called with al.mu held. On open failure the writer is set to io.Discard
+// and al.day is NOT advanced, so the next request will retry the rotation rather
+// than silently dropping log lines forever.
 func (al *AccessLogger) rotate(today string) {
 	al.f.Close()
 	rotated := strings.TrimSuffix(al.path, filepath.Ext(al.path)) + "." + al.day + filepath.Ext(al.path)
 	os.Rename(al.path, rotated) //nolint:errcheck
 	f, err := os.OpenFile(al.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err == nil {
-		al.f = f
-		al.w = f
+	if err != nil {
+		// Failed to reopen — discard writes and leave al.day unchanged so the
+		// next request retries rotation. al.f set to nil so Close() is safe.
+		al.f = nil
+		al.w = io.Discard
+		return
 	}
+	al.f = f
+	al.w = f
 	al.day = today
 	al.cleanup()
 }
@@ -117,10 +136,14 @@ func (al *AccessLogger) Middleware() func(http.Handler) http.Handler {
 			referer := r.Referer()
 			if referer == "" {
 				referer = "-"
+			} else {
+				referer = truncateField(referer)
 			}
 			ua := r.UserAgent()
 			if ua == "" {
 				ua = "-"
+			} else {
+				ua = truncateField(ua)
 			}
 			bytes := ww.BytesWritten()
 			bytesStr := "-"

@@ -1,13 +1,9 @@
 ---
 title: "The Last Mile Problem: Why 100% Supply Chain Coverage is Hard"
-slug: supply-chain-interception-why-100-percent-is-hard
-date: 2026-05-25
+description: "Every time a developer runs npm install, they're implicitly trusting hundreds of strangers. Intercepting that trust is straightforward in theory — and surprisingly subtle in practice."
+pubDate: "2026-05-25"
+author: "Jacob Verhoeks"
 tags: [supply-chain, security, pf, macos, npm, proxy, devtools]
-summary: >
-  Every time a developer runs npm install, they're implicitly trusting hundreds
-  of strangers. Intercepting that trust is straightforward in theory — and
-  surprisingly subtle in practice.
-readingTime: 14 min
 ---
 
 Every time a developer runs `npm install`, they're implicitly trusting hundreds of strangers. Intercepting that trust is straightforward in theory — and surprisingly subtle in practice.

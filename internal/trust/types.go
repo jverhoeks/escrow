@@ -29,10 +29,11 @@ type Package struct {
 type SignalResult string
 
 const (
-	SignalPass SignalResult = "pass"
-	SignalFail SignalResult = "fail"
-	SignalWarn SignalResult = "warn"
-	SignalSkip SignalResult = "skip"
+	SignalPass  SignalResult = "pass"
+	SignalFail  SignalResult = "fail"
+	SignalWarn  SignalResult = "warn"
+	SignalSkip  SignalResult = "skip"
+	SignalError SignalResult = "error" // signal couldn't run (network/parse failure); policy decides fail-open vs fail-closed
 )
 
 type SignalReport struct {

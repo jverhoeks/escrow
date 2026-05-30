@@ -163,7 +163,9 @@ func writeLinuxProfileEnv(vars []ecoEnvVar) error {
 	var sb strings.Builder
 	sb.WriteString("# Escrow supply-chain proxy — managed by escrow-cli\n")
 	for _, v := range vars {
-		fmt.Fprintf(&sb, "export %s=%s\n", v.key, v.value)
+		// shellQuote is critical here: this file is sourced by every login
+		// shell as root-owned configuration.
+		fmt.Fprintf(&sb, "export %s=%s\n", v.key, shellQuote(v.value))
 	}
 	return writeAtomic(linuxProfileScript, []byte(sb.String()), 0644)
 }

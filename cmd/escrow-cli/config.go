@@ -467,8 +467,10 @@ func checkEcoLocalAll(eco, dir string) []toolCheck {
 	return nil
 }
 
-// validateProxyURL rejects proxy URLs that would break config file formats
-// or allow injection into XML, JSON, or INI/TOML values.
+// validateProxyURL rejects proxy URLs that could break config file formats
+// or inject into XML, JSON, INI/TOML values, Groovy/shell strings.
+// The full set of rejected characters: whitespace, all shell metacharacters,
+// all quote characters, redirection symbols, and TOML/Groovy escapes.
 func validateProxyURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -480,9 +482,9 @@ func validateProxyURL(raw string) error {
 	if u.Host == "" {
 		return fmt.Errorf("URL must include a host")
 	}
-	// Guard against characters that break config file formats.
-	if strings.ContainsAny(raw, "\n\r\"'<>") {
-		return fmt.Errorf("URL contains characters not safe for config files")
+	// Reject any character that requires escaping in shell, Groovy, XML, JSON, or TOML.
+	if strings.ContainsAny(raw, " \t\n\r\"'<>`$;&|()*?[]{}\\") {
+		return fmt.Errorf("URL contains characters not safe for config files (whitespace, quotes, or shell metacharacters)")
 	}
 	return nil
 }
@@ -703,8 +705,10 @@ func writePypiConfig(home, base string) error {
 
 	// poetry: no global "default registry" setting exists; inject PIP_INDEX_URL
 	// into shell profiles — poetry respects this env var as a fallback source.
-	block := "# BEGIN escrow-python\nexport PIP_INDEX_URL=" + indexURL +
-		"\nexport UV_INDEX_URL=" + indexURL + "\n# END escrow-python\n"
+	// shellQuote prevents shell-metacharacter injection from the proxy URL.
+	q := shellQuote(indexURL)
+	block := "# BEGIN escrow-python\nexport PIP_INDEX_URL=" + q +
+		"\nexport UV_INDEX_URL=" + q + "\n# END escrow-python\n"
 	profiles := shellProfiles(home)
 	for _, p := range profiles {
 		if err := upsertShellBlock(p, block, "# BEGIN escrow-python", "# END escrow-python"); err != nil {
@@ -733,7 +737,8 @@ func shellProfiles(home string) []string {
 
 func writeGoConfig(home, base string) error {
 	goProxy := base + "/go,off"
-	block := "# BEGIN escrow-go\nexport GOPROXY=" + goProxy + "\nexport GONOSUMDB=*\n# END escrow-go\n"
+	// shellQuote prevents shell injection from a proxy URL containing $, ;, &, etc.
+	block := "# BEGIN escrow-go\nexport GOPROXY=" + shellQuote(goProxy) + "\nexport GONOSUMDB='*'\n# END escrow-go\n"
 	for _, p := range shellProfiles(home) {
 		if err := upsertShellBlock(p, block, "# BEGIN escrow-go", "# END escrow-go"); err != nil {
 			return fmt.Errorf("%s: %v", filepath.Base(p), err)

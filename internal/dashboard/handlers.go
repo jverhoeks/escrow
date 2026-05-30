@@ -48,10 +48,22 @@ func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, a
 }
 
 // originOK returns false when the request comes from a different origin (CSRF guard).
+// A mutating dashboard request must either:
+//  1. carry an Origin header matching the dashboard's host, OR
+//  2. carry the X-Escrow-Request: 1 header.
+//
+// The X-Escrow-Request header is a CSRF "custom header" check — browsers will
+// only let same-origin JS set it (CORS preflight requirements), so a
+// cross-origin <form>/<img>/<script> can't forge it. Allowing requests with no
+// Origin AND no custom header used to let an attacker submit a hidden form
+// from any web page; now those requests are rejected.
 func (d *Dashboard) originOK(r *http.Request) bool {
+	if r.Header.Get("X-Escrow-Request") == "1" {
+		return true
+	}
 	origin := r.Header.Get("Origin")
 	if origin == "" {
-		return true // non-browser API call
+		return false
 	}
 	return strings.HasPrefix(origin, "http://"+r.Host) ||
 		strings.HasPrefix(origin, "https://"+r.Host)

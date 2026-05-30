@@ -20,6 +20,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
+	upstreamPkg "github.com/jverhoeks/escrow/internal/upstream"
 )
 
 const (
@@ -109,7 +110,7 @@ func (h *Handler) serveHead(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(resp.StatusCode)
 			return
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := upstreamPkg.ReadBody(resp.Body)
 		h.cache.SetMeta(r.Context(), cacheKey, body, metaTTL)
 		w.WriteHeader(http.StatusOK)
 		return
@@ -174,7 +175,7 @@ func (h *Handler) serveMetadataFrom(w http.ResponseWriter, r *http.Request, path
 			return nil, fmt.Errorf("upstream %d", resp.StatusCode)
 		}
 		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
+		body, err := upstreamPkg.ReadBody(resp.Body)
 		if err != nil {
 			return nil, err
 		}
