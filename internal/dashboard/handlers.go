@@ -81,6 +81,7 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Get("/api/stream", d.handleStream)
 	protected.Get("/api/events", d.handleEvents)
 	protected.Get("/api/stats", d.handleStats)
+	protected.Get("/api/stats/timeseries", d.handleTimeseries)
 	protected.Post("/api/allow", d.handleAllow)
 	protected.Delete("/api/allow", d.handleAllowRemove)
 	protected.Get("/api/allowlist", d.handleAllowList)
