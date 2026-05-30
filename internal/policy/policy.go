@@ -19,6 +19,7 @@ type Decision struct {
 	Action Action
 	Signal string
 	Reason string
+	Vulns  []trust.Vuln // populated from the triggering signal report (e.g. OSV)
 }
 
 type Engine struct {
@@ -82,7 +83,7 @@ func (e *Engine) Evaluate(result trust.TrustResult) Decision {
 		} else {
 			a = e.actionFor(r)
 		}
-		d := Decision{Action: a, Signal: r.Signal, Reason: r.Reason}
+		d := Decision{Action: a, Signal: r.Signal, Reason: r.Reason, Vulns: r.Vulns}
 		if a == ActionBlock {
 			return d
 		}
