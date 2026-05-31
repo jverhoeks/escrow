@@ -323,18 +323,26 @@ func main() {
 	var scanner *rescan.Scanner
 	{
 		rc := cfg.Rescan
-		enabled := rc == nil || rc.Enabled // default on when section omitted
+		// Both bools default to TRUE so a user who adds a [rescan] section to tweak
+		// only the cadence/severity doesn't silently disable the scanner or
+		// auto-block. They are *bool: nil (key omitted) keeps the default.
+		enabled := true
+		autoBlock := true
+		interval := 24
 		minSev := "HIGH"
 		if cfg.Policy != nil && cfg.Policy.OSV != nil && cfg.Policy.OSV.MinSeverity != "" {
 			minSev = cfg.Policy.OSV.MinSeverity
 		}
-		autoBlock := true
-		interval := 24
 		if rc != nil {
+			if rc.Enabled != nil {
+				enabled = *rc.Enabled
+			}
+			if rc.AutoBlock != nil {
+				autoBlock = *rc.AutoBlock
+			}
 			if rc.MinSeverity != "" {
 				minSev = rc.MinSeverity
 			}
-			autoBlock = rc.AutoBlock
 			if rc.IntervalHours > 0 {
 				interval = rc.IntervalHours
 			}

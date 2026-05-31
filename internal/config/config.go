@@ -27,9 +27,13 @@ type Config struct {
 }
 
 type RescanConfig struct {
-	Enabled       bool   `toml:"enabled"`
+	// Enabled and AutoBlock are *bool so an omitted key keeps the default (true)
+	// instead of the zero value (false): a partial [rescan] section that sets
+	// only e.g. interval_hours must not silently disable the scanner or
+	// auto-block. nil = default true.
+	Enabled       *bool  `toml:"enabled"`
 	IntervalHours int    `toml:"interval_hours"` // 0 → 24
-	AutoBlock     bool   `toml:"auto_block"`
+	AutoBlock     *bool  `toml:"auto_block"`
 	MinSeverity   string `toml:"min_severity"` // empty → inherit policy.osv.min_severity
 }
 
