@@ -372,6 +372,18 @@
       font-weight: 500;
     }
 
+    /* ── Settings ──────────────────────────────────────────────────────────── */
+    .settings-banner { margin: 12px 24px; padding: 10px 14px; border-radius: 6px; font-size: 13px; }
+    .settings-banner.ok { background: color-mix(in srgb, var(--status-allowed) 15%, transparent); color: var(--status-allowed); }
+    .settings-banner.err { background: color-mix(in srgb, var(--status-blocked) 15%, transparent); color: var(--status-blocked); }
+    .settings-section { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; }
+    .settings-section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary); margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+    .settings-warn { font-size: 10px; font-weight: 600; color: var(--status-warned); text-transform: none; letter-spacing: 0; }
+    .settings-subtitle { font-size: 11px; font-weight: 600; color: var(--text-tertiary); margin: 10px 0 4px; }
+    .settings-row { display: grid; grid-template-columns: 220px 1fr; gap: 12px; align-items: center; padding: 5px 0; }
+    .settings-row label { font-size: 13px; color: var(--text-secondary); }
+    .settings-input { background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); padding: 5px 8px; border-radius: 4px; font-size: 13px; font-family: inherit; max-width: 360px; }
+
     .btn-secondary:hover {
       border-color: var(--accent);
       color: var(--accent);
@@ -920,6 +932,7 @@
     <div class="nav-tab" id="tab-newvuln" onclick="setTab('newvuln')">Newly Vulnerable</div>
     <div class="nav-tab" id="tab-logs" onclick="setTab('logs')">Access Logs</div>
     <div class="nav-tab" id="tab-upstream" onclick="setTab('upstream')">Upstream</div>
+    <div class="nav-tab" id="tab-settings" onclick="setTab('settings')">Settings</div>
   </div>
   <div class="filter-groups">
     <div class="eco-filters">
@@ -1119,6 +1132,19 @@
     <div>Latency</div>
   </div>
   <div id="upstream-list" style="flex: 1; overflow-y: auto;"></div>
+</div>
+
+<!-- ── Settings View ───────────────────────────────────────────────────────────── -->
+<div id="view-settings" class="panel" style="display: none;">
+  <div class="panel-header">
+    <span class="panel-header-title">Settings <span style="color: var(--text-tertiary); font-weight: 400; font-size: 12px;">(edits escrow.toml)</span></span>
+    <div class="panel-header-actions">
+      <button class="btn-secondary" onclick="reloadConfig()" title="Re-read the config file and apply the live-reloadable parts">↻ Reload from file</button>
+      <button class="btn-action approve" onclick="saveSettings()">Save &amp; apply</button>
+    </div>
+  </div>
+  <div id="settings-banner" class="settings-banner" style="display:none;"></div>
+  <div id="settings-form" style="flex:1; overflow-y:auto; padding: 8px 24px 24px;"></div>
 </div>
 
 <script>
@@ -1987,12 +2013,151 @@ async function triggerRescan() {
 
 // ── Tab Navigation ──────────────────────────────────────────────────────────
 
+// ── Settings ─────────────────────────────────────────────────────────────────
+
+let settingsCfg = {};
+// Fields that cannot be applied live — shown with a restart warning.
+const RESTART_FIELDS = ['server', 'storage', 'ecosystems'];
+
+function loadSettings() {
+  fetch(BASE + '/api/settings').then(r => r.json()).then(d => {
+    settingsCfg = d.config || {};
+    renderSettings(settingsCfg, d);
+  }).catch(() => {
+    document.getElementById('settings-form').innerHTML = '<div style="padding:24px;color:var(--text-tertiary);">Settings unavailable (no config path).</div>';
+  });
+}
+
+function renderSettings(cfg, meta) {
+  const form = document.getElementById('settings-form');
+  form.innerHTML = '';
+  Object.keys(cfg).sort().forEach(section => {
+    const val = cfg[section];
+    const card = document.createElement('div');
+    card.className = 'settings-section';
+    const h = document.createElement('div');
+    h.className = 'settings-section-title';
+    h.textContent = section;
+    if (RESTART_FIELDS.includes(section)) {
+      const warn = document.createElement('span');
+      warn.className = 'settings-warn';
+      warn.textContent = '⚠ restart required';
+      h.appendChild(warn);
+    }
+    card.appendChild(h);
+    renderSettingsFields(card, val, section, section);
+    // Credentials: read-only "set" indicators under the dashboard section.
+    if (section === 'dashboard') {
+      card.appendChild(roField('password', meta.password_set));
+      card.appendChild(roField('secret', meta.secret_set));
+    }
+    form.appendChild(card);
+  });
+}
+
+function roField(name, isSet) {
+  const row = document.createElement('div');
+  row.className = 'settings-row';
+  const lbl = document.createElement('label'); lbl.textContent = name;
+  const span = document.createElement('span');
+  span.style.cssText = 'color:var(--text-tertiary);font-size:12px;';
+  span.textContent = (isSet ? '•••••••• (set)' : '(not set)') + ' · managed in config file, not editable here';
+  row.append(lbl, span);
+  return row;
+}
+
+function renderSettingsFields(container, obj, path, section) {
+  if (obj === null || typeof obj !== 'object') return;
+  Object.keys(obj).forEach(key => {
+    if (section === 'dashboard' && (key === 'password' || key === 'secret')) return; // handled read-only
+    const v = obj[key];
+    const p = path + '.' + key;
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      const sub = document.createElement('div');
+      sub.className = 'settings-subtitle';
+      sub.textContent = key;
+      container.appendChild(sub);
+      renderSettingsFields(container, v, p, section);
+      return;
+    }
+    const row = document.createElement('div');
+    row.className = 'settings-row';
+    const lbl = document.createElement('label'); lbl.textContent = key;
+    let input;
+    if (typeof v === 'boolean') {
+      input = document.createElement('input'); input.type = 'checkbox'; input.checked = v;
+    } else if (typeof v === 'number') {
+      input = document.createElement('input'); input.type = 'number'; input.value = v;
+    } else if (Array.isArray(v)) {
+      input = document.createElement('input'); input.type = 'text'; input.value = v.join(', '); input.dataset.array = '1';
+    } else {
+      input = document.createElement('input'); input.type = 'text'; input.value = v == null ? '' : v;
+    }
+    input.className = 'settings-input';
+    input.dataset.path = p;
+    input.dataset.type = typeof v;
+    row.append(lbl, input);
+    container.appendChild(row);
+  });
+}
+
+function setByPath(obj, path, value) {
+  const parts = path.split('.');
+  let o = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (o[parts[i]] == null || typeof o[parts[i]] !== 'object') o[parts[i]] = {};
+    o = o[parts[i]];
+  }
+  o[parts[parts.length - 1]] = value;
+}
+
+function collectSettingsForm() {
+  document.querySelectorAll('#settings-form .settings-input').forEach(input => {
+    const p = input.dataset.path;
+    let val;
+    if (input.type === 'checkbox') val = input.checked;
+    else if (input.dataset.type === 'number') val = input.value === '' ? 0 : Number(input.value);
+    else if (input.dataset.array) val = input.value.split(',').map(s => s.trim()).filter(Boolean);
+    else val = input.value;
+    setByPath(settingsCfg, p, val);
+  });
+}
+
+function showSettingsBanner(ok, text) {
+  const b = document.getElementById('settings-banner');
+  b.style.display = 'block';
+  b.className = 'settings-banner ' + (ok ? 'ok' : 'err');
+  b.textContent = text;
+}
+
+async function saveSettings() {
+  collectSettingsForm();
+  try {
+    const resp = await fetch(BASE + '/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Escrow-Request': '1'}, body: JSON.stringify(settingsCfg)});
+    const res = await resp.json();
+    if (!resp.ok) { showSettingsBanner(false, 'Error: ' + (res.error || resp.status)); return; }
+    showSettingsBanner(true, 'Saved. Applied live: ' + ((res.reloaded || []).join(', ') || 'none')
+      + ((res.restart_required || []).length ? ' · Restart required for: ' + res.restart_required.join(', ') : ''));
+  } catch (e) { showSettingsBanner(false, 'Error: ' + e); }
+}
+
+async function reloadConfig() {
+  try {
+    const resp = await fetch(BASE + '/api/reload', {method: 'POST', headers: {'X-Escrow-Request': '1'}});
+    const res = await resp.json();
+    if (!resp.ok) { showSettingsBanner(false, 'Error: ' + (res.error || resp.status)); return; }
+    showSettingsBanner(true, 'Reloaded: ' + ((res.reloaded || []).join(', ') || 'none')
+      + ((res.restart_required || []).length ? ' · Restart required for: ' + res.restart_required.join(', ') : ''));
+    loadSettings();
+  } catch (e) { showSettingsBanner(false, 'Error: ' + e); }
+}
+
 function setTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
 
-  ['live','graphs','packages','tree','cves','newvuln','logs','upstream'].forEach(v => {
+  ['live','graphs','packages','tree','cves','newvuln','logs','upstream','settings'].forEach(v => {
     document.getElementById('view-' + v).style.display = tab === v ? 'flex' : 'none';
   });
 
@@ -2002,6 +2167,7 @@ function setTab(tab) {
   if (tab === 'newvuln') loadNewVuln();
   if (tab === 'logs') loadAccessLogs();
   if (tab === 'upstream') loadUpstream();
+  if (tab === 'settings') loadSettings();
   if (tab === 'graphs') {
     if (!chartsInitialized) initCharts();
     updateCharts();
