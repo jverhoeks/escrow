@@ -230,17 +230,20 @@
     .nav-bar {
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border);
-      padding: 0 24px;
+      padding: 4px 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 44px;
+      min-height: 44px;
       flex-shrink: 0;
+      flex-wrap: wrap;        /* filters wrap to a second row instead of going off-screen */
+      gap: 4px 16px;
     }
 
     .nav-tabs {
       display: flex;
       gap: 2px;
+      flex-wrap: wrap;
     }
 
     .nav-tab {
@@ -371,6 +374,30 @@
       transition: all 0.2s;
       font-weight: 500;
     }
+
+    /* ── User dropdown menu ────────────────────────────────────────────────── */
+    .user-menu { position: relative; }
+    .user-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: none; border: 1px solid var(--border); color: var(--text-primary);
+      padding: 5px 12px; border-radius: 6px; font-size: 13px; font-family: inherit; cursor: pointer;
+    }
+    .user-btn:hover { border-color: var(--accent); }
+    .user-caret { color: var(--text-tertiary); font-size: 10px; }
+    .user-dropdown {
+      position: absolute; right: 0; top: calc(100% + 6px); z-index: 50;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      min-width: 160px; padding: 4px; display: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+    .user-dropdown.open { display: block; }
+    .user-dropdown-item {
+      display: block; width: 100%; text-align: left; box-sizing: border-box;
+      background: none; border: none; color: var(--text-primary);
+      padding: 8px 12px; border-radius: 5px; font-size: 13px; font-family: inherit;
+      cursor: pointer; text-decoration: none;
+    }
+    .user-dropdown-item:hover { background: var(--bg-tertiary); }
 
     /* ── Settings ──────────────────────────────────────────────────────────── */
     .settings-banner { margin: 12px 24px; padding: 10px 14px; border-radius: 6px; font-size: 13px; }
@@ -682,7 +709,7 @@
     .sev-medium::before { content: "!"; }
     .sev-low      { background: var(--info); }
     .sev-low::before { content: "ℹ"; }
-    .sev-unknown  { background: var(--text-secondary); }
+    .sev-unknown  { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); }
     .sev-unknown::before { content: "?"; }
     /* HTTP status coloring (icon + number, redundant with text) */
     .http-2xx { color: var(--status-allowed); font-weight: 600; }
@@ -918,10 +945,15 @@
       <span>LIVE</span>
     </div>
     <button class="theme-toggle" id="theme-toggle" title="Toggle theme">🌓</button>
-    <div class="user-info">
-      <span id="username">admin</span>
+    <div class="user-menu">
+      <button class="user-btn" id="user-btn" onclick="toggleUserMenu(event)">
+        <span id="username">admin</span><span class="user-caret">▾</span>
+      </button>
+      <div class="user-dropdown" id="user-dropdown">
+        <button class="user-dropdown-item" onclick="gotoSettings()">⚙ Settings</button>
+        <a class="user-dropdown-item" href="logout">⎋ Logout</a>
+      </div>
     </div>
-    <a class="logout-btn" href="logout">Logout</a>
   </div>
 </div>
 
@@ -936,7 +968,6 @@
     <div class="nav-tab" id="tab-newvuln" onclick="setTab('newvuln')">Newly Vulnerable</div>
     <div class="nav-tab" id="tab-logs" onclick="setTab('logs')">Access Logs</div>
     <div class="nav-tab" id="tab-upstream" onclick="setTab('upstream')">Upstream</div>
-    <div class="nav-tab" id="tab-settings" onclick="setTab('settings')">Settings</div>
   </div>
   <div class="filter-groups">
     <div class="eco-filters">
@@ -1806,7 +1837,7 @@ function sevClass(sev) {
   switch ((sev || '').toUpperCase()) {
     case 'CRITICAL': return 'sev-critical';
     case 'HIGH': return 'sev-high';
-    case 'MEDIUM': return 'sev-medium';
+    case 'MEDIUM': case 'MODERATE': return 'sev-medium';
     case 'LOW': return 'sev-low';
     default: return 'sev-unknown';
   }
@@ -1960,6 +1991,31 @@ function loadNewVuln() {
   fetch(BASE + '/api/newly-vulnerable').then(r => r.json()).then(rows => renderNewVuln(rows || [])).catch(() => renderNewVuln([]));
 }
 
+// advisoryURL returns the public advisory page for a vuln ID (GHSA → GitHub, else OSV).
+function advisoryURL(id) {
+  return String(id || '').toUpperCase().startsWith('GHSA')
+    ? 'https://github.com/advisories/' + id
+    : 'https://osv.dev/vulnerability/' + id;
+}
+
+// advisoryLinks builds a cell of comma-separated advisory links opening in a new tab.
+function advisoryLinks(vulns) {
+  const div = document.createElement('div');
+  div.className = 'mono';
+  if (!vulns || !vulns.length) { div.textContent = '—'; return div; }
+  vulns.forEach((vid, i) => {
+    if (i) div.appendChild(document.createTextNode(', '));
+    const a = document.createElement('a');
+    a.href = advisoryURL(vid);
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.style.color = 'var(--accent)';
+    a.textContent = vid;
+    div.appendChild(a);
+  });
+  return div;
+}
+
 function renderNewVuln(rows) {
   const list = document.getElementById('newvuln-list');
   list.innerHTML = '';
@@ -1971,8 +2027,7 @@ function renderNewVuln(rows) {
     item.className = 'newvuln-item';
     const cell = (txt, cls) => { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = txt; return d; };
 
-    const ids = (v.vulns || []).join(', ') || '—';
-    const id = cell(ids, 'mono'); id.title = (v.reason || ids);
+    const id = advisoryLinks(v.vulns); id.title = v.reason || '';
     const eco = document.createElement('div'); eco.appendChild(ecoBadge(v.ecosystem));
     const pkg = cell(safeDecode(v.package || '—'), 'pkg-name');
     const ver = cell(v.version || '—', 'mono');
@@ -2156,10 +2211,20 @@ async function reloadConfig() {
   } catch (e) { showSettingsBanner(false, 'Error: ' + e); }
 }
 
+// ── User dropdown (Settings / Logout) ───────────────────────────────────────
+function toggleUserMenu(e) {
+  if (e) e.stopPropagation();
+  document.getElementById('user-dropdown').classList.toggle('open');
+}
+function closeUserMenu() { document.getElementById('user-dropdown').classList.remove('open'); }
+function gotoSettings() { closeUserMenu(); setTab('settings'); }
+document.addEventListener('click', () => closeUserMenu());
+
 function setTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-' + tab).classList.add('active');
+  const activeTab = document.getElementById('tab-' + tab);
+  if (activeTab) activeTab.classList.add('active'); // 'settings' has no nav tab (it's in the user menu)
 
   ['live','graphs','packages','tree','cves','newvuln','logs','upstream','settings'].forEach(v => {
     document.getElementById('view-' + v).style.display = tab === v ? 'flex' : 'none';
