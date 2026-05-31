@@ -324,6 +324,30 @@ func (c Config) Validate() []error {
 		default:
 			errs = append(errs, fmt.Errorf("policy.strict_signals %q is not one of allow/warn/block", c.Policy.StrictSignals))
 		}
+		actions := map[string]string{}
+		if c.Policy.Age != nil {
+			actions["age"] = c.Policy.Age.Action
+		}
+		if c.Policy.OSV != nil {
+			actions["osv"] = c.Policy.OSV.Action
+			if !validSeverities[c.Policy.OSV.MinSeverity] {
+				errs = append(errs, fmt.Errorf("policy.osv.min_severity %q is not one of CRITICAL/HIGH/MEDIUM/LOW", c.Policy.OSV.MinSeverity))
+			}
+		}
+		if c.Policy.Publisher != nil {
+			actions["publisher"] = c.Policy.Publisher.Action
+		}
+		if c.Policy.Popularity != nil {
+			actions["popularity"] = c.Policy.Popularity.Action
+		}
+		for sig, a := range actions {
+			if !validActions[a] {
+				errs = append(errs, fmt.Errorf("policy.%s.action %q is not one of allow/warn/block", sig, a))
+			}
+		}
+	}
+	if c.Rescan != nil && !validSeverities[c.Rescan.MinSeverity] {
+		errs = append(errs, fmt.Errorf("rescan.min_severity %q is not one of CRITICAL/HIGH/MEDIUM/LOW", c.Rescan.MinSeverity))
 	}
 	return errs
 }
