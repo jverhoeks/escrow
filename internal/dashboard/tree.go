@@ -48,6 +48,9 @@ type TreeVersion struct {
 	LastSeen   time.Time `json:"last_seen"`
 	HitCount   int       `json:"hit_count"`
 	Downloaded bool      `json:"downloaded"` // true if any "downloaded" (artifact-fetch) event was recorded
+
+	DownloadCount int       `json:"download_count"`
+	LastDownload  time.Time `json:"last_download"`
 }
 
 type TreePackage struct {
@@ -107,6 +110,7 @@ func (d *Dashboard) handlePackagesTree(w http.ResponseWriter, r *http.Request) {
 			Size: -1, CVECount: len(e.Vulns), LastSeen: e.Timestamp, HitCount: 1,
 			Downloaded: e.Kind == eventlog.KindDownloaded,
 		}
+		tv.DownloadCount, tv.LastDownload = d.dlStat(e.Ecosystem, name, version)
 		statusFromScanned[vk] = scanned
 		if d.cache != nil {
 			tv.Cached = blobCached(r.Context(), d.cache, e.Ecosystem, name, version)

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/cireport"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dashboard"
+	"github.com/jverhoeks/escrow/internal/dlstats"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/handler/cargo"
 	"github.com/jverhoeks/escrow/internal/handler/composer"
@@ -29,6 +31,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/handler/nuget"
 	"github.com/jverhoeks/escrow/internal/handler/pypi"
 	"github.com/jverhoeks/escrow/internal/policy"
+	"github.com/jverhoeks/escrow/internal/rescan"
 	"github.com/jverhoeks/escrow/internal/server"
 	"github.com/jverhoeks/escrow/internal/trust"
 	"github.com/jverhoeks/escrow/internal/upstream"
@@ -39,6 +42,15 @@ import (
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z"
 var version = "dev"
+
+// dlStatsAdapter adapts *dlstats.Store to the rescan.DownloadStats interface so
+// the rescan package doesn't import dlstats directly.
+type dlStatsAdapter struct{ s *dlstats.Store }
+
+func (a dlStatsAdapter) Get(eco, name, version string) (int, time.Time, bool) {
+	st, ok := a.s.Get(eco, name, version)
+	return st.Count, st.LastAt, ok
+}
 
 func main() {
 	// Handle subcommands before flag parsing so they get their own flags.
@@ -233,6 +245,31 @@ func main() {
 		evLog = eventlog.New(5000)
 	}
 
+	// Download stats — persistent per-version counts, populated by subscribing
+	// to the event log. Defaults to the cache dir on the disk backend.
+	dlPath := config.ExpandPath(cfg.DownloadStatsPath)
+	if dlPath == "" && cfg.Storage.Backend == "disk" {
+		dlPath = filepath.Join(config.ExpandPath(cfg.Storage.Disk.Path), "escrow-downloads.json")
+	}
+	dlStore, err := dlstats.New(dlPath)
+	if err != nil {
+		log.Fatal().Err(err).Str("path", dlPath).Msg("failed to open download stats")
+	}
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	go dlstats.Consume(rootCtx, evLog, dlStore)
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-rootCtx.Done():
+				return
+			case <-t.C:
+				_ = dlStore.Flush()
+			}
+		}
+	}()
+
 	var signals []trust.Signal
 	if cfg.Policy != nil {
 		if cfg.Policy.Age != nil && !*noAge {
@@ -281,6 +318,113 @@ func main() {
 	if cfg.Alerts.WebhookURL != "" {
 		wh = alerts.NewWebhook(cfg.Alerts.WebhookURL, nil)
 		log.Info().Str("url", cfg.Alerts.WebhookURL).Msg("webhook alerts enabled")
+	}
+
+	// Continuous CVE re-scanner.
+	var scanner *rescan.Scanner
+	{
+		rc := cfg.Rescan
+		// Both bools default to TRUE so a user who adds a [rescan] section to tweak
+		// only the cadence/severity doesn't silently disable the scanner or
+		// auto-block. They are *bool: nil (key omitted) keeps the default.
+		enabled := true
+		autoBlock := true
+		interval := 24
+		minSev := "HIGH"
+		if cfg.Policy != nil && cfg.Policy.OSV != nil && cfg.Policy.OSV.MinSeverity != "" {
+			minSev = cfg.Policy.OSV.MinSeverity
+		}
+		if rc != nil {
+			if rc.Enabled != nil {
+				enabled = *rc.Enabled
+			}
+			if rc.AutoBlock != nil {
+				autoBlock = *rc.AutoBlock
+			}
+			if rc.MinSeverity != "" {
+				minSev = rc.MinSeverity
+			}
+			if rc.IntervalHours > 0 {
+				interval = rc.IntervalHours
+			}
+		}
+		rescanOSV := trust.NewOSVSignal(minSev, httpClient, c, "")
+		var alerter rescan.Alerter
+		if wh != nil {
+			alerter = wh
+		}
+		scanner = rescan.New(rescan.Deps{
+			Log: evLog, OSV: rescanOSV, BlockList: blockList,
+			Stats: dlStatsAdapter{dlStore}, Alerter: alerter,
+			Logger: nil,
+		}, rescan.Config{Enabled: enabled, IntervalHours: interval, AutoBlock: autoBlock, MinSeverity: minSev})
+		scanner.Start(rootCtx)
+		log.Info().Bool("auto_block", autoBlock).Int("interval_hours", interval).Str("min_severity", minSev).Msg("CVE re-scanner enabled")
+	}
+
+	// restartSnapshot captures the fields that cannot be applied live; a reload
+	// reports any that changed as restart-required.
+	restartSnapshot := func(c config.Config) map[string]string {
+		return map[string]string{
+			"server":     fmt.Sprintf("%s:%d:%s:%s", c.Server.Host, c.Server.Port, c.Server.TLSCertFile, c.Server.TLSKeyFile),
+			"storage":    fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
+			"ecosystems": fmt.Sprintf("%v", c.Ecosystems),
+			"secret":     c.Dashboard.Secret,
+			"paths":      fmt.Sprintf("%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath),
+		}
+	}
+	startupSnapshot := restartSnapshot(cfg)
+
+	reloadFn := func() (dashboard.ReloadResult, error) {
+		newCfg, err := config.Load(*cfgPath)
+		if err != nil {
+			return dashboard.ReloadResult{}, err
+		}
+		if errs := newCfg.Validate(); len(errs) > 0 {
+			return dashboard.ReloadResult{}, errs[0]
+		}
+		var restart []string
+		now := restartSnapshot(newCfg)
+		for k, v := range startupSnapshot {
+			if now[k] != v {
+				restart = append(restart, k)
+			}
+		}
+		// Apply the live-reloadable subset.
+		polEngine.SetConfig(newCfg.Policy)
+		rMinSev := "HIGH"
+		if newCfg.Policy != nil && newCfg.Policy.OSV != nil && newCfg.Policy.OSV.MinSeverity != "" {
+			rMinSev = newCfg.Policy.OSV.MinSeverity
+		}
+		rEnabled, rAutoBlock, rInterval := true, true, 24
+		if rc := newCfg.Rescan; rc != nil {
+			if rc.Enabled != nil {
+				rEnabled = *rc.Enabled
+			}
+			if rc.AutoBlock != nil {
+				rAutoBlock = *rc.AutoBlock
+			}
+			if rc.MinSeverity != "" {
+				rMinSev = rc.MinSeverity
+			}
+			if rc.IntervalHours > 0 {
+				rInterval = rc.IntervalHours
+			}
+		}
+		if scanner != nil {
+			scanner.SetConfig(rescan.Config{Enabled: rEnabled, IntervalHours: rInterval, AutoBlock: rAutoBlock, MinSeverity: rMinSev})
+		}
+		reloaded := []string{"policy", "rescan"}
+		if wh != nil {
+			// A webhook instance exists — URL changes (including clearing it) apply live.
+			wh.SetURL(newCfg.Alerts.WebhookURL)
+			reloaded = append(reloaded, "alerts")
+		} else if newCfg.Alerts.WebhookURL != "" {
+			// Started with no webhook; one can't be created live — needs a restart.
+			restart = append(restart, "alerts")
+		}
+		log.Info().Strs("reloaded", reloaded).Strs("restart_required", restart).Msg("config reloaded")
+		return dashboard.ReloadResult{Reloaded: reloaded, RestartRequired: restart}, nil
 	}
 
 	cacheDir := ""
@@ -379,15 +523,37 @@ func main() {
 
 	if cfg.Dashboard.Enabled {
 		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
-			srv.AccessRing(), upstreamLog)
+			srv.AccessRing(), upstreamLog, dlStore, scanner, *cfgPath, reloadFn)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
 	}
+
+	// PID file so `escrow-cli reload` can find and SIGHUP this process.
+	pidPath := filepath.Join(filepath.Dir(*cfgPath), "escrow.pid")
+	if cfg.Storage.Backend == "disk" {
+		pidPath = filepath.Join(config.ExpandPath(cfg.Storage.Disk.Path), "escrow.pid")
+	}
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); err == nil {
+		defer os.Remove(pidPath)
+	}
+
+	// SIGHUP → reload the live-reloadable config subset.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	go func() {
+		for range hup {
+			if _, err := reloadFn(); err != nil {
+				log.Error().Err(err).Msg("SIGHUP reload failed; keeping previous config")
+			}
+		}
+	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-quit
+		rootCancel()
+		_ = dlStore.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		srv.Shutdown(ctx)

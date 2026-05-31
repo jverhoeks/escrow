@@ -50,10 +50,13 @@ type osvResponse struct {
 	} `json:"vulns"`
 }
 
+// severityRank ranks OSV/GHSA severities. GitHub advisories use "MODERATE"
+// where the CVSS scale says "MEDIUM" — treat them as equivalent.
 var severityRank = map[string]int{
-	"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1,
+	"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "MODERATE": 2, "LOW": 1,
 }
 
+// Check returns the cached OSV result if present, else queries upstream.
 func (s *OSVSignal) Check(ctx context.Context, pkg Package) (SignalReport, error) {
 	cacheKey := fmt.Sprintf("osv/%s/%s/%s", pkg.Ecosystem, pkg.Name, pkg.Version)
 	if cached, _ := s.cache.GetMeta(ctx, cacheKey); cached != nil {
@@ -62,7 +65,18 @@ func (s *OSVSignal) Check(ctx context.Context, pkg Package) (SignalReport, error
 			return s.toReport(resp), nil
 		}
 	}
+	return s.query(ctx, pkg, cacheKey)
+}
 
+// CheckFresh always queries upstream (ignoring any cached result) and refreshes
+// the cache. Used by the background re-scanner so newly-published CVEs are seen.
+func (s *OSVSignal) CheckFresh(ctx context.Context, pkg Package) (SignalReport, error) {
+	cacheKey := fmt.Sprintf("osv/%s/%s/%s", pkg.Ecosystem, pkg.Name, pkg.Version)
+	return s.query(ctx, pkg, cacheKey)
+}
+
+// query performs the upstream OSV request, caches the response, and reports.
+func (s *OSVSignal) query(ctx context.Context, pkg Package, cacheKey string) (SignalReport, error) {
 	// Map escrow ecosystem names to OSV database ecosystem identifiers.
 	// https://osv.dev/docs/#tag/api/operation/OSV_QueryAffected
 	ecosystem := "npm"

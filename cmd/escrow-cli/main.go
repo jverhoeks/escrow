@@ -86,6 +86,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: unknown config subcommand: %s\n", os.Args[2])
 			os.Exit(1)
 		}
+	case "reload":
+		runReload(os.Args[2:])
+	case "live":
+		runLive(os.Args[2:])
 	case "status":
 		runStatus(os.Args[2:])
 	case "service":

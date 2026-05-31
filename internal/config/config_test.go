@@ -95,3 +95,41 @@ func TestGenerateIfMissing_SkipsExisting(t *testing.T) {
 	cfg, _ := config.Load(path)
 	assert.Equal(t, 9999, cfg.Server.Port)
 }
+
+func TestLoad_PartialRescanSection_KeepsDefaults(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "escrow.toml")
+	// A [rescan] section that customizes only the cadence must NOT silently
+	// disable the scanner or auto-block: Enabled/AutoBlock stay nil → default true.
+	os.WriteFile(f, []byte("[rescan]\n  interval_hours = 12\n"), 0o644)
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Rescan == nil {
+		t.Fatal("expected [rescan] section to parse")
+	}
+	if cfg.Rescan.Enabled != nil {
+		t.Errorf("Enabled = %v, want nil (default true)", *cfg.Rescan.Enabled)
+	}
+	if cfg.Rescan.AutoBlock != nil {
+		t.Errorf("AutoBlock = %v, want nil (default true)", *cfg.Rescan.AutoBlock)
+	}
+	if cfg.Rescan.IntervalHours != 12 {
+		t.Errorf("IntervalHours = %d, want 12", cfg.Rescan.IntervalHours)
+	}
+}
+
+func TestLoad_RescanExplicitDisable(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "escrow.toml")
+	os.WriteFile(f, []byte("[rescan]\n  enabled = false\n  auto_block = false\n"), 0o644)
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Rescan.Enabled == nil || *cfg.Rescan.Enabled {
+		t.Error("Enabled should be explicitly false")
+	}
+	if cfg.Rescan.AutoBlock == nil || *cfg.Rescan.AutoBlock {
+		t.Error("AutoBlock should be explicitly false")
+	}
+}

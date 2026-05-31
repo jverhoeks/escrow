@@ -20,6 +20,21 @@ type Config struct {
 	AllowlistPath string          `toml:"allowlist_path"`
 	BlocklistPath string          `toml:"blocklist_path"`
 	EventLogPath  string          `toml:"eventlog_path"` // JSONL append file; empty = in-memory only
+
+	DownloadStatsPath string `toml:"download_stats_path"` // JSON; empty = default to cache dir on disk backend, else in-memory
+
+	Rescan *RescanConfig `toml:"rescan"`
+}
+
+type RescanConfig struct {
+	// Enabled and AutoBlock are *bool so an omitted key keeps the default (true)
+	// instead of the zero value (false): a partial [rescan] section that sets
+	// only e.g. interval_hours must not silently disable the scanner or
+	// auto-block. nil = default true.
+	Enabled       *bool  `toml:"enabled"`
+	IntervalHours int    `toml:"interval_hours"` // 0 → 24
+	AutoBlock     *bool  `toml:"auto_block"`
+	MinSeverity   string `toml:"min_severity"` // empty → inherit policy.osv.min_severity
 }
 
 type ServerConfig struct {
@@ -309,6 +324,30 @@ func (c Config) Validate() []error {
 		default:
 			errs = append(errs, fmt.Errorf("policy.strict_signals %q is not one of allow/warn/block", c.Policy.StrictSignals))
 		}
+		actions := map[string]string{}
+		if c.Policy.Age != nil {
+			actions["age"] = c.Policy.Age.Action
+		}
+		if c.Policy.OSV != nil {
+			actions["osv"] = c.Policy.OSV.Action
+			if !validSeverities[c.Policy.OSV.MinSeverity] {
+				errs = append(errs, fmt.Errorf("policy.osv.min_severity %q is not one of CRITICAL/HIGH/MEDIUM/LOW", c.Policy.OSV.MinSeverity))
+			}
+		}
+		if c.Policy.Publisher != nil {
+			actions["publisher"] = c.Policy.Publisher.Action
+		}
+		if c.Policy.Popularity != nil {
+			actions["popularity"] = c.Policy.Popularity.Action
+		}
+		for sig, a := range actions {
+			if !validActions[a] {
+				errs = append(errs, fmt.Errorf("policy.%s.action %q is not one of allow/warn/block", sig, a))
+			}
+		}
+	}
+	if c.Rescan != nil && !validSeverities[c.Rescan.MinSeverity] {
+		errs = append(errs, fmt.Errorf("rescan.min_severity %q is not one of CRITICAL/HIGH/MEDIUM/LOW", c.Rescan.MinSeverity))
 	}
 	return errs
 }

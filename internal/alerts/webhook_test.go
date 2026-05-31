@@ -33,6 +33,22 @@ func TestWebhook_PostsOnBlock(t *testing.T) {
 	assert.Equal(t, "age", received["signal"])
 }
 
+func TestWebhook_SendRescan(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	wh := alerts.NewWebhook(srv.URL, srv.Client())
+	err := wh.SendRescan("npm", "lodash", "4.17.21", []string{"GHSA-x"}, "HIGH", true, 47)
+	require.NoError(t, err)
+	require.Equal(t, "retroactive-cve", got["type"])
+	require.Equal(t, "lodash", got["name"])
+	require.Equal(t, true, got["blocked"])
+	require.Equal(t, float64(47), got["download_count"])
+}
+
 func TestWebhook_SkipsOnWarnOrAllow(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++ }))
@@ -43,4 +59,14 @@ func TestWebhook_SkipsOnWarnOrAllow(t *testing.T) {
 	wh.Send(pkg, policy.Decision{Action: policy.ActionWarn})
 	wh.Send(pkg, policy.Decision{Action: policy.ActionAllow})
 	assert.Equal(t, 0, calls, "webhook should only fire on block")
+}
+
+func TestWebhook_SetURL(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++; w.WriteHeader(200) }))
+	defer srv.Close()
+	wh := alerts.NewWebhook("http://127.0.0.1:1/none", srv.Client())
+	wh.SetURL(srv.URL)
+	require.NoError(t, wh.SendRescan("npm", "x", "1.0.0", []string{"GHSA-x"}, "HIGH", false, 0))
+	require.Equal(t, 1, hits)
 }
