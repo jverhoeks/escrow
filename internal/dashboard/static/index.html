@@ -398,7 +398,7 @@
 
     .feed-columns {
       display: grid;
-      grid-template-columns: 60px 70px 1fr 120px 50px 60px;
+      grid-template-columns: 64px 72px 1fr 1.9fr 52px 78px;
       gap: 12px;
       padding: 8px 24px;
       border-bottom: 1px solid var(--border);
@@ -419,7 +419,7 @@
 
     .feed-item {
       display: grid;
-      grid-template-columns: 60px 70px 1fr 120px 50px 60px;
+      grid-template-columns: 64px 72px 1fr 1.9fr 52px 78px;
       gap: 12px;
       padding: 12px 24px;
       border-bottom: 1px solid var(--border);
@@ -466,11 +466,15 @@
 
     .feed-reason {
       color: var(--text-secondary);
-      font-size: 12px;
+      font-size: 13px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
+    .feed-reason > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 
     .status-icon {
       font-size: 18px;
