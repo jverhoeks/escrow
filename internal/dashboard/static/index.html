@@ -1189,6 +1189,7 @@
   <div class="panel-header">
     <span class="panel-header-title">Settings <span style="color: var(--text-tertiary); font-weight: 400; font-size: 12px;">(edits escrow.toml)</span></span>
     <div class="panel-header-actions">
+      <button class="btn-secondary" onclick="validateSettings()" title="Check the current values are valid without saving">✓ Validate</button>
       <button class="btn-secondary" onclick="reloadConfig()" title="Re-read the config file and apply the live-reloadable parts">↻ Reload from file</button>
       <button class="btn-action approve" onclick="saveSettings()">Save &amp; apply</button>
     </div>
@@ -2102,23 +2103,31 @@ function loadSettings() {
   });
 }
 
+function settingsCard(section) {
+  const card = document.createElement('div');
+  card.className = 'settings-section';
+  const h = document.createElement('div');
+  h.className = 'settings-section-title';
+  h.textContent = section;
+  if (RESTART_FIELDS.includes(section)) {
+    const warn = document.createElement('span');
+    warn.className = 'settings-warn';
+    warn.textContent = '⚠ restart required';
+    h.appendChild(warn);
+  }
+  card.appendChild(h);
+  return card;
+}
+
 function renderSettings(cfg, meta) {
   const form = document.getElementById('settings-form');
   form.innerHTML = '';
+  const scalars = []; // top-level non-object keys (paths) → grouped into "general"
   Object.keys(cfg).sort().forEach(section => {
     const val = cfg[section];
-    const card = document.createElement('div');
-    card.className = 'settings-section';
-    const h = document.createElement('div');
-    h.className = 'settings-section-title';
-    h.textContent = section;
-    if (RESTART_FIELDS.includes(section)) {
-      const warn = document.createElement('span');
-      warn.className = 'settings-warn';
-      warn.textContent = '⚠ restart required';
-      h.appendChild(warn);
-    }
-    card.appendChild(h);
+    if (val === null) return; // unset section (e.g. no [rescan]) — edit the file to add it
+    if (typeof val !== 'object' || Array.isArray(val)) { scalars.push(section); return; }
+    const card = settingsCard(section);
     renderSettingsFields(card, val, section, section);
     // Credentials: read-only "set" indicators under the dashboard section.
     if (section === 'dashboard') {
@@ -2127,6 +2136,11 @@ function renderSettings(cfg, meta) {
     }
     form.appendChild(card);
   });
+  if (scalars.length) {
+    const card = settingsCard('general');
+    scalars.forEach(k => settingsField(card, k, cfg[k], k));
+    form.appendChild(card);
+  }
 }
 
 function roField(name, isSet) {
@@ -2138,6 +2152,28 @@ function roField(name, isSet) {
   span.textContent = (isSet ? '•••••••• (set)' : '(not set)') + ' · managed in config file, not editable here';
   row.append(lbl, span);
   return row;
+}
+
+// settingsField appends one labelled input row, typed by the value.
+function settingsField(container, label, v, path) {
+  const row = document.createElement('div');
+  row.className = 'settings-row';
+  const lbl = document.createElement('label'); lbl.textContent = label;
+  let input;
+  if (typeof v === 'boolean') {
+    input = document.createElement('input'); input.type = 'checkbox'; input.checked = v;
+  } else if (typeof v === 'number') {
+    input = document.createElement('input'); input.type = 'number'; input.value = v;
+  } else if (Array.isArray(v)) {
+    input = document.createElement('input'); input.type = 'text'; input.value = v.join(', '); input.dataset.array = '1';
+  } else {
+    input = document.createElement('input'); input.type = 'text'; input.value = v == null ? '' : v;
+  }
+  input.className = 'settings-input';
+  input.dataset.path = path;
+  input.dataset.type = typeof v;
+  row.append(lbl, input);
+  container.appendChild(row);
 }
 
 function renderSettingsFields(container, obj, path, section) {
@@ -2154,24 +2190,7 @@ function renderSettingsFields(container, obj, path, section) {
       renderSettingsFields(container, v, p, section);
       return;
     }
-    const row = document.createElement('div');
-    row.className = 'settings-row';
-    const lbl = document.createElement('label'); lbl.textContent = key;
-    let input;
-    if (typeof v === 'boolean') {
-      input = document.createElement('input'); input.type = 'checkbox'; input.checked = v;
-    } else if (typeof v === 'number') {
-      input = document.createElement('input'); input.type = 'number'; input.value = v;
-    } else if (Array.isArray(v)) {
-      input = document.createElement('input'); input.type = 'text'; input.value = v.join(', '); input.dataset.array = '1';
-    } else {
-      input = document.createElement('input'); input.type = 'text'; input.value = v == null ? '' : v;
-    }
-    input.className = 'settings-input';
-    input.dataset.path = p;
-    input.dataset.type = typeof v;
-    row.append(lbl, input);
-    container.appendChild(row);
+    settingsField(container, key, v, p);
   });
 }
 
@@ -2202,6 +2221,16 @@ function showSettingsBanner(ok, text) {
   b.style.display = 'block';
   b.className = 'settings-banner ' + (ok ? 'ok' : 'err');
   b.textContent = text;
+}
+
+async function validateSettings() {
+  collectSettingsForm();
+  try {
+    const resp = await fetch(BASE + '/api/settings/validate', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Escrow-Request': '1'}, body: JSON.stringify(settingsCfg)});
+    const res = await resp.json();
+    if (res.ok) showSettingsBanner(true, '✓ Configuration is valid.');
+    else showSettingsBanner(false, 'Invalid: ' + ((res.errors || []).join(' · ') || 'see errors'));
+  } catch (e) { showSettingsBanner(false, 'Error: ' + e); }
 }
 
 async function saveSettings() {

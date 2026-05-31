@@ -11,19 +11,19 @@ import (
 )
 
 type Config struct {
-	Server        ServerConfig    `toml:"server"`
-	Storage       StorageConfig   `toml:"storage"`
-	Policy        *PolicyConfig   `toml:"policy"`
-	Ecosystems    EcosystemConfig `toml:"ecosystems"`
-	Alerts        AlertsConfig    `toml:"alerts"`
-	Dashboard     DashboardConfig `toml:"dashboard"`
-	AllowlistPath string          `toml:"allowlist_path"`
-	BlocklistPath string          `toml:"blocklist_path"`
-	EventLogPath  string          `toml:"eventlog_path"` // JSONL append file; empty = in-memory only
+	Server        ServerConfig    `json:"server" toml:"server"`
+	Storage       StorageConfig   `json:"storage" toml:"storage"`
+	Policy        *PolicyConfig   `json:"policy" toml:"policy"`
+	Ecosystems    EcosystemConfig `json:"ecosystems" toml:"ecosystems"`
+	Alerts        AlertsConfig    `json:"alerts" toml:"alerts"`
+	Dashboard     DashboardConfig `json:"dashboard" toml:"dashboard"`
+	AllowlistPath string          `json:"allowlist_path" toml:"allowlist_path"`
+	BlocklistPath string          `json:"blocklist_path" toml:"blocklist_path"`
+	EventLogPath  string          `json:"eventlog_path" toml:"eventlog_path"` // JSONL append file; empty = in-memory only
 
-	DownloadStatsPath string `toml:"download_stats_path"` // JSON; empty = default to cache dir on disk backend, else in-memory
+	DownloadStatsPath string `json:"download_stats_path" toml:"download_stats_path"` // JSON; empty = default to cache dir on disk backend, else in-memory
 
-	Rescan *RescanConfig `toml:"rescan"`
+	Rescan *RescanConfig `json:"rescan" toml:"rescan"`
 }
 
 type RescanConfig struct {
@@ -31,99 +31,99 @@ type RescanConfig struct {
 	// instead of the zero value (false): a partial [rescan] section that sets
 	// only e.g. interval_hours must not silently disable the scanner or
 	// auto-block. nil = default true.
-	Enabled       *bool  `toml:"enabled"`
-	IntervalHours int    `toml:"interval_hours"` // 0 → 24
-	AutoBlock     *bool  `toml:"auto_block"`
-	MinSeverity   string `toml:"min_severity"` // empty → inherit policy.osv.min_severity
+	Enabled       *bool  `json:"enabled" toml:"enabled"`
+	IntervalHours int    `json:"interval_hours" toml:"interval_hours"` // 0 → 24
+	AutoBlock     *bool  `json:"auto_block" toml:"auto_block"`
+	MinSeverity   string `json:"min_severity" toml:"min_severity"` // empty → inherit policy.osv.min_severity
 }
 
 type ServerConfig struct {
-	Host                      string `toml:"host"`
-	Port                      int    `toml:"port"`
-	LogLevel                  string `toml:"log_level"`
-	WriteTimeoutSeconds       int    `toml:"write_timeout_seconds"`        // 0 → default 120
-	ReadHeaderTimeoutSeconds  int    `toml:"read_header_timeout_seconds"`  // 0 → default 10
-	IdleTimeoutSeconds        int    `toml:"idle_timeout_seconds"`         // 0 → default 120
-	TLSCertFile               string `toml:"tls_cert_file"`
-	TLSKeyFile                string `toml:"tls_key_file"`
-	ProxyRateLimitPerMin      int    `toml:"proxy_rate_limit_per_min"` // 0 = disabled
-	AccessLogPath             string `toml:"access_log_path"`          // Apache combined format; empty = disabled
-	AccessLogMaxDays          int    `toml:"access_log_max_days"`       // rotate+delete logs older than N days; 0 = 30
+	Host                     string `json:"host" toml:"host"`
+	Port                     int    `json:"port" toml:"port"`
+	LogLevel                 string `json:"log_level" toml:"log_level"`
+	WriteTimeoutSeconds      int    `json:"write_timeout_seconds" toml:"write_timeout_seconds"`             // 0 → default 120
+	ReadHeaderTimeoutSeconds int    `json:"read_header_timeout_seconds" toml:"read_header_timeout_seconds"` // 0 → default 10
+	IdleTimeoutSeconds       int    `json:"idle_timeout_seconds" toml:"idle_timeout_seconds"`               // 0 → default 120
+	TLSCertFile              string `json:"tls_cert_file" toml:"tls_cert_file"`
+	TLSKeyFile               string `json:"tls_key_file" toml:"tls_key_file"`
+	ProxyRateLimitPerMin     int    `json:"proxy_rate_limit_per_min" toml:"proxy_rate_limit_per_min"` // 0 = disabled
+	AccessLogPath            string `json:"access_log_path" toml:"access_log_path"`                   // Apache combined format; empty = disabled
+	AccessLogMaxDays         int    `json:"access_log_max_days" toml:"access_log_max_days"`           // rotate+delete logs older than N days; 0 = 30
 }
 
 type StorageConfig struct {
-	Backend string     `toml:"backend"`
-	Disk    DiskConfig `toml:"disk"`
-	S3      S3Config   `toml:"s3"`
+	Backend string     `json:"backend" toml:"backend"`
+	Disk    DiskConfig `json:"disk" toml:"disk"`
+	S3      S3Config   `json:"s3" toml:"s3"`
 }
 
 type DiskConfig struct {
-	Path           string `toml:"path"`
-	MaxSizeGB      int    `toml:"max_size_gb"`      // 0 = unlimited
-	PurgeIntervalM int    `toml:"purge_interval_m"` // minutes between FIFO purge runs; 0 = 60
+	Path           string `json:"path" toml:"path"`
+	MaxSizeGB      int    `json:"max_size_gb" toml:"max_size_gb"`           // 0 = unlimited
+	PurgeIntervalM int    `json:"purge_interval_m" toml:"purge_interval_m"` // minutes between FIFO purge runs; 0 = 60
 }
 
 type S3Config struct {
-	Bucket   string `toml:"bucket"`
-	Region   string `toml:"region"`
-	Endpoint string `toml:"endpoint"`
+	Bucket   string `json:"bucket" toml:"bucket"`
+	Region   string `json:"region" toml:"region"`
+	Endpoint string `json:"endpoint" toml:"endpoint"`
 }
 
 type PolicyConfig struct {
-	Age        *AgePolicyConfig        `toml:"age"`
-	OSV        *OSVPolicyConfig        `toml:"osv"`
-	Publisher  *PublisherPolicyConfig  `toml:"publisher"`
-	Popularity *PopularityPolicyConfig `toml:"popularity"`
-	PyPI       *PyPIPolicyConfig       `toml:"pypi"`
+	Age        *AgePolicyConfig        `json:"age" toml:"age"`
+	OSV        *OSVPolicyConfig        `json:"osv" toml:"osv"`
+	Publisher  *PublisherPolicyConfig  `json:"publisher" toml:"publisher"`
+	Popularity *PopularityPolicyConfig `json:"popularity" toml:"popularity"`
+	PyPI       *PyPIPolicyConfig       `json:"pypi" toml:"pypi"`
 
 	// StrictSignals controls fail-open vs fail-closed behavior for transient
 	// signal failures (network errors, panics, parse failures the signal
 	// itself didn't handle). Valid values: "allow" (default — fail open;
 	// transient errors don't block), "warn" (log + emit warn decision), or
 	// "block" (fail closed; refuse to install if a signal couldn't run).
-	StrictSignals string `toml:"strict_signals"`
+	StrictSignals string `json:"strict_signals" toml:"strict_signals"`
 }
 
 type AgePolicyConfig struct {
-	MinDays int    `toml:"min_days"`
-	Action  string `toml:"action"`
+	MinDays int    `json:"min_days" toml:"min_days"`
+	Action  string `json:"action" toml:"action"`
 }
 
 type OSVPolicyConfig struct {
-	MinSeverity string `toml:"min_severity"`
-	Action      string `toml:"action"`
+	MinSeverity string `json:"min_severity" toml:"min_severity"`
+	Action      string `json:"action" toml:"action"`
 }
 
 type PublisherPolicyConfig struct {
-	MaxAccountAgeDays int    `toml:"max_account_age_days"`
-	Action            string `toml:"action"`
+	MaxAccountAgeDays int    `json:"max_account_age_days" toml:"max_account_age_days"`
+	Action            string `json:"action" toml:"action"`
 }
 
 type PopularityPolicyConfig struct {
-	SpikeFactor float64 `toml:"spike_factor"`
-	Action      string  `toml:"action"`
+	SpikeFactor float64 `json:"spike_factor" toml:"spike_factor"`
+	Action      string  `json:"action" toml:"action"`
 }
 
 type PyPIPolicyConfig struct {
-	BlockSdist bool `toml:"block_sdist"`
+	BlockSdist bool `json:"block_sdist" toml:"block_sdist"`
 }
 
 type EcosystemConfig struct {
-	NPM              bool   `toml:"npm"`
-	NPMUpstream      string `toml:"npm_upstream"`       // default https://registry.npmjs.org
-	PyPI             bool   `toml:"pypi"`
-	PyPIUpstream     string `toml:"pypi_upstream"`      // default https://pypi.org
-	Go               bool   `toml:"go"`
-	GoUpstream       string `toml:"go_upstream"`        // default https://proxy.golang.org
-	Cargo            bool   `toml:"cargo"`
-	Composer         bool   `toml:"composer"`
-	ComposerUpstream string `toml:"composer_upstream"`  // default https://repo.packagist.org
-	NuGet                   bool   `toml:"nuget"`
-	NuGetUpstream           string `toml:"nuget_upstream"`            // default https://api.nuget.org/v3
-	NuGetFlatcontainerURL   string `toml:"nuget_flatcontainer_url"`   // optional; derived from nuget_upstream if blank
-	Maven                bool   `toml:"maven"`
-	MavenUpstream        string `toml:"maven_upstream"`          // default https://repo1.maven.org/maven2
-	MavenSnapshotUpstream string `toml:"maven_snapshot_upstream"` // default: same as MavenUpstream
+	NPM                   bool   `json:"npm" toml:"npm"`
+	NPMUpstream           string `json:"npm_upstream" toml:"npm_upstream"` // default https://registry.npmjs.org
+	PyPI                  bool   `json:"pypi" toml:"pypi"`
+	PyPIUpstream          string `json:"pypi_upstream" toml:"pypi_upstream"` // default https://pypi.org
+	Go                    bool   `json:"go" toml:"go"`
+	GoUpstream            string `json:"go_upstream" toml:"go_upstream"` // default https://proxy.golang.org
+	Cargo                 bool   `json:"cargo" toml:"cargo"`
+	Composer              bool   `json:"composer" toml:"composer"`
+	ComposerUpstream      string `json:"composer_upstream" toml:"composer_upstream"` // default https://repo.packagist.org
+	NuGet                 bool   `json:"nuget" toml:"nuget"`
+	NuGetUpstream         string `json:"nuget_upstream" toml:"nuget_upstream"`                   // default https://api.nuget.org/v3
+	NuGetFlatcontainerURL string `json:"nuget_flatcontainer_url" toml:"nuget_flatcontainer_url"` // optional; derived from nuget_upstream if blank
+	Maven                 bool   `json:"maven" toml:"maven"`
+	MavenUpstream         string `json:"maven_upstream" toml:"maven_upstream"`                   // default https://repo1.maven.org/maven2
+	MavenSnapshotUpstream string `json:"maven_snapshot_upstream" toml:"maven_snapshot_upstream"` // default: same as MavenUpstream
 }
 
 func (e EcosystemConfig) EffectiveNPMUpstream() string {
@@ -178,15 +178,15 @@ func (e EcosystemConfig) EffectiveMavenSnapshotUpstream() string {
 }
 
 type AlertsConfig struct {
-	WebhookURL string `toml:"webhook_url"`
+	WebhookURL string `json:"webhook_url" toml:"webhook_url"`
 }
 
 type DashboardConfig struct {
-	Enabled  bool   `toml:"enabled"`
-	Path     string `toml:"path"`
-	Username string `toml:"username"`
-	Password string `toml:"password"`
-	Secret   string `toml:"secret"`
+	Enabled  bool   `json:"enabled" toml:"enabled"`
+	Path     string `json:"path" toml:"path"`
+	Username string `json:"username" toml:"username"`
+	Password string `json:"password" toml:"password"`
+	Secret   string `json:"secret" toml:"secret"`
 }
 
 func DefaultConfig() Config {

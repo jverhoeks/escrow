@@ -66,6 +66,40 @@ func (d *Dashboard) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleValidateSettings checks a candidate config WITHOUT writing it, so the
+// user can confirm a change is valid before saving.
+func (d *Dashboard) handleValidateSettings(w http.ResponseWriter, r *http.Request) {
+	if !d.originOK(r) {
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if d.configPath == "" {
+		http.Error(w, `{"error":"settings unavailable (no config path)"}`, http.StatusServiceUnavailable)
+		return
+	}
+	cur, err := config.Load(d.configPath)
+	if err != nil {
+		http.Error(w, `{"error":"could not read current config"}`, http.StatusInternalServerError)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	incoming := cur
+	if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+	// Credentials are never edited here; restore them before validating.
+	incoming.Dashboard.Password = cur.Dashboard.Password
+	incoming.Dashboard.Secret = cur.Dashboard.Secret
+
+	msgs := []string{}
+	for _, e := range incoming.Validate() {
+		msgs = append(msgs, e.Error())
+	}
+	json.NewEncoder(w).Encode(map[string]any{"ok": len(msgs) == 0, "errors": msgs})
+}
+
 // handleSaveSettings validates and writes the config (preserving the on-disk
 // password regardless of payload), then hot-reloads the live subset.
 func (d *Dashboard) handleSaveSettings(w http.ResponseWriter, r *http.Request) {

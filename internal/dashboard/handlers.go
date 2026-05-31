@@ -122,6 +122,7 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Post("/api/reload", d.handleReload)
 	protected.Get("/api/settings", d.handleGetSettings)
 	protected.Post("/api/settings", d.handleSaveSettings)
+	protected.Post("/api/settings/validate", d.handleValidateSettings)
 	protected.Post("/api/allow", d.handleAllow)
 	protected.Delete("/api/allow", d.handleAllowRemove)
 	protected.Get("/api/allowlist", d.handleAllowList)
