@@ -72,3 +72,21 @@ func TestRunOnce_OSVFailureIsSafe(t *testing.T) {
 	blocked, _ := bl.IsBlocked("npm", "lodash", "4.17.21")
 	require.False(t, blocked) // never auto-block on a failed query
 }
+
+func TestScanner_SetConfig_AppliesLive(t *testing.T) {
+	log := eventlog.New(100)
+	log.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "lodash@4.17.21", Action: "allow", Kind: eventlog.KindDownloaded})
+	bl, _ := block.New("")
+	osv := newOSV(t, `{"vulns":[{"id":"GHSA-new","database_specific":{"severity":"HIGH"}}]}`)
+	s := rescan.New(rescan.Deps{Log: log, OSV: osv, BlockList: bl}, rescan.Config{MinSeverity: "HIGH", AutoBlock: false})
+
+	require.Equal(t, 1, s.RunOnce(context.Background()).NewFindings)
+	blocked, _ := bl.IsBlocked("npm", "lodash", "4.17.21")
+	require.False(t, blocked)
+
+	log.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "left-pad@1.0.0", Action: "allow", Kind: eventlog.KindDownloaded})
+	s.SetConfig(rescan.Config{MinSeverity: "HIGH", AutoBlock: true})
+	s.RunOnce(context.Background())
+	blocked2, _ := bl.IsBlocked("npm", "left-pad", "1.0.0")
+	require.True(t, blocked2)
+}

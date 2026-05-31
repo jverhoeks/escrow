@@ -54,6 +54,7 @@ type Result struct {
 
 type Scanner struct {
 	deps    Deps
+	cfgMu   sync.RWMutex // guards cfg (live reload)
 	cfg     Config
 	mu      sync.Mutex // serializes sweeps
 	lastMu  sync.RWMutex
@@ -62,6 +63,20 @@ type Scanner struct {
 
 func New(deps Deps, cfg Config) *Scanner { return &Scanner{deps: deps, cfg: cfg} }
 
+// SetConfig swaps the scanner config atomically (live reload). enabled/auto_block/
+// min_severity apply on the next sweep; interval_hours on the next scheduled cycle.
+func (s *Scanner) SetConfig(cfg Config) {
+	s.cfgMu.Lock()
+	s.cfg = cfg
+	s.cfgMu.Unlock()
+}
+
+func (s *Scanner) config() Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg
+}
+
 var severityRank = map[string]int{"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
 
 // RunOnce performs a single sweep. Safe to call concurrently (serialized).
@@ -69,9 +84,10 @@ func (s *Scanner) RunOnce(ctx context.Context) Result {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	cfg := s.config()
 	inv, baseline := s.inventory()
 	res := Result{At: time.Now().UTC()}
-	minRank := severityRank[strings.ToUpper(s.cfg.MinSeverity)]
+	minRank := severityRank[strings.ToUpper(cfg.MinSeverity)]
 
 	for key := range inv {
 		res.Scanned++
@@ -98,7 +114,7 @@ func (s *Scanner) RunOnce(ctx context.Context) Result {
 			continue
 		}
 		res.NewFindings++
-		s.handleFinding(key, newVulns, &res)
+		s.handleFinding(cfg, key, newVulns, &res)
 	}
 
 	s.lastMu.Lock()
@@ -135,7 +151,7 @@ func (s *Scanner) inventory() (map[verKey]struct{}, map[verKey]map[string]bool) 
 	return inv, baseline
 }
 
-func (s *Scanner) handleFinding(k verKey, vulns []trust.Vuln, res *Result) {
+func (s *Scanner) handleFinding(cfg Config, k verKey, vulns []trust.Vuln, res *Result) {
 	ids := make([]string, 0, len(vulns))
 	topSev := ""
 	for _, v := range vulns {
@@ -154,7 +170,7 @@ func (s *Scanner) handleFinding(k verKey, vulns []trust.Vuln, res *Result) {
 	})
 
 	blocked := false
-	if s.cfg.AutoBlock {
+	if cfg.AutoBlock {
 		if already, _ := s.deps.BlockList.IsBlocked(k.eco, k.name, k.version); !already {
 			_ = s.deps.BlockList.Add(block.Entry{
 				Ecosystem: k.eco, Name: k.name, Version: k.version,
@@ -177,31 +193,34 @@ func (s *Scanner) handleFinding(k verKey, vulns []trust.Vuln, res *Result) {
 	}
 }
 
-// Start runs RunOnce on a ticker until ctx is cancelled. The first sweep runs
-// after a short delay so startup isn't blocked.
+// Start runs RunOnce until ctx is cancelled. The first sweep runs after a short
+// delay so startup isn't blocked. The interval is re-read each cycle and the
+// enabled flag re-checked, so a live SetConfig (hot reload) takes effect.
 func (s *Scanner) Start(ctx context.Context) {
-	if !s.cfg.Enabled {
+	if !s.config().Enabled {
 		return
-	}
-	interval := time.Duration(s.cfg.IntervalHours) * time.Hour
-	if interval <= 0 {
-		interval = 24 * time.Hour
 	}
 	go func() {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(30 * time.Second):
-			s.RunOnce(ctx)
+			if s.config().Enabled {
+				s.RunOnce(ctx)
+			}
 		}
-		t := time.NewTicker(interval)
-		defer t.Stop()
 		for {
+			d := time.Duration(s.config().IntervalHours) * time.Hour
+			if d <= 0 {
+				d = 24 * time.Hour
+			}
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
-				s.RunOnce(ctx)
+			case <-time.After(d):
+				if s.config().Enabled {
+					s.RunOnce(ctx)
+				}
 			}
 		}
 	}()
