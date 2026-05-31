@@ -20,6 +20,8 @@ type Config struct {
 	AllowlistPath string          `toml:"allowlist_path"`
 	BlocklistPath string          `toml:"blocklist_path"`
 	EventLogPath  string          `toml:"eventlog_path"` // JSONL append file; empty = in-memory only
+
+	DownloadStatsPath string `toml:"download_stats_path"` // JSON; empty = default to cache dir on disk backend, else in-memory
 }
 
 type ServerConfig struct {

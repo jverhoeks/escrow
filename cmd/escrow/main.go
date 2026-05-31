@@ -20,6 +20,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/cireport"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dashboard"
+	"github.com/jverhoeks/escrow/internal/dlstats"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/handler/cargo"
 	"github.com/jverhoeks/escrow/internal/handler/composer"
@@ -233,6 +234,31 @@ func main() {
 		evLog = eventlog.New(5000)
 	}
 
+	// Download stats — persistent per-version counts, populated by subscribing
+	// to the event log. Defaults to the cache dir on the disk backend.
+	dlPath := config.ExpandPath(cfg.DownloadStatsPath)
+	if dlPath == "" && cfg.Storage.Backend == "disk" {
+		dlPath = filepath.Join(config.ExpandPath(cfg.Storage.Disk.Path), "escrow-downloads.json")
+	}
+	dlStore, err := dlstats.New(dlPath)
+	if err != nil {
+		log.Fatal().Err(err).Str("path", dlPath).Msg("failed to open download stats")
+	}
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	go dlstats.Consume(rootCtx, evLog, dlStore)
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-rootCtx.Done():
+				return
+			case <-t.C:
+				_ = dlStore.Flush()
+			}
+		}
+	}()
+
 	var signals []trust.Signal
 	if cfg.Policy != nil {
 		if cfg.Policy.Age != nil && !*noAge {
@@ -388,6 +414,8 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-quit
+		rootCancel()
+		_ = dlStore.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		srv.Shutdown(ctx)
