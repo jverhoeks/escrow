@@ -663,6 +663,11 @@
     .http-3xx { color: var(--info); font-weight: 600; }
     .http-4xx { color: var(--status-warned); font-weight: 600; }
     .http-5xx { color: var(--status-blocked); font-weight: 600; }
+    /* scanned vs downloaded marker */
+    .kind-pill { display:inline-block; margin-left:8px; font-size:9px; font-weight:700; padding:1px 6px;
+      border-radius:999px; letter-spacing:0.3px; vertical-align:middle; }
+    .kind-downloaded { background: color-mix(in srgb, var(--info) 18%, transparent); color: var(--info); border:1px solid color-mix(in srgb, var(--info) 40%, transparent); }
+    .kind-scanned { background: var(--bg-tertiary); color: var(--text-tertiary); }
 
     .pkg-name {
       color: var(--text-primary);
@@ -1004,6 +1009,7 @@
   <div class="panel-header">
     <span class="panel-header-title">Package Hierarchy</span>
     <div class="panel-header-actions">
+      <button class="btn-secondary" id="tree-filter-btn" onclick="toggleTreeFilter()" title="Toggle between downloaded/blocked versions and all scanned versions">Showing: Downloaded</button>
       <button class="btn-secondary" onclick="loadPackageTree()">↻ Refresh</button>
     </div>
   </div>
@@ -1081,6 +1087,8 @@ let allEvents = [];
 let chartsInitialized = false;
 let chartAllowed = null;
 let chartDenied = null;
+let treeDownloadedOnly = true; // hierarchy default: hide scanned-only versions
+let lastTreeData = null;       // cache so the filter toggle doesn't refetch
 
 // ── Theme Management ─────────────────────────────────────────────────────────
 
@@ -1129,8 +1137,15 @@ function makeRow(e) {
 
   const pkg = document.createElement('div');
   pkg.className = 'feed-pkg';
-  pkg.textContent = e.package || '';
-  pkg.title = e.package || '';
+  const pkgName = safeDecode(e.package || '');
+  pkg.textContent = pkgName;
+  pkg.title = pkgName;
+  if (e.kind === 'downloaded') {
+    const dl = document.createElement('span');
+    dl.className = 'kind-pill kind-downloaded';
+    dl.textContent = '↓ downloaded';
+    pkg.appendChild(dl);
+  }
 
   const sigText = e.signal ? (e.signal + (e.reason ? ' · ' + e.reason : '')) : '—';
   const reason = document.createElement('div');
@@ -1420,8 +1435,8 @@ function renderPackages(pkgs) {
 
     const name = document.createElement('div');
     name.className = 'pkg-name';
-    name.textContent = p.name;
-    name.title = p.name;
+    name.textContent = safeDecode(p.name || '');
+    name.title = safeDecode(p.name || '');
 
     const sigText = p.signal ? (p.signal + (p.reason ? ' · ' + p.reason : '')) : '—';
     const signal = document.createElement('div');
@@ -1459,7 +1474,15 @@ function renderPackages(pkgs) {
 
 function loadPackageTree() {
   const url = BASE + '/api/packages/tree' + (currentEco ? '?eco=' + encodeURIComponent(currentEco) : '');
-  fetch(url).then(r => r.json()).then(data => renderPackageTree(data || [])).catch(() => renderPackageTree([]));
+  fetch(url).then(r => r.json()).then(data => { lastTreeData = data || []; renderPackageTree(lastTreeData); }).catch(() => renderPackageTree([]));
+}
+
+function toggleTreeFilter() {
+  treeDownloadedOnly = !treeDownloadedOnly;
+  const btn = document.getElementById('tree-filter-btn');
+  if (btn) btn.textContent = treeDownloadedOnly ? 'Showing: Downloaded' : 'Showing: All scanned';
+  if (lastTreeData) renderPackageTree(lastTreeData);
+  else loadPackageTree();
 }
 
 // safeDecode turns URL-encoded package names (e.g. @playwright%2fmcp) into a
@@ -1559,7 +1582,13 @@ function renderPackageTree(ecosystems) {
       const versionList = document.createElement('div');
       versionList.className = 'tree-children hidden';
 
+      let shownVersions = 0;
       (p.versions || []).forEach(v => {
+        // Default view: only versions actually downloaded, or blocked/rejected —
+        // hide the scanned-but-never-used flood. Toggle shows everything.
+        if (treeDownloadedOnly && !v.downloaded && v.action !== 'block') return;
+        shownVersions++;
+
         const verItem = document.createElement('div');
         verItem.className = 'pkg-tree-item';
 
@@ -1570,26 +1599,33 @@ function renderPackageTree(ecosystems) {
         const mainRow = document.createElement('div');
         mainRow.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
 
+        // Version first, then status (per UX feedback).
+        const versionSpan = document.createElement('span');
+        versionSpan.className = 'pkg-tree-version';
+        versionSpan.textContent = v.version || '—';
+        versionSpan.style.fontWeight = '600';
+        versionSpan.style.minWidth = '90px';
+
         const statusSpan = document.createElement('span');
         statusSpan.className = 'status-icon ' + stClass;
         statusSpan.style.fontSize = '13px';
         statusSpan.textContent = stIcon + ' ' + stLabel;
         statusSpan.style.fontWeight = '600';
 
-        const versionSpan = document.createElement('span');
-        versionSpan.className = 'pkg-tree-version';
-        versionSpan.textContent = v.version || '—';
+        // scanned vs downloaded marker (cross-ecosystem, from event kind)
+        const kindPill = document.createElement('span');
+        kindPill.className = 'kind-pill ' + (v.downloaded ? 'kind-downloaded' : 'kind-scanned');
+        kindPill.style.marginLeft = '0';
+        kindPill.textContent = v.downloaded ? '↓ downloaded' : 'scanned';
 
         const meta = document.createElement('span');
         meta.style.cssText = 'font-size:11px;color:var(--text-tertiary);';
         const parts = [];
         parts.push((v.hit_count || 0) + '× hits');
         if (v.size != null && v.size >= 0) parts.push(fmtBytes(v.size));
-        else parts.push('size —');
-        parts.push(v.cached ? '● cached' : '○ uncached');
         meta.textContent = parts.join('  ·  ');
 
-        mainRow.append(statusSpan, versionSpan, meta);
+        mainRow.append(versionSpan, statusSpan, kindPill, meta);
 
         if (v.cve_count > 0) {
           const cve = document.createElement('span');
@@ -1625,13 +1661,29 @@ function renderPackageTree(ecosystems) {
         versionList.appendChild(verItem);
       });
 
+      // In downloaded-only mode, skip packages with nothing to show.
+      if (shownVersions === 0) return;
+      const total = (p.versions || []).length;
+      cnt.textContent = (treeDownloadedOnly && shownVersions !== total)
+        ? shownVersions + ' of ' + total + ' ver'
+        : total + ' ver';
+
       pkgNode.appendChild(versionList);
       pkgList.appendChild(pkgNode);
     });
 
+    // Hide empty ecosystem groups (all their packages filtered out).
+    if (!pkgList.children.length) return;
     ecoNode.appendChild(pkgList);
     container.appendChild(ecoNode);
   });
+
+  if (!container.children.length) {
+    container.innerHTML = '<div style="padding: 24px; color: var(--text-tertiary); font-size: 13px;">' +
+      (treeDownloadedOnly
+        ? 'No downloaded or blocked versions yet. Toggle “Show all scanned” to see every evaluated version.'
+        : 'No packages seen yet.') + '</div>';
+  }
 }
 
 // ── CVEs ───────────────────────────────────────────────────────────────────
@@ -1694,8 +1746,8 @@ function renderCVEs(rows) {
 
     const pkg = document.createElement('div');
     pkg.className = 'pkg-name';
-    pkg.textContent = c.package || '—';
-    pkg.title = (c.package || '') + ' · ' + (c.reason || '');
+    pkg.textContent = c.package ? safeDecode(c.package) : '—';
+    pkg.title = safeDecode(c.package || '') + ' · ' + (c.reason || '');
 
     const ver = document.createElement('div');
     ver.className = 'mono';
