@@ -12,7 +12,34 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jverhoeks/escrow/internal/accesslog"
 )
+
+// accessRingMiddleware records every request into the in-memory ring after the
+// handler completes. It runs regardless of whether file logging is configured,
+// so the dashboard's Access Logs view always has data.
+func accessRingMiddleware(ring *accesslog.Log) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			next.ServeHTTP(ww, r)
+
+			host, _, _ := net.SplitHostPort(r.RemoteAddr)
+			if host == "" {
+				host = r.RemoteAddr
+			}
+			ring.Record(accesslog.Entry{
+				Host:      host,
+				Method:    r.Method,
+				Path:      r.URL.Path,
+				Proto:     r.Proto,
+				Status:    ww.Status(),
+				Bytes:     int64(ww.BytesWritten()),
+				UserAgent: r.UserAgent(),
+			})
+		})
+	}
+}
 
 const (
 	defaultAccessLogMaxDays = 30

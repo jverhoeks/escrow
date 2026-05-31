@@ -357,7 +357,7 @@ func main() {
 
 	if cfg.Dashboard.Enabled {
 		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
-			config.ExpandPath(cfg.Server.AccessLogPath), cfg.Server.AccessLogMaxDays, upstreamLog)
+			srv.AccessRing(), upstreamLog)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
 	}

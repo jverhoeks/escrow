@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog"
+	"github.com/jverhoeks/escrow/internal/accesslog"
 	"github.com/jverhoeks/escrow/internal/metrics"
 )
 
@@ -55,22 +56,28 @@ type Options struct {
 }
 
 type Server struct {
-	http      *http.Server
-	router    *chi.Mux
-	log       zerolog.Logger
-	certFile  string
-	keyFile   string
-	rl        *ipRateLimiter // may be nil
-	accessLog *AccessLogger  // may be nil
+	http       *http.Server
+	router     *chi.Mux
+	log        zerolog.Logger
+	certFile   string
+	keyFile    string
+	rl         *ipRateLimiter // may be nil
+	accessLog  *AccessLogger  // may be nil
+	accessRing *accesslog.Log // always present
 }
 
 func New(opts Options, log zerolog.Logger) *Server {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 
-	s := &Server{router: r, log: log, certFile: opts.TLSCertFile, keyFile: opts.TLSKeyFile}
+	ring := accesslog.New(2000)
+	s := &Server{router: r, log: log, certFile: opts.TLSCertFile, keyFile: opts.TLSKeyFile, accessRing: ring}
 
-	// Access log (Apache combined format) — optional.
+	// In-memory access log ring — always on, independent of file logging, so
+	// the dashboard's Access Logs view works with no config required.
+	r.Use(accessRingMiddleware(ring))
+
+	// Access log (Apache combined format) — optional, for persistence.
 	if opts.AccessLogPath != "" {
 		al, err := NewAccessLogger(opts.AccessLogPath, opts.AccessLogMaxDays)
 		if err != nil {
@@ -166,6 +173,10 @@ func faviconHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) Router() *chi.Mux { return s.router }
+
+// AccessRing returns the in-memory access log ring, which records every request
+// regardless of whether file logging is enabled.
+func (s *Server) AccessRing() *accesslog.Log { return s.accessRing }
 
 func (s *Server) Start() error {
 	s.log.Info().Str("addr", s.http.Addr).Msg("escrow listening")

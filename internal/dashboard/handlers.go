@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jverhoeks/escrow/internal/accesslog"
 	"github.com/jverhoeks/escrow/internal/allow"
 	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/cache"
@@ -34,24 +35,22 @@ type Dashboard struct {
 	blockList    *block.List // may be nil
 	cache        cache.Cache // may be nil
 
-	accessLogPath    string // may be empty
-	accessLogMaxDays int
-	upstreamLog      *upstreamlog.Log // may be nil
+	accessRing  *accesslog.Log   // may be nil
+	upstreamLog *upstreamlog.Log // may be nil
 }
 
-func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache, accessLogPath string, accessLogMaxDays int, upstreamLog *upstreamlog.Log) *Dashboard {
+func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache, accessRing *accesslog.Log, upstreamLog *upstreamlog.Log) *Dashboard {
 	return &Dashboard{
-		cfg:              cfg,
-		auth:             NewAuth(cfg.Username, cfg.Password, cfg.Secret),
-		loginLimiter:     newLoginRateLimiter(),
-		log:              log,
-		logger:           logger,
-		allowList:        allowList,
-		blockList:        blockList,
-		cache:            c,
-		accessLogPath:    accessLogPath,
-		accessLogMaxDays: accessLogMaxDays,
-		upstreamLog:      upstreamLog,
+		cfg:          cfg,
+		auth:         NewAuth(cfg.Username, cfg.Password, cfg.Secret),
+		loginLimiter: newLoginRateLimiter(),
+		log:          log,
+		logger:       logger,
+		allowList:    allowList,
+		blockList:    blockList,
+		cache:        c,
+		accessRing:   accessRing,
+		upstreamLog:  upstreamLog,
 	}
 }
 

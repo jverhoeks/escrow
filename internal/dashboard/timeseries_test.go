@@ -46,7 +46,7 @@ func newTestDashboardWithEvents(t *testing.T) (http.Handler, *eventlog.Log) {
 	evLog.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "b@1.0.0", Action: "block", Signal: "osv",
 		Vulns: []trust.Vuln{{ID: "GHSA-x", Severity: "HIGH"}}})
 	evLog.Record(eventlog.PackageEvent{Ecosystem: "pypi", Package: "c@2.0.0", Action: "warn"})
-	dash := dashboard.New(cfg, evLog, zerolog.Nop(), al, nil, nil, "", 0, nil)
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), al, nil, nil, nil, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 	return r, evLog
