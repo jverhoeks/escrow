@@ -13,6 +13,26 @@ import (
 	"github.com/jverhoeks/escrow/internal/trust"
 )
 
+func TestOSV_CheckFreshBypassesCache(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`{"vulns":[{"id":"GHSA-new","database_specific":{"severity":"HIGH"}}]}`))
+	}))
+	defer srv.Close()
+	s := trust.NewOSVSignal("HIGH", srv.Client(), cache.NewMemory(), srv.URL)
+	pkg := trust.Package{Ecosystem: trust.EcosystemNPM, Name: "x", Version: "1.0.0"}
+
+	// First Check populates the cache.
+	_, _ = s.Check(context.Background(), pkg)
+	// CheckFresh must hit the network again (not the cache).
+	rep, err := s.CheckFresh(context.Background(), pkg)
+	require.NoError(t, err)
+	require.Equal(t, trust.SignalFail, rep.Result)
+	require.Len(t, rep.Vulns, 1)
+	require.Equal(t, 2, calls) // both calls hit upstream
+}
+
 func TestOSV_ReportCarriesStructuredVulns(t *testing.T) {
 	body := `{"vulns":[
 		{"id":"GHSA-aaaa","database_specific":{"severity":"CRITICAL"}},
