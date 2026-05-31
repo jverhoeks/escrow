@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -361,6 +362,66 @@ func main() {
 		log.Info().Bool("auto_block", autoBlock).Int("interval_hours", interval).Str("min_severity", minSev).Msg("CVE re-scanner enabled")
 	}
 
+	// restartSnapshot captures the fields that cannot be applied live; a reload
+	// reports any that changed as restart-required.
+	restartSnapshot := func(c config.Config) map[string]string {
+		return map[string]string{
+			"server":     fmt.Sprintf("%s:%d:%s:%s", c.Server.Host, c.Server.Port, c.Server.TLSCertFile, c.Server.TLSKeyFile),
+			"storage":    fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
+			"ecosystems": fmt.Sprintf("%v", c.Ecosystems),
+			"secret":     c.Dashboard.Secret,
+			"paths":      fmt.Sprintf("%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath),
+		}
+	}
+	startupSnapshot := restartSnapshot(cfg)
+
+	reloadFn := func() (dashboard.ReloadResult, error) {
+		newCfg, err := config.Load(*cfgPath)
+		if err != nil {
+			return dashboard.ReloadResult{}, err
+		}
+		if errs := newCfg.Validate(); len(errs) > 0 {
+			return dashboard.ReloadResult{}, errs[0]
+		}
+		var restart []string
+		now := restartSnapshot(newCfg)
+		for k, v := range startupSnapshot {
+			if now[k] != v {
+				restart = append(restart, k)
+			}
+		}
+		// Apply the live-reloadable subset.
+		polEngine.SetConfig(newCfg.Policy)
+		rMinSev := "HIGH"
+		if newCfg.Policy != nil && newCfg.Policy.OSV != nil && newCfg.Policy.OSV.MinSeverity != "" {
+			rMinSev = newCfg.Policy.OSV.MinSeverity
+		}
+		rEnabled, rAutoBlock, rInterval := true, true, 24
+		if rc := newCfg.Rescan; rc != nil {
+			if rc.Enabled != nil {
+				rEnabled = *rc.Enabled
+			}
+			if rc.AutoBlock != nil {
+				rAutoBlock = *rc.AutoBlock
+			}
+			if rc.MinSeverity != "" {
+				rMinSev = rc.MinSeverity
+			}
+			if rc.IntervalHours > 0 {
+				rInterval = rc.IntervalHours
+			}
+		}
+		if scanner != nil {
+			scanner.SetConfig(rescan.Config{Enabled: rEnabled, IntervalHours: rInterval, AutoBlock: rAutoBlock, MinSeverity: rMinSev})
+		}
+		if wh != nil {
+			wh.SetURL(newCfg.Alerts.WebhookURL)
+		}
+		reloaded := []string{"policy", "rescan", "alerts"}
+		log.Info().Strs("reloaded", reloaded).Strs("restart_required", restart).Msg("config reloaded")
+		return dashboard.ReloadResult{Reloaded: reloaded, RestartRequired: restart}, nil
+	}
+
 	cacheDir := ""
 	if cfg.Storage.Backend == "disk" {
 		cacheDir = config.ExpandPath(cfg.Storage.Disk.Path)
@@ -457,10 +518,30 @@ func main() {
 
 	if cfg.Dashboard.Enabled {
 		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
-			srv.AccessRing(), upstreamLog, dlStore, scanner)
+			srv.AccessRing(), upstreamLog, dlStore, scanner, *cfgPath, reloadFn)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
 	}
+
+	// PID file so `escrow-cli reload` can find and SIGHUP this process.
+	pidPath := filepath.Join(filepath.Dir(*cfgPath), "escrow.pid")
+	if cfg.Storage.Backend == "disk" {
+		pidPath = filepath.Join(config.ExpandPath(cfg.Storage.Disk.Path), "escrow.pid")
+	}
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); err == nil {
+		defer os.Remove(pidPath)
+	}
+
+	// SIGHUP → reload the live-reloadable config subset.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	go func() {
+		for range hup {
+			if _, err := reloadFn(); err != nil {
+				log.Error().Err(err).Msg("SIGHUP reload failed; keeping previous config")
+			}
+		}
+	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

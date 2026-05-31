@@ -42,9 +42,12 @@ type Dashboard struct {
 
 	dl      *dlstats.Store  // may be nil
 	scanner *rescan.Scanner // may be nil
+
+	configPath string     // path to escrow.toml; empty disables settings/reload
+	reload     ReloadFunc // may be nil
 }
 
-func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache, accessRing *accesslog.Log, upstreamLog *upstreamlog.Log, dl *dlstats.Store, scanner *rescan.Scanner) *Dashboard {
+func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache, accessRing *accesslog.Log, upstreamLog *upstreamlog.Log, dl *dlstats.Store, scanner *rescan.Scanner, configPath string, reload ReloadFunc) *Dashboard {
 	return &Dashboard{
 		cfg:          cfg,
 		auth:         NewAuth(cfg.Username, cfg.Password, cfg.Secret),
@@ -58,6 +61,8 @@ func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, a
 		upstreamLog:  upstreamLog,
 		dl:           dl,
 		scanner:      scanner,
+		configPath:   configPath,
+		reload:       reload,
 	}
 }
 
@@ -114,6 +119,9 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Get("/api/rescan/status", d.handleRescanStatus)
 	protected.Post("/api/rescan", d.handleRescanTrigger)
 	protected.Get("/api/newly-vulnerable", d.handleNewlyVulnerable)
+	protected.Post("/api/reload", d.handleReload)
+	protected.Get("/api/settings", d.handleGetSettings)
+	protected.Post("/api/settings", d.handleSaveSettings)
 	protected.Post("/api/allow", d.handleAllow)
 	protected.Delete("/api/allow", d.handleAllowRemove)
 	protected.Get("/api/allowlist", d.handleAllowList)

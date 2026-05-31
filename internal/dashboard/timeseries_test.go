@@ -46,7 +46,7 @@ func TestTimeseries_KindDownloadedFilter(t *testing.T) {
 	evLog.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "a@1.0.0", Action: "allow", Kind: eventlog.KindScanned, Timestamp: now})
 	evLog.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "b@1.0.0", Action: "allow", Kind: eventlog.KindDownloaded, Timestamp: now})
 	evLog.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "c@1.0.0", Action: "block", Kind: eventlog.KindScanned, Timestamp: now})
-	dash := dashboard.New(cfg, evLog, zerolog.Nop(), al, nil, nil, nil, nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), al, nil, nil, nil, nil, nil, nil, "", nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
@@ -85,7 +85,7 @@ func newTestDashboardWithEvents(t *testing.T) (http.Handler, *eventlog.Log) {
 	evLog.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "b@1.0.0", Action: "block", Signal: "osv",
 		Vulns: []trust.Vuln{{ID: "GHSA-x", Severity: "HIGH"}}})
 	evLog.Record(eventlog.PackageEvent{Ecosystem: "pypi", Package: "c@2.0.0", Action: "warn"})
-	dash := dashboard.New(cfg, evLog, zerolog.Nop(), al, nil, nil, nil, nil, nil, nil)
+	dash := dashboard.New(cfg, evLog, zerolog.Nop(), al, nil, nil, nil, nil, nil, nil, "", nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 	return r, evLog
