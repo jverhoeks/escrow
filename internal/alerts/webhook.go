@@ -58,3 +58,35 @@ func (w *Webhook) Send(pkg trust.Package, d policy.Decision) error {
 	}
 	return nil
 }
+
+type rescanPayload struct {
+	Type          string   `json:"type"` // always "retroactive-cve"
+	Ecosystem     string   `json:"ecosystem"`
+	Name          string   `json:"name"`
+	Version       string   `json:"version"`
+	Vulns         []string `json:"vulns"`
+	Severity      string   `json:"severity"`
+	Blocked       bool     `json:"blocked"`
+	DownloadCount int      `json:"download_count"`
+	Timestamp     string   `json:"timestamp"`
+}
+
+// SendRescan POSTs an alert about a newly-discovered vulnerability on a package
+// version that was previously allowed/used.
+func (w *Webhook) SendRescan(eco, name, version string, vulns []string, severity string, blocked bool, downloadCount int) error {
+	payload := rescanPayload{
+		Type: "retroactive-cve", Ecosystem: eco, Name: name, Version: version,
+		Vulns: vulns, Severity: severity, Blocked: blocked, DownloadCount: downloadCount,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := w.client.Post(w.url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("rescan webhook post failed: %w", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("rescan webhook returned %d", resp.StatusCode)
+	}
+	return nil
+}
