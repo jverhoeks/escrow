@@ -9,11 +9,10 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/allow"
 	"github.com/jverhoeks/escrow/internal/block"
@@ -34,6 +33,8 @@ import (
 	"github.com/jverhoeks/escrow/internal/trust"
 	"github.com/jverhoeks/escrow/internal/upstream"
 	"github.com/jverhoeks/escrow/internal/upstreamlog"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z"
@@ -48,14 +49,15 @@ func main() {
 
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
-	cfgPath    := flag.String("config", "escrow.toml", "config file path")
-	hostFlag   := flag.String("host", "", "listen host (overrides config; use 0.0.0.0 for all interfaces, default 127.0.0.1)")
+	cfgPath := flag.String("config", "escrow.toml", "config file path")
+	hostFlag := flag.String("host", "", "listen host (overrides config; use 0.0.0.0 for all interfaces, default 127.0.0.1)")
 	clearCache := flag.Bool("clear-cache", false, "flush all cached metadata and blobs on startup before serving")
+	clearStats := flag.Bool("clear", false, "clear persisted event-log stats on startup")
 	// Signal overrides — each flag disables the corresponding policy check regardless of config.
-	noAge       := flag.Bool("no-age",       false, "disable the age gate (ignore policy.age in config)")
-	noOSV       := flag.Bool("no-osv",       false, "disable OSV vulnerability scan (ignore policy.osv in config)")
+	noAge := flag.Bool("no-age", false, "disable the age gate (ignore policy.age in config)")
+	noOSV := flag.Bool("no-osv", false, "disable OSV vulnerability scan (ignore policy.osv in config)")
 	noPublisher := flag.Bool("no-publisher", false, "disable publisher account age check (ignore policy.publisher in config)")
-	noPopularity:= flag.Bool("no-popularity",false, "disable popularity spike detection (ignore policy.popularity in config)")
+	noPopularity := flag.Bool("no-popularity", false, "disable popularity spike detection (ignore policy.popularity in config)")
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -199,14 +201,34 @@ func main() {
 	}
 	polEngine.WithBlockList(blockList)
 
-	var evLog *eventlog.Log
+	// Resolve the effective event-log path so stats survive restarts by default
+	// on the disk backend. An explicit cfg.EventLogPath always wins; otherwise
+	// the disk backend defaults to escrow-events.jsonl inside the cache dir.
+	// Memory/S3 backends have no local dir, so stats stay in-memory (ephemeral).
+	var evLogPath, evLogMsg string
 	if cfg.EventLogPath != "" {
-		evLog, err = eventlog.NewWithPath(5000, config.ExpandPath(cfg.EventLogPath))
+		evLogPath = config.ExpandPath(cfg.EventLogPath)
+		evLogMsg = "event log persistence enabled"
+	} else if cfg.Storage.Backend == "disk" {
+		evLogPath = filepath.Join(config.ExpandPath(cfg.Storage.Disk.Path), "escrow-events.jsonl")
+		evLogMsg = "event log persistence enabled (default path)"
+	}
+
+	var evLog *eventlog.Log
+	if evLogPath != "" {
+		if *clearStats {
+			if err := os.Remove(evLogPath); err != nil && !os.IsNotExist(err) {
+				log.Warn().Err(err).Str("path", evLogPath).Msg("failed to clear event-log stats")
+			} else {
+				log.Info().Str("path", evLogPath).Msg("cleared event-log stats")
+			}
+		}
+		evLog, err = eventlog.NewWithPath(5000, evLogPath)
 		if err != nil {
-			log.Fatal().Err(err).Str("path", cfg.EventLogPath).Msg("failed to open event log file")
+			log.Fatal().Err(err).Str("path", evLogPath).Msg("failed to open event log file")
 		}
 		defer evLog.Close()
-		log.Info().Str("path", cfg.EventLogPath).Msg("event log persistence enabled")
+		log.Info().Str("path", evLogPath).Msg(evLogMsg)
 	} else {
 		evLog = eventlog.New(5000)
 	}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/jverhoeks/escrow/internal/eventlog"
 )
 
 // handleTimeseries returns per-action, per-ecosystem hourly counts over a window.
@@ -19,6 +21,7 @@ func (d *Dashboard) handleTimeseries(w http.ResponseWriter, r *http.Request) {
 		window = time.Hour
 	}
 	bucket := time.Hour // only hourly buckets are supported
+	kind := r.URL.Query().Get("kind")
 
 	now := time.Now().UTC().Truncate(bucket)
 	start := now.Add(-window).Add(bucket) // inclusive of the current bucket
@@ -51,6 +54,12 @@ func (d *Dashboard) handleTimeseries(w http.ResponseWriter, r *http.Request) {
 	for _, e := range d.log.Events("") {
 		key, ok := actionKey[e.Action]
 		if !ok {
+			continue
+		}
+		// When kind=downloaded, the "allowed" series counts only versions that
+		// were actually downloaded (artifact fetch), not noisy scan-time allows.
+		// Block and warn events are scan-time decisions and are still counted.
+		if kind == "downloaded" && e.Action == "allow" && e.Kind != eventlog.KindDownloaded {
 			continue
 		}
 		i := idxFor(e.Timestamp)

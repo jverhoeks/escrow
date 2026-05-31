@@ -69,6 +69,44 @@ func TestPackagesTree_ScannedVsDownloaded(t *testing.T) {
 	}
 }
 
+// TestPackages_DownloadedFlag verifies that a version with a downloaded
+// (artifact-fetch) event is marked Downloaded==true on /api/packages, while a
+// version with only scanned events stays Downloaded==false.
+func TestPackages_DownloadedFlag(t *testing.T) {
+	log := eventlog.New(50)
+	// dl@1.0.0: scanned then downloaded → Downloaded should be true.
+	log.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "dl@1.0.0", Action: "allow", Kind: eventlog.KindScanned})
+	log.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "dl@1.0.0", Action: "allow", Kind: eventlog.KindDownloaded, Reason: "artifact downloaded"})
+	// scan@1.0.0: scanned only → Downloaded should be false.
+	log.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "scan@1.0.0", Action: "allow", Kind: eventlog.KindScanned})
+
+	d := &Dashboard{log: log}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/packages?eco=npm", nil)
+	d.handlePackages(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var out []struct {
+		Name       string `json:"name"`
+		Downloaded bool   `json:"downloaded"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got := map[string]bool{}
+	for _, e := range out {
+		got[e.Name] = e.Downloaded
+	}
+	if !got["dl"] {
+		t.Errorf("dl Downloaded = false, want true (a downloaded event was recorded)")
+	}
+	if got["scan"] {
+		t.Errorf("scan Downloaded = true, want false (only scanned events)")
+	}
+}
+
 func TestNamespaceFor(t *testing.T) {
 	cases := []struct{ eco, name, wantNS, wantLeaf string }{
 		{"npm", "@scope/pkg", "@scope", "pkg"},

@@ -37,9 +37,9 @@ type versionMeta struct {
 // Handler proxies the Cargo sparse registry protocol.
 type Handler struct {
 	client        *http.Client
-	upstreamURL   string // "https://index.crates.io"
-	downloadURL   string // "https://static.crates.io"
-	apiURL        string // "https://crates.io"
+	upstreamURL   string        // "https://index.crates.io"
+	downloadURL   string        // "https://static.crates.io"
+	apiURL        string        // "https://crates.io"
 	engine        *trust.Engine // full engine: age + OSV + publisher (download time)
 	listingEngine *trust.Engine // age-only engine (index listing)
 	policy        *policy.Engine
@@ -115,6 +115,17 @@ func (h *Handler) serveConfig(w http.ResponseWriter, r *http.Request) {
 // serveIndex proxies the crate index from index.crates.io and filters blocked versions.
 // The index is NDJSON (one version per line). Blocked versions are omitted entirely.
 func (h *Handler) serveIndex(w http.ResponseWriter, r *http.Request) {
+	// Escrow's Cargo registry is sparse-only. A git client (e.g. cargo without
+	// 'protocol = "sparse"') probes these git-protocol endpoints; without this
+	// guard they fall through to the upstream proxy → 404, polluting the upstream
+	// log. Answer them locally with a clear hint and no upstream fetch.
+	if p := r.URL.Path; strings.HasSuffix(p, "/info/refs") ||
+		strings.Contains(p, "/git-upload-pack") ||
+		strings.Contains(p, "/git-receive-pack") {
+		http.Error(w, "escrow cargo registry is sparse-only; set 'protocol = \"sparse\"' in your cargo registry config", http.StatusNotFound)
+		return
+	}
+
 	indexPath := chi.URLParam(r, "*")
 	// indexPath looks like "se/rd/serde" or "3/s/syn" etc.
 	// Extract the crate name from the last segment.
@@ -349,4 +360,3 @@ func (h *Handler) checkTrust(r *http.Request, w http.ResponseWriter, name, versi
 	}
 	return d.Action == policy.ActionBlock
 }
-

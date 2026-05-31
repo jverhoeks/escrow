@@ -11,14 +11,14 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/handler/cargo"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // cargoUpstreamServers groups the three mock upstream servers Cargo needs.
@@ -248,6 +248,30 @@ func TestCargoHandler_ServeDownload_Cached(t *testing.T) {
 		require.Equal(t, http.StatusOK, rr.Code)
 	}
 	assert.Equal(t, 1, hitCount, "download server should only be hit once — second request from cache")
+}
+
+func TestCargoHandler_GitProtocolGuard_NotFound(t *testing.T) {
+	// A git client probing /cargo/info/refs must get a local 404 with a
+	// sparse-only hint, never an upstream proxy attempt.
+	ups := makeUpstream(
+		time.Now().Add(-30*24*time.Hour),
+		time.Now().Add(-30*24*time.Hour),
+	)
+	defer ups.Close()
+	h := makeHandler(ups, 1)
+
+	r := chi.NewRouter()
+	h.Mount(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/cargo/info/refs?service=git-upload-pack", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNotFound, rr.Code)
+	body, err := io.ReadAll(rr.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "sparse-only")
+	assert.Contains(t, string(body), `protocol = "sparse"`)
 }
 
 // nonEmptyLines splits a string on newlines and returns non-empty lines.

@@ -346,15 +346,16 @@ func (d *Dashboard) handlePackages(w http.ResponseWriter, r *http.Request) {
 	all := d.log.Events("") // newest-first
 
 	type pkgEntry struct {
-		Ecosystem string    `json:"ecosystem"`
-		Name      string    `json:"name"`
-		Version   string    `json:"version"`
-		Action    string    `json:"action"`
-		Signal    string    `json:"signal"`
-		Reason    string    `json:"reason"`
-		LastSeen  time.Time `json:"last_seen"`
-		HitCount  int       `json:"hit_count"`
-		Cached    bool      `json:"cached"`
+		Ecosystem  string    `json:"ecosystem"`
+		Name       string    `json:"name"`
+		Version    string    `json:"version"`
+		Action     string    `json:"action"`
+		Signal     string    `json:"signal"`
+		Reason     string    `json:"reason"`
+		LastSeen   time.Time `json:"last_seen"`
+		HitCount   int       `json:"hit_count"`
+		Cached     bool      `json:"cached"`
+		Downloaded bool      `json:"downloaded"` // true if any artifact-fetch event was recorded for this version
 	}
 
 	type key struct{ eco, name, version string }
@@ -367,16 +368,20 @@ func (d *Dashboard) handlePackages(w http.ResponseWriter, r *http.Request) {
 		k := key{e.Ecosystem, name, version}
 		if existing, ok := seen[k]; ok {
 			existing.HitCount++
+			if e.Kind == eventlog.KindDownloaded {
+				existing.Downloaded = true
+			}
 		} else {
 			seen[k] = &pkgEntry{
-				Ecosystem: e.Ecosystem,
-				Name:      name,
-				Version:   version,
-				Action:    e.Action,
-				Signal:    e.Signal,
-				Reason:    e.Reason,
-				LastSeen:  e.Timestamp,
-				HitCount:  1,
+				Ecosystem:  e.Ecosystem,
+				Name:       name,
+				Version:    version,
+				Action:     e.Action,
+				Signal:     e.Signal,
+				Reason:     e.Reason,
+				LastSeen:   e.Timestamp,
+				HitCount:   1,
+				Downloaded: e.Kind == eventlog.KindDownloaded,
 			}
 		}
 	}
