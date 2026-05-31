@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"sync"
+
 	"github.com/jverhoeks/escrow/internal/allow"
 	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/config"
@@ -23,12 +25,20 @@ type Decision struct {
 }
 
 type Engine struct {
+	mu        sync.RWMutex
 	cfg       *config.PolicyConfig
 	allowList *allow.List // may be nil
 	blockList *block.List // may be nil
 }
 
 func New(cfg *config.PolicyConfig) *Engine { return &Engine{cfg: cfg} }
+
+// SetConfig swaps the policy config atomically (live reload).
+func (e *Engine) SetConfig(cfg *config.PolicyConfig) {
+	e.mu.Lock()
+	e.cfg = cfg
+	e.mu.Unlock()
+}
 
 // WithAllowList sets the allowlist on the engine and returns the engine for chaining.
 func (e *Engine) WithAllowList(l *allow.List) *Engine {
@@ -43,6 +53,9 @@ func (e *Engine) WithBlockList(l *block.List) *Engine {
 }
 
 func (e *Engine) Evaluate(result trust.TrustResult) Decision {
+	e.mu.RLock()
+	cfg := e.cfg
+	e.mu.RUnlock()
 	if e.allowList != nil {
 		if ok, entry := e.allowList.IsAllowed(
 			string(result.Package.Ecosystem),
@@ -69,7 +82,7 @@ func (e *Engine) Evaluate(result trust.TrustResult) Decision {
 			}
 		}
 	}
-	if e.cfg == nil {
+	if cfg == nil {
 		return Decision{Action: ActionAllow}
 	}
 	var warns []Decision
@@ -79,9 +92,9 @@ func (e *Engine) Evaluate(result trust.TrustResult) Decision {
 		}
 		var a Action
 		if r.Result == trust.SignalError {
-			a = cfgAction(e.cfg.StrictSignals)
+			a = cfgAction(cfg.StrictSignals)
 		} else {
-			a = e.actionFor(r)
+			a = e.actionFor(cfg, r)
 		}
 		d := Decision{Action: a, Signal: r.Signal, Reason: r.Reason, Vulns: r.Vulns}
 		if a == ActionBlock {
@@ -108,23 +121,23 @@ func cfgAction(s string) Action {
 	}
 }
 
-func (e *Engine) actionFor(r trust.SignalReport) Action {
+func (e *Engine) actionFor(cfg *config.PolicyConfig, r trust.SignalReport) Action {
 	switch r.Signal {
 	case "age":
-		if e.cfg.Age != nil && r.Result == trust.SignalFail {
-			return cfgAction(e.cfg.Age.Action)
+		if cfg.Age != nil && r.Result == trust.SignalFail {
+			return cfgAction(cfg.Age.Action)
 		}
 	case "osv":
-		if e.cfg.OSV != nil && r.Result == trust.SignalFail {
-			return cfgAction(e.cfg.OSV.Action)
+		if cfg.OSV != nil && r.Result == trust.SignalFail {
+			return cfgAction(cfg.OSV.Action)
 		}
 	case "publisher":
-		if e.cfg.Publisher != nil && r.Result == trust.SignalWarn {
-			return cfgAction(e.cfg.Publisher.Action)
+		if cfg.Publisher != nil && r.Result == trust.SignalWarn {
+			return cfgAction(cfg.Publisher.Action)
 		}
 	case "popularity":
-		if e.cfg.Popularity != nil && r.Result == trust.SignalWarn {
-			return cfgAction(e.cfg.Popularity.Action)
+		if cfg.Popularity != nil && r.Result == trust.SignalWarn {
+			return cfgAction(cfg.Popularity.Action)
 		}
 	}
 	return ActionAllow

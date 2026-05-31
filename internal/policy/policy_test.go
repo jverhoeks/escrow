@@ -102,3 +102,15 @@ func TestPolicy_StrictSignals_Warn(t *testing.T) {
 	d := eng.Evaluate(result)
 	assert.Equal(t, policy.ActionWarn, d.Action)
 }
+
+func TestEngine_SetConfig_AppliesLive(t *testing.T) {
+	e := policy.New(&config.PolicyConfig{OSV: &config.OSVPolicyConfig{Action: "warn"}})
+	res := trust.TrustResult{
+		Package: trust.Package{Ecosystem: trust.EcosystemNPM, Name: "x", Version: "1.0.0"},
+		Reports: []trust.SignalReport{{Signal: "osv", Result: trust.SignalFail, Reason: "v"}},
+	}
+	require.Equal(t, policy.ActionWarn, e.Evaluate(res).Action)
+
+	e.SetConfig(&config.PolicyConfig{OSV: &config.OSVPolicyConfig{Action: "block"}})
+	require.Equal(t, policy.ActionBlock, e.Evaluate(res).Action)
+}
