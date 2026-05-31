@@ -30,6 +30,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/handler/nuget"
 	"github.com/jverhoeks/escrow/internal/handler/pypi"
 	"github.com/jverhoeks/escrow/internal/policy"
+	"github.com/jverhoeks/escrow/internal/rescan"
 	"github.com/jverhoeks/escrow/internal/server"
 	"github.com/jverhoeks/escrow/internal/trust"
 	"github.com/jverhoeks/escrow/internal/upstream"
@@ -40,6 +41,15 @@ import (
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z"
 var version = "dev"
+
+// dlStatsAdapter adapts *dlstats.Store to the rescan.DownloadStats interface so
+// the rescan package doesn't import dlstats directly.
+type dlStatsAdapter struct{ s *dlstats.Store }
+
+func (a dlStatsAdapter) Get(eco, name, version string) (int, time.Time, bool) {
+	st, ok := a.s.Get(eco, name, version)
+	return st.Count, st.LastAt, ok
+}
 
 func main() {
 	// Handle subcommands before flag parsing so they get their own flags.
@@ -307,6 +317,40 @@ func main() {
 	if cfg.Alerts.WebhookURL != "" {
 		wh = alerts.NewWebhook(cfg.Alerts.WebhookURL, nil)
 		log.Info().Str("url", cfg.Alerts.WebhookURL).Msg("webhook alerts enabled")
+	}
+
+	// Continuous CVE re-scanner.
+	var scanner *rescan.Scanner
+	{
+		rc := cfg.Rescan
+		enabled := rc == nil || rc.Enabled // default on when section omitted
+		minSev := "HIGH"
+		if cfg.Policy != nil && cfg.Policy.OSV != nil && cfg.Policy.OSV.MinSeverity != "" {
+			minSev = cfg.Policy.OSV.MinSeverity
+		}
+		autoBlock := true
+		interval := 24
+		if rc != nil {
+			if rc.MinSeverity != "" {
+				minSev = rc.MinSeverity
+			}
+			autoBlock = rc.AutoBlock
+			if rc.IntervalHours > 0 {
+				interval = rc.IntervalHours
+			}
+		}
+		rescanOSV := trust.NewOSVSignal(minSev, httpClient, c, "")
+		var alerter rescan.Alerter
+		if wh != nil {
+			alerter = wh
+		}
+		scanner = rescan.New(rescan.Deps{
+			Log: evLog, OSV: rescanOSV, BlockList: blockList,
+			Stats: dlStatsAdapter{dlStore}, Alerter: alerter,
+			Logger: nil,
+		}, rescan.Config{Enabled: enabled, IntervalHours: interval, AutoBlock: autoBlock, MinSeverity: minSev})
+		scanner.Start(rootCtx)
+		log.Info().Bool("auto_block", autoBlock).Int("interval_hours", interval).Str("min_severity", minSev).Msg("CVE re-scanner enabled")
 	}
 
 	cacheDir := ""

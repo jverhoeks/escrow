@@ -22,6 +22,15 @@ type Config struct {
 	EventLogPath  string          `toml:"eventlog_path"` // JSONL append file; empty = in-memory only
 
 	DownloadStatsPath string `toml:"download_stats_path"` // JSON; empty = default to cache dir on disk backend, else in-memory
+
+	Rescan *RescanConfig `toml:"rescan"`
+}
+
+type RescanConfig struct {
+	Enabled       bool   `toml:"enabled"`
+	IntervalHours int    `toml:"interval_hours"` // 0 → 24
+	AutoBlock     bool   `toml:"auto_block"`
+	MinSeverity   string `toml:"min_severity"` // empty → inherit policy.osv.min_severity
 }
 
 type ServerConfig struct {
