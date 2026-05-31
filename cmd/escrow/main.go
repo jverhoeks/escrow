@@ -537,6 +537,18 @@ func main() {
 		defer os.Remove(pidPath)
 	}
 
+	// Publish a CWD-independent runtime record so `escrow-cli live`/`reload` can
+	// find the live process and its (absolute) event log from any directory.
+	evLogAbs := evLogPath
+	if evLogAbs != "" {
+		if abs, aerr := filepath.Abs(evLogAbs); aerr == nil {
+			evLogAbs = abs
+		}
+	}
+	if err := config.WriteRuntime(config.Runtime{EventLogPath: evLogAbs, PID: os.Getpid(), Port: cfg.Server.Port}); err != nil {
+		log.Debug().Err(err).Msg("could not write runtime discovery file")
+	}
+
 	// SIGHUP → reload the live-reloadable config subset.
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)

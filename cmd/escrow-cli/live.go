@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jverhoeks/escrow/internal/config"
 )
 
 type liveEvent struct {
@@ -49,12 +51,17 @@ func runLive(args []string) {
 
 	p := *path
 	if p == "" {
-		p = filepath.Join("escrow-cache", "escrow-events.jsonl")
+		// Prefer the running proxy's published event-log path (any CWD).
+		if rt, err := config.ReadRuntime(); err == nil && rt.EventLogPath != "" {
+			p = rt.EventLogPath
+		} else {
+			p = filepath.Join("escrow-cache", "escrow-events.jsonl")
+		}
 	}
 	f, err := os.Open(p)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "escrow-cli live: cannot open event log %s: %v\n", p, err)
-		fmt.Fprintln(os.Stderr, "enable event-log persistence (disk backend, or set eventlog_path) or pass --path")
+		fmt.Fprintln(os.Stderr, "is escrow running with event-log persistence (disk backend, or eventlog_path)? or pass --path")
 		os.Exit(1)
 	}
 	defer f.Close()
