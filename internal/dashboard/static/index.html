@@ -629,6 +629,10 @@
 
     /* ── CVE / Access log / Upstream tables ──────────────────────────────────── */
     .cve-columns, .cve-item { grid-template-columns: 90px 200px 80px 1fr 110px 90px; }
+    .newvuln-columns, .newvuln-item { grid-template-columns: 200px 80px 1fr 110px 90px 130px; }
+    .newvuln-columns { display: grid; gap: 12px; padding: 8px 24px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); font-size: 11px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
+    .newvuln-item { display: grid; gap: 12px; padding: 10px 24px; border-bottom: 1px solid var(--border); align-items: center; font-size: 13px; }
+    .newvuln-item:hover { background: var(--bg-secondary); }
     .log-columns, .log-item { grid-template-columns: 90px 110px 70px 1fr 70px 80px 1fr; }
     .upstream-columns, .upstream-item { grid-template-columns: 90px 80px 70px 1fr 70px 90px 90px; }
     .cve-columns, .log-columns, .upstream-columns {
@@ -891,6 +895,8 @@
     <span style="color: var(--text-tertiary); font-size: 12px; margin-left: 8px;" id="app-version"></span>
   </div>
   <div class="topbar-right">
+    <span id="rescan-status" style="color: var(--text-tertiary); font-size: 11px;"></span>
+    <button class="btn-secondary" id="rescan-btn" onclick="triggerRescan()" title="Re-scan downloaded packages for newly-published CVEs">↻ Re-scan</button>
     <div class="live-badge" id="live-badge">
       <span class="live-badge-dot"></span>
       <span>LIVE</span>
@@ -911,6 +917,7 @@
     <div class="nav-tab" id="tab-packages" onclick="setTab('packages')">Packages</div>
     <div class="nav-tab" id="tab-tree" onclick="setTab('tree')">Package Tree</div>
     <div class="nav-tab" id="tab-cves" onclick="setTab('cves')">CVEs</div>
+    <div class="nav-tab" id="tab-newvuln" onclick="setTab('newvuln')">Newly Vulnerable</div>
     <div class="nav-tab" id="tab-logs" onclick="setTab('logs')">Access Logs</div>
     <div class="nav-tab" id="tab-upstream" onclick="setTab('upstream')">Upstream</div>
   </div>
@@ -1050,6 +1057,26 @@
     <div>Last Seen</div>
   </div>
   <div id="cve-list" style="flex: 1; overflow-y: auto;"></div>
+</div>
+
+<!-- ── Newly Vulnerable View ───────────────────────────────────────────────────── -->
+<div id="view-newvuln" class="panel" style="display: none;">
+  <div class="panel-header">
+    <span class="panel-header-title">Newly Vulnerable <span style="color: var(--text-tertiary); font-weight: 400; font-size: 12px;">(downloaded → CVE published after)</span></span>
+    <div class="panel-header-actions">
+      <span class="panel-count" id="newvuln-count">— findings</span>
+      <button class="btn-secondary" onclick="loadNewVuln()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="newvuln-columns">
+    <div>Advisory</div>
+    <div>Ecosystem</div>
+    <div>Package</div>
+    <div>Version</div>
+    <div>Downloads</div>
+    <div>Detected</div>
+  </div>
+  <div id="newvuln-list" style="flex: 1; overflow-y: auto;"></div>
 </div>
 
 <!-- ── Access Logs View ────────────────────────────────────────────────────────── -->
@@ -1671,6 +1698,7 @@ function renderPackageTree(ecosystems) {
         meta.style.cssText = 'font-size:11px;color:var(--text-tertiary);';
         const parts = [];
         parts.push((v.hit_count || 0) + '× hits');
+        if (v.download_count) parts.push(v.download_count + '× dl');
         if (v.size != null && v.size >= 0) parts.push(fmtBytes(v.size));
         meta.textContent = parts.join('  ·  ');
 
@@ -1896,6 +1924,67 @@ function renderUpstream(rows) {
   document.getElementById('upstream-count').textContent = rows.length + ' fetch' + (rows.length === 1 ? '' : 'es');
 }
 
+// ── Newly Vulnerable (re-scan findings) ──────────────────────────────────────
+
+function loadNewVuln() {
+  fetch(BASE + '/api/newly-vulnerable').then(r => r.json()).then(rows => renderNewVuln(rows || [])).catch(() => renderNewVuln([]));
+}
+
+function renderNewVuln(rows) {
+  const list = document.getElementById('newvuln-list');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding:24px;color:var(--text-tertiary);font-size:13px;">No retroactive findings. Downloaded packages are clear, or the scanner hasn\'t run yet.</div>';
+  }
+  rows.forEach(v => {
+    const item = document.createElement('div');
+    item.className = 'newvuln-item';
+    const cell = (txt, cls) => { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = txt; return d; };
+
+    const ids = (v.vulns || []).join(', ') || '—';
+    const id = cell(ids, 'mono'); id.title = (v.reason || ids);
+    const eco = document.createElement('div'); eco.appendChild(ecoBadge(v.ecosystem));
+    const pkg = cell(safeDecode(v.package || '—'), 'pkg-name');
+    const ver = cell(v.version || '—', 'mono');
+    const dl = cell((v.download_count || 0) + '×');
+    const at = cell(v.detected_at ? new Date(v.detected_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—');
+    at.style.color = 'var(--text-tertiary)'; at.style.fontSize = '12px';
+
+    item.append(id, eco, pkg, ver, dl, at);
+    list.appendChild(item);
+  });
+  document.getElementById('newvuln-count').textContent = rows.length + ' finding' + (rows.length === 1 ? '' : 's');
+}
+
+// ── Re-scan trigger / status ─────────────────────────────────────────────────
+
+function refreshRescanStatus() {
+  fetch(BASE + '/api/rescan/status').then(r => r.json()).then(s => {
+    const el = document.getElementById('rescan-status');
+    if (!el) return;
+    if (!s.enabled) { el.textContent = 're-scan off'; return; }
+    el.textContent = (s.last_run && !String(s.last_run).startsWith('0001'))
+      ? 'scanned ' + new Date(s.last_run).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})
+      : 'no re-scan yet';
+  }).catch(() => {});
+}
+
+async function triggerRescan() {
+  const btn = document.getElementById('rescan-btn');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '… scanning';
+  try {
+    const resp = await fetch(BASE + '/api/rescan', {method: 'POST', headers: {'X-Escrow-Request': '1'}});
+    const res = await resp.json();
+    btn.textContent = res.new_findings ? ('⚠ ' + res.new_findings + ' new') : '✓ clear';
+    refreshRescanStatus();
+    if (currentTab === 'newvuln') loadNewVuln();
+  } catch (e) {
+    btn.textContent = 'error';
+  }
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
+}
+
 // ── Tab Navigation ──────────────────────────────────────────────────────────
 
 function setTab(tab) {
@@ -1903,13 +1992,14 @@ function setTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
 
-  ['live','graphs','packages','tree','cves','logs','upstream'].forEach(v => {
+  ['live','graphs','packages','tree','cves','newvuln','logs','upstream'].forEach(v => {
     document.getElementById('view-' + v).style.display = tab === v ? 'flex' : 'none';
   });
 
   if (tab === 'packages') loadPackages();
   if (tab === 'tree') loadPackageTree();
   if (tab === 'cves') loadCVEs();
+  if (tab === 'newvuln') loadNewVuln();
   if (tab === 'logs') loadAccessLogs();
   if (tab === 'upstream') loadUpstream();
   if (tab === 'graphs') {
@@ -1948,6 +2038,8 @@ fetch('/healthz').then(r => r.json()).then(h => {
 fetch(BASE + '/api/me').then(r => r.json()).then(m => {
   if (m.username) document.getElementById('username').textContent = m.username;
 }).catch(() => {});
+refreshRescanStatus();
+setInterval(refreshRescanStatus, 60000);
 
 fetch(BASE + '/api/events?n=100')
   .then(r => r.json())
