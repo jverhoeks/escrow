@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/jverhoeks/escrow/internal/policy"
@@ -12,6 +13,7 @@ import (
 )
 
 type Webhook struct {
+	mu     sync.RWMutex
 	url    string
 	client *http.Client
 }
@@ -21,6 +23,19 @@ func NewWebhook(url string, client *http.Client) *Webhook {
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
 	return &Webhook{url: url, client: client}
+}
+
+// SetURL swaps the webhook target atomically (live reload).
+func (w *Webhook) SetURL(url string) {
+	w.mu.Lock()
+	w.url = url
+	w.mu.Unlock()
+}
+
+func (w *Webhook) target() string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.url
 }
 
 type webhookPayload struct {
@@ -48,7 +63,7 @@ func (w *Webhook) Send(pkg trust.Package, d policy.Decision) error {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 	body, _ := json.Marshal(payload)
-	resp, err := w.client.Post(w.url, "application/json", bytes.NewReader(body))
+	resp, err := w.client.Post(w.target(), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("webhook post failed: %w", err)
 	}
@@ -80,7 +95,7 @@ func (w *Webhook) SendRescan(eco, name, version string, vulns []string, severity
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 	body, _ := json.Marshal(payload)
-	resp, err := w.client.Post(w.url, "application/json", bytes.NewReader(body))
+	resp, err := w.client.Post(w.target(), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("rescan webhook post failed: %w", err)
 	}

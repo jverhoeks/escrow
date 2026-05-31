@@ -60,3 +60,13 @@ func TestWebhook_SkipsOnWarnOrAllow(t *testing.T) {
 	wh.Send(pkg, policy.Decision{Action: policy.ActionAllow})
 	assert.Equal(t, 0, calls, "webhook should only fire on block")
 }
+
+func TestWebhook_SetURL(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++; w.WriteHeader(200) }))
+	defer srv.Close()
+	wh := alerts.NewWebhook("http://127.0.0.1:1/none", srv.Client())
+	wh.SetURL(srv.URL)
+	require.NoError(t, wh.SendRescan("npm", "x", "1.0.0", []string{"GHSA-x"}, "HIGH", false, 0))
+	require.Equal(t, 1, hits)
+}
