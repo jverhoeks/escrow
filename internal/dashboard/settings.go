@@ -51,9 +51,17 @@ func (d *Dashboard) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not read config"}`, http.StatusInternalServerError)
 		return
 	}
+	// Never send credentials over the API. Report whether they're set; the UI
+	// shows them as read-only "set" indicators, and both are preserved on save.
+	pwSet := cfg.Dashboard.Password != ""
+	secretSet := cfg.Dashboard.Secret != ""
+	cfg.Dashboard.Password = ""
+	cfg.Dashboard.Secret = ""
 	json.NewEncoder(w).Encode(map[string]any{
 		"config":            cfg,
 		"password_editable": false,
+		"password_set":      pwSet,
+		"secret_set":        secretSet,
 		"config_path":       d.configPath,
 	})
 }
@@ -77,6 +85,7 @@ func (d *Dashboard) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	currentPassword := cur.Dashboard.Password
+	currentSecret := cur.Dashboard.Secret
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	incoming := cur // copy, then overlay the decoded JSON
@@ -84,8 +93,10 @@ func (d *Dashboard) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
-	// Password is immutable via this API — always restore the on-disk value.
+	// Credentials are immutable via this API — always restore the on-disk values
+	// (the GET endpoint never exposes them, so a client can't round-trip them).
 	incoming.Dashboard.Password = currentPassword
+	incoming.Dashboard.Secret = currentSecret
 
 	if errs := incoming.Validate(); len(errs) > 0 {
 		w.WriteHeader(http.StatusBadRequest)
