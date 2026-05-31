@@ -59,6 +59,9 @@ class Escrow < Formula
         #{var}/escrow
         #{var}/log/escrow.log
 
+      After upgrading escrow, restart the service to run the new version:
+        brew services restart escrow
+
       Dashboard (after first start):
         http://localhost:7888/dashboard
         Credentials are printed to the log on first boot:
