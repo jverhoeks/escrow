@@ -548,25 +548,38 @@
     /* ── Graphs Panel ────────────────────────────────────────────────────────── */
 
     .graph-container {
-      padding: 16px;
+      padding: 20px;
       flex: 1;
       overflow-y: auto;
+    }
+
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px 16px;
+      margin-bottom: 20px;
     }
 
     .graph-title {
       font-size: 12px;
       font-weight: 700;
       color: var(--text-primary);
-      margin-bottom: 12px;
+      margin-bottom: 16px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
     }
 
-    .chart-wrapper {
-      position: relative;
-      height: 220px;
-      margin-bottom: 24px;
-    }
+    .graph-sub { color: var(--text-tertiary); font-weight: 400; font-size: 12px; text-transform: none; letter-spacing: 0; }
+    .graph-total { color: var(--text-secondary); font-weight: 700; font-size: 13px; text-transform: none; }
+
+    /* Chart host: no fixed height — the inline SVG sets its own height and the
+       legend flows beneath it, so it never overlaps the next card. */
+    .chart-host { min-height: 200px; }
 
     /* ── Packages View ────────────────────────────────────────────────────────── */
 
@@ -946,10 +959,20 @@
     <span class="panel-header-title">24-Hour Analytics</span>
   </div>
   <div class="graph-container">
-    <div class="graph-title">Allowed Packages by Ecosystem <span style="color:var(--text-tertiary);font-weight:400;font-size:12px;">· last 24h, hourly</span></div>
-    <div class="chart-wrapper" id="chart-allowed"></div>
-    <div class="graph-title">Denied Packages by Ecosystem <span style="color:var(--text-tertiary);font-weight:400;font-size:12px;">· last 24h, hourly</span></div>
-    <div class="chart-wrapper" id="chart-denied"></div>
+    <div class="chart-card">
+      <div class="graph-title">
+        <span>Allowed Packages by Ecosystem <span class="graph-sub">· last 24h, hourly</span></span>
+        <span class="graph-total" id="total-allowed"></span>
+      </div>
+      <div class="chart-host" id="chart-allowed"></div>
+    </div>
+    <div class="chart-card">
+      <div class="graph-title">
+        <span>Denied Packages by Ecosystem <span class="graph-sub">· last 24h, hourly</span></span>
+        <span class="graph-total" id="total-denied"></span>
+      </div>
+      <div class="chart-host" id="chart-denied"></div>
+    </div>
   </div>
 </div>
 
@@ -1348,6 +1371,15 @@ function renderStackedChart(containerId, buckets, seriesForAction) {
   container.appendChild(legend);
 }
 
+function sumSeries(seriesForAction) {
+  let total = 0;
+  Object.keys(seriesForAction || {}).forEach(eco => {
+    if (currentEco && eco !== currentEco) return;
+    (seriesForAction[eco] || []).forEach(v => { total += (v || 0); });
+  });
+  return total;
+}
+
 function updateCharts() {
   if (!chartsInitialized) return;
   fetch(BASE + '/api/stats/timeseries?window=24h&bucket=1h')
@@ -1355,6 +1387,9 @@ function updateCharts() {
     .then(ts => {
       const buckets = ts.buckets || [];
       const series = ts.series || {};
+      const a = sumSeries(series.allowed || {}), d = sumSeries(series.denied || {});
+      document.getElementById('total-allowed').textContent = a.toLocaleString() + ' total';
+      document.getElementById('total-denied').textContent = d.toLocaleString() + ' total';
       renderStackedChart('chart-allowed', buckets, series.allowed || {});
       renderStackedChart('chart-denied', buckets, series.denied || {});
     })
@@ -1427,6 +1462,38 @@ function loadPackageTree() {
   fetch(url).then(r => r.json()).then(data => renderPackageTree(data || [])).catch(() => renderPackageTree([]));
 }
 
+// safeDecode turns URL-encoded package names (e.g. @playwright%2fmcp) into a
+// readable form (@playwright/mcp) for display, tolerating malformed input.
+function safeDecode(s) {
+  try { return decodeURIComponent(s); } catch (e) { return s; }
+}
+
+// treeAction allow/blocks a specific package version from the hierarchy view.
+// `name` is the raw (un-decoded) name so it matches escrow's internal form.
+async function treeAction(kind, ecosystem, name, version, btn) {
+  const url = BASE + (kind === 'allow' ? '/api/allow' : '/api/block');
+  btn.disabled = true;
+  const prev = btn.textContent;
+  btn.textContent = '…';
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Escrow-Request': '1'},
+      body: JSON.stringify({ecosystem, name, version, reason: (kind === 'allow' ? 'approved' : 'blocked') + ' via dashboard'})
+    });
+    if (resp.ok) {
+      btn.textContent = kind === 'allow' ? '✓ Allowed' : '✓ Blocked';
+      btn.classList.add('disabled');
+    } else {
+      btn.textContent = 'Error';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    btn.textContent = 'Error';
+    btn.disabled = false;
+  }
+}
+
 function collapsibleHeader(toggleChar) {
   const header = document.createElement('div');
   header.className = 'tree-header';
@@ -1471,11 +1538,14 @@ function renderPackageTree(ecosystems) {
       const pkgNode = document.createElement('div');
       pkgNode.className = 'tree-node';
 
-      const pkgHeader = collapsibleHeader('▼');
+      // Versions are collapsed by default (some packages have hundreds).
+      const pkgHeader = collapsibleHeader('▶');
       pkgHeader.style.marginLeft = '0';
       const pkgLabel = document.createElement('div');
       pkgLabel.className = 'tree-label';
-      const displayName = p.namespace ? (p.namespace + (ecoGroup.ecosystem === 'npm' ? '/' : ecoGroup.ecosystem === 'maven' ? ':' : '/') + p.name) : p.name;
+      const sep = ecoGroup.ecosystem === 'maven' ? ':' : ecoGroup.ecosystem === 'nuget' ? '.' : '/';
+      const rawName = p.namespace ? (p.namespace + sep + p.name) : p.name; // form the allow/block API expects
+      const displayName = safeDecode(rawName);                             // human-readable (decodes %2f etc.)
       pkgLabel.textContent = displayName;
       pkgLabel.title = displayName;
       // version-count chip
@@ -1487,7 +1557,7 @@ function renderPackageTree(ecosystems) {
       pkgNode.appendChild(pkgHeader);
 
       const versionList = document.createElement('div');
-      versionList.className = 'tree-children';
+      versionList.className = 'tree-children hidden';
 
       (p.versions || []).forEach(v => {
         const verItem = document.createElement('div');
@@ -1528,6 +1598,20 @@ function renderPackageTree(ecosystems) {
           cve.textContent = v.cve_count + ' CVE' + (v.cve_count === 1 ? '' : 's');
           mainRow.appendChild(cve);
         }
+
+        // Block / allow action for this specific version.
+        const actBtn = document.createElement('button');
+        actBtn.style.marginLeft = 'auto';
+        if (v.action === 'block') {
+          actBtn.className = 'btn-action approve';
+          actBtn.textContent = 'Approve';
+          actBtn.onclick = () => treeAction('allow', ecoGroup.ecosystem, rawName, v.version, actBtn);
+        } else {
+          actBtn.className = 'btn-action block';
+          actBtn.textContent = 'Block';
+          actBtn.onclick = () => treeAction('block', ecoGroup.ecosystem, rawName, v.version, actBtn);
+        }
+        mainRow.appendChild(actBtn);
 
         verItem.appendChild(mainRow);
 

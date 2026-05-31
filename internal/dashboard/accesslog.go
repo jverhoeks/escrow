@@ -24,13 +24,19 @@ func (d *Dashboard) handleAccessLog(w http.ResponseWriter, r *http.Request) {
 			n = v
 		}
 	}
-	recent := d.accessRing.Recent(n)
-	out := make([]accesslog.Entry, 0, len(recent))
-	for _, e := range recent {
+	// Filter the dashboard's own traffic across the WHOLE ring first, THEN take
+	// the newest n. Limiting before filtering would let frequent dashboard polls
+	// crowd the newest-n window and starve the view of real entries over time.
+	all := d.accessRing.Recent(0) // newest-first, whole ring
+	out := make([]accesslog.Entry, 0, n)
+	for _, e := range all {
 		if d.cfg.Path != "" && strings.HasPrefix(e.Path, d.cfg.Path) {
 			continue
 		}
 		out = append(out, e)
+		if len(out) >= n {
+			break
+		}
 	}
 	json.NewEncoder(w).Encode(out)
 }
