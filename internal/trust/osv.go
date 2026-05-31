@@ -50,8 +50,10 @@ type osvResponse struct {
 	} `json:"vulns"`
 }
 
+// severityRank ranks OSV/GHSA severities. GitHub advisories use "MODERATE"
+// where the CVSS scale says "MEDIUM" — treat them as equivalent.
 var severityRank = map[string]int{
-	"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1,
+	"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "MODERATE": 2, "LOW": 1,
 }
 
 // Check returns the cached OSV result if present, else queries upstream.

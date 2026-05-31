@@ -77,7 +77,8 @@ func (s *Scanner) config() Config {
 	return s.cfg
 }
 
-var severityRank = map[string]int{"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+// GHSA advisories use "MODERATE" for what CVSS calls "MEDIUM"; treat as equal.
+var severityRank = map[string]int{"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "MODERATE": 2, "LOW": 1}
 
 // RunOnce performs a single sweep. Safe to call concurrently (serialized).
 func (s *Scanner) RunOnce(ctx context.Context) Result {

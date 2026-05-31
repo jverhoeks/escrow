@@ -414,10 +414,15 @@ func main() {
 		if scanner != nil {
 			scanner.SetConfig(rescan.Config{Enabled: rEnabled, IntervalHours: rInterval, AutoBlock: rAutoBlock, MinSeverity: rMinSev})
 		}
+		reloaded := []string{"policy", "rescan"}
 		if wh != nil {
+			// A webhook instance exists — URL changes (including clearing it) apply live.
 			wh.SetURL(newCfg.Alerts.WebhookURL)
+			reloaded = append(reloaded, "alerts")
+		} else if newCfg.Alerts.WebhookURL != "" {
+			// Started with no webhook; one can't be created live — needs a restart.
+			restart = append(restart, "alerts")
 		}
-		reloaded := []string{"policy", "rescan", "alerts"}
 		log.Info().Strs("reloaded", reloaded).Strs("restart_required", restart).Msg("config reloaded")
 		return dashboard.ReloadResult{Reloaded: reloaded, RestartRequired: restart}, nil
 	}
