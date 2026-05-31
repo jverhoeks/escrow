@@ -23,6 +23,22 @@ func TestPackageEvent_VulnsRoundTrip(t *testing.T) {
 	require.Equal(t, "GHSA-aaaa", evs[0].Vulns[0].ID)
 }
 
+func TestPackageEvent_KindRoundTrip(t *testing.T) {
+	l := eventlog.New(10)
+	l.Record(eventlog.PackageEvent{
+		Ecosystem: "npm", Package: "lodash@4.17.21", Action: "allow",
+		Kind: eventlog.KindDownloaded, Reason: "artifact downloaded",
+	})
+	l.Record(eventlog.PackageEvent{
+		Ecosystem: "npm", Package: "lodash@4.17.21", Action: "block", Signal: "osv",
+		Kind: eventlog.KindScanned,
+	})
+	evs := l.Events("")
+	require.Len(t, evs, 2)
+	assert.Equal(t, eventlog.KindScanned, evs[0].Kind, "newest first")
+	assert.Equal(t, eventlog.KindDownloaded, evs[1].Kind)
+}
+
 func TestLog_RecordAndRetrieve(t *testing.T) {
 	l := eventlog.New(10)
 	l.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "lodash@4.17.21", Action: "block", Signal: "osv", Reason: "CVE"})

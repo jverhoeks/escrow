@@ -144,6 +144,7 @@ func (h *Handler) serveInfo(w http.ResponseWriter, r *http.Request, escapedModul
 				Action:    string(d.Action),
 				Signal:    d.Signal,
 				Reason:    d.Reason,
+				Kind:      eventlog.KindScanned,
 				Vulns:     d.Vulns,
 			})
 		}
@@ -211,11 +212,32 @@ func (h *Handler) serveMod(w http.ResponseWriter, r *http.Request, escapedModule
 
 // serveZip proxies .zip source archives and caches them as blobs.
 func (h *Handler) serveZip(w http.ResponseWriter, r *http.Request, escapedModule, request string) {
+	// Record a download event once per served zip, on both cache-hit and
+	// cache-miss serve paths. The module name and version are unescaped from
+	// the bang-encoded request path to match the clean values listing events use.
+	recordDownload := func() {
+		if h.evlog == nil {
+			return
+		}
+		version := unescape(strings.TrimSuffix(request, ".zip"))
+		if version == "" {
+			return
+		}
+		h.evlog.Record(eventlog.PackageEvent{
+			Ecosystem: string(trust.EcosystemGo),
+			Package:   unescape(escapedModule) + "@" + version,
+			Action:    "allow",
+			Kind:      eventlog.KindDownloaded,
+			Reason:    "artifact downloaded",
+		})
+	}
+
 	cacheKey := "go/zip/" + escapedModule + "/@v/" + request
 	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
 		defer blob.Close()
 		metrics.CacheHitsTotal.WithLabelValues("go", "zip").Inc()
 		io.Copy(w, blob)
+		recordDownload()
 		return
 	}
 	upURL := fmt.Sprintf("%s/%s/@v/%s", h.upstreamURL, escapedModule, request)
@@ -239,6 +261,7 @@ func (h *Handler) serveZip(w http.ResponseWriter, r *http.Request, escapedModule
 	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
 	pw.CloseWithError(copyErr)
 	<-cacheDone
+	recordDownload()
 }
 
 // servePassthrough proxies non-versioned paths (list, etc.) with a short meta cache.
@@ -323,6 +346,7 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 					Action:    string(d.Action),
 					Signal:    d.Signal,
 					Reason:    d.Reason,
+					Kind:      eventlog.KindScanned,
 					Vulns:     d.Vulns,
 				})
 			}
@@ -339,6 +363,7 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 				Action:    string(d.Action),
 				Signal:    d.Signal,
 				Reason:    d.Reason,
+				Kind:      eventlog.KindScanned,
 				Vulns:     d.Vulns,
 			})
 		}

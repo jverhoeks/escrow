@@ -29,6 +29,26 @@ func TestLog_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, "lodash@1.0.0", events[1].Package)
 }
 
+func TestLog_PersistenceKindRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+
+	l1, err := eventlog.NewWithPath(10, path)
+	require.NoError(t, err)
+	l1.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "lodash@1.0.0", Action: "block", Kind: eventlog.KindScanned})
+	l1.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "lodash@1.0.0", Action: "allow", Kind: eventlog.KindDownloaded})
+	require.NoError(t, l1.Close())
+
+	l2, err := eventlog.NewWithPath(10, path)
+	require.NoError(t, err)
+	defer l2.Close()
+
+	events := l2.Events("")
+	require.Len(t, events, 2)
+	// Newest first.
+	assert.Equal(t, eventlog.KindDownloaded, events[0].Kind)
+	assert.Equal(t, eventlog.KindScanned, events[1].Kind)
+}
+
 func TestLog_PersistenceCapEnforced(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	const cap = 3

@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jverhoeks/escrow/internal/eventlog"
 )
 
 // namespaceFor splits a package name into (namespace, leaf) per ecosystem.
@@ -36,15 +38,16 @@ func namespaceFor(eco, name string) (ns, leaf string) {
 
 // TreeVersion is a leaf: a specific package version with its status & metadata.
 type TreeVersion struct {
-	Version  string    `json:"version"`
-	Action   string    `json:"action"`
-	Signal   string    `json:"signal"`
-	Reason   string    `json:"reason"`
-	Size     int64     `json:"size"` // -1 when unknown
-	Cached   bool      `json:"cached"`
-	CVECount int       `json:"cve_count"`
-	LastSeen time.Time `json:"last_seen"`
-	HitCount int       `json:"hit_count"`
+	Version    string    `json:"version"`
+	Action     string    `json:"action"`
+	Signal     string    `json:"signal"`
+	Reason     string    `json:"reason"`
+	Size       int64     `json:"size"` // -1 when unknown
+	Cached     bool      `json:"cached"`
+	CVECount   int       `json:"cve_count"`
+	LastSeen   time.Time `json:"last_seen"`
+	HitCount   int       `json:"hit_count"`
+	Downloaded bool      `json:"downloaded"` // true if any "downloaded" (artifact-fetch) event was recorded
 }
 
 type TreePackage struct {
@@ -66,6 +69,11 @@ func (d *Dashboard) handlePackagesTree(w http.ResponseWriter, r *http.Request) {
 	type vkey struct{ eco, name, version string }
 	type pkey struct{ eco, ns, name string }
 	verSeen := map[vkey]*TreeVersion{}
+	// statusFromScanned tracks whether a version's policy status (Action/Signal/
+	// Reason/CVECount) has been taken from a "scanned" (policy-evaluation) event.
+	// Events are newest-first and a "downloaded" event may be encountered before
+	// the scanned one, so we upgrade the status when the scanned event arrives.
+	statusFromScanned := map[vkey]bool{}
 	pkgVers := map[pkey][]*TreeVersion{}
 	pkgOrder := []pkey{}
 
@@ -75,15 +83,31 @@ func (d *Dashboard) handlePackagesTree(w http.ResponseWriter, r *http.Request) {
 		}
 		name, version := splitPackage(e.Package)
 		vk := vkey{e.Ecosystem, name, version}
+		scanned := e.Kind != eventlog.KindDownloaded // treat untagged (legacy) events as scanned/status-bearing
 		if v, ok := verSeen[vk]; ok {
 			v.HitCount++
+			if e.Kind == eventlog.KindDownloaded {
+				v.Downloaded = true
+			}
+			// Upgrade the policy status from the first scanned event seen, since a
+			// downloaded event (always action=allow, "artifact downloaded") must not
+			// clobber a real warn/block status recorded by the scanner.
+			if scanned && !statusFromScanned[vk] {
+				v.Action = e.Action
+				v.Signal = e.Signal
+				v.Reason = e.Reason
+				v.CVECount = len(e.Vulns)
+				statusFromScanned[vk] = true
+			}
 			continue
 		}
 		ns, leaf := namespaceFor(e.Ecosystem, name)
 		tv := &TreeVersion{
 			Version: version, Action: e.Action, Signal: e.Signal, Reason: e.Reason,
 			Size: -1, CVECount: len(e.Vulns), LastSeen: e.Timestamp, HitCount: 1,
+			Downloaded: e.Kind == eventlog.KindDownloaded,
 		}
+		statusFromScanned[vk] = scanned
 		if d.cache != nil {
 			tv.Cached = blobCached(r.Context(), d.cache, e.Ecosystem, name, version)
 			if tv.Cached {

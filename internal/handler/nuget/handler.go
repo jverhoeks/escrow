@@ -321,6 +321,7 @@ func (h *Handler) filterRegistration(ctx context.Context, pkgID string, data []b
 					Action:    string(d.Action),
 					Signal:    d.Signal,
 					Reason:    d.Reason,
+					Kind:      eventlog.KindScanned,
 					Vulns:     d.Vulns,
 				})
 			}

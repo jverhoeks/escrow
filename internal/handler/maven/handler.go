@@ -205,6 +205,28 @@ func (h *Handler) serveMetadataFrom(w http.ResponseWriter, r *http.Request, path
 
 // serveArtifactFrom proxies a Maven artifact from a specific upstream URL.
 func (h *Handler) serveArtifactFrom(w http.ResponseWriter, r *http.Request, path, upstream string) {
+	// Record a download event once per served binary artifact (jar/war/ear/aar
+	// only — not poms, checksums or module descriptors), on both cache-hit and
+	// cache-miss serve paths. group:artifact and version are derived from the
+	// repository path layout (.../artifactId/version/file.ext), matching the
+	// "group:artifact" + version format the listing events record.
+	recordDownload := func() {
+		if h.evlog == nil {
+			return
+		}
+		name, version := mavenCoordsFromPath(path)
+		if name == "" || version == "" {
+			return
+		}
+		h.evlog.Record(eventlog.PackageEvent{
+			Ecosystem: string(trust.EcosystemMaven),
+			Package:   name + "@" + version,
+			Action:    "allow",
+			Kind:      eventlog.KindDownloaded,
+			Reason:    "artifact downloaded",
+		})
+	}
+
 	cacheKey := "maven/artifacts/" + upstream + "/" + path
 	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
 		defer blob.Close()
@@ -213,6 +235,7 @@ func (h *Handler) serveArtifactFrom(w http.ResponseWriter, r *http.Request, path
 			w.Header().Set("Content-Type", ct)
 		}
 		io.Copy(w, blob)
+		recordDownload()
 		return
 	}
 	resp, err := h.client.Get(upstream + "/" + path)
@@ -240,6 +263,32 @@ func (h *Handler) serveArtifactFrom(w http.ResponseWriter, r *http.Request, path
 	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
 	pw.CloseWithError(copyErr)
 	<-cacheDone
+	recordDownload()
+}
+
+// mavenCoordsFromPath derives ("groupId:artifactId", version) from a Maven
+// repository artifact path for binary archives only. The layout is
+// "<group/with/slashes>/<artifactId>/<version>/<file>.<ext>", so version is the
+// second-to-last segment and artifactId the third-to-last. Returns "","" for
+// non-archive paths (poms, checksums, module descriptors) or malformed paths.
+func mavenCoordsFromPath(path string) (name, version string) {
+	switch {
+	case strings.HasSuffix(path, ".jar"), strings.HasSuffix(path, ".war"),
+		strings.HasSuffix(path, ".ear"), strings.HasSuffix(path, ".aar"):
+	default:
+		return "", ""
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 4 {
+		return "", ""
+	}
+	version = parts[len(parts)-2]
+	artifactID := parts[len(parts)-3]
+	groupID := strings.Join(parts[:len(parts)-3], ".")
+	if groupID == "" || artifactID == "" || version == "" {
+		return "", ""
+	}
+	return groupID + ":" + artifactID, version
 }
 
 // mimeByPath returns a known Content-Type for common Maven artifact extensions.
@@ -356,6 +405,7 @@ func filterMetadata(ctx context.Context, data []byte, groupID, artifactID string
 				Action:    string(d.Action),
 				Signal:    d.Signal,
 				Reason:    d.Reason,
+				Kind:      eventlog.KindScanned,
 				Vulns:     d.Vulns,
 			})
 		}

@@ -183,11 +183,28 @@ func (h *Handler) serveDownload(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	version := chi.URLParam(r, "version")
 
+	// Record a download event once per served crate, on both cache-hit and
+	// cache-miss serve paths. name/version come straight from the URL params
+	// and match the listing events.
+	recordDownload := func() {
+		if h.evlog == nil || name == "" || version == "" {
+			return
+		}
+		h.evlog.Record(eventlog.PackageEvent{
+			Ecosystem: string(trust.EcosystemCargo),
+			Package:   name + "@" + version,
+			Action:    "allow",
+			Kind:      eventlog.KindDownloaded,
+			Reason:    "artifact downloaded",
+		})
+	}
+
 	cacheKey := fmt.Sprintf("cargo/crates/%s/%s/download", name, version)
 	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
 		defer blob.Close()
 		metrics.CacheHitsTotal.WithLabelValues("cargo", "blob").Inc()
 		io.Copy(w, blob)
+		recordDownload()
 		return
 	}
 
@@ -223,6 +240,7 @@ func (h *Handler) serveDownload(w http.ResponseWriter, r *http.Request) {
 	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
 	pw.CloseWithError(copyErr)
 	<-cacheDone
+	recordDownload()
 }
 
 // fetchVersionMeta fetches crate version metadata from the crates.io API, caching for 1 hour.
@@ -322,6 +340,7 @@ func (h *Handler) checkTrust(r *http.Request, w http.ResponseWriter, name, versi
 			Action:    string(d.Action),
 			Signal:    d.Signal,
 			Reason:    d.Reason,
+			Kind:      eventlog.KindScanned,
 			Vulns:     d.Vulns,
 		})
 	}

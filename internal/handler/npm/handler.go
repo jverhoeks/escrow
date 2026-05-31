@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -168,6 +169,7 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 				Action:    string(decision.Action),
 				Signal:    decision.Signal,
 				Reason:    decision.Reason,
+				Kind:      eventlog.KindScanned,
 				Vulns:     decision.Vulns,
 			})
 		}
@@ -202,11 +204,31 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 }
 
 func (h *Handler) ServeTarball(w http.ResponseWriter, r *http.Request, pkg, tarball string) {
+	// Record a download event once per served tarball, on both cache-hit and
+	// cache-miss serve paths. The package name matches the listing events
+	// (pkg.Name is the full, possibly-scoped name); the version is parsed from
+	// the tarball filename (<leaf>-<version>.tgz).
+	recordDownload := func() {
+		if h.evlog == nil {
+			return
+		}
+		if version := versionFromTarball(pkg, tarball); version != "" {
+			h.evlog.Record(eventlog.PackageEvent{
+				Ecosystem: string(trust.EcosystemNPM),
+				Package:   pkg + "@" + version,
+				Action:    "allow",
+				Kind:      eventlog.KindDownloaded,
+				Reason:    "artifact downloaded",
+			})
+		}
+	}
+
 	cacheKey := fmt.Sprintf("npm/%s/-/%s", pkg, tarball)
 	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
 		defer blob.Close()
 		metrics.CacheHitsTotal.WithLabelValues("npm", "blob").Inc()
 		io.Copy(w, blob)
+		recordDownload()
 		return
 	}
 	resp, err := h.client.Get(fmt.Sprintf("%s/%s/-/%s", h.upstreamURL, pkg, tarball))
@@ -228,4 +250,28 @@ func (h *Handler) ServeTarball(w http.ResponseWriter, r *http.Request, pkg, tarb
 	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
 	pw.CloseWithError(copyErr)
 	<-cacheDone
+	recordDownload()
+}
+
+// versionFromTarball extracts the version from an npm tarball filename. The
+// tarball is named "<leaf>-<version>.tgz" where <leaf> is the unscoped package
+// name (e.g. "@scope/pkg" → "pkg-1.0.0.tgz", "lodash" → "lodash-4.17.21.tgz").
+// Returns "" if the version cannot be parsed.
+func versionFromTarball(pkg, tarball string) string {
+	base := strings.TrimSuffix(tarball, ".tgz")
+	if base == tarball {
+		return "" // not a .tgz artifact
+	}
+	leaf := pkg
+	if i := strings.LastIndexByte(pkg, '/'); i >= 0 {
+		leaf = pkg[i+1:]
+	}
+	if v := strings.TrimPrefix(base, leaf+"-"); v != base {
+		return v
+	}
+	// Fallback: take the substring after the first '-' (name precedes version).
+	if i := strings.IndexByte(base, '-'); i > 0 && i+1 < len(base) {
+		return base[i+1:]
+	}
+	return ""
 }

@@ -21,6 +21,14 @@ const (
 	ActionBlocklistRemove = "blocklist-remove"
 )
 
+// Event kinds (stored in the Kind field of PackageEvent). They distinguish the
+// noisy per-version policy evaluation done while listing/filtering a package
+// index (scanned) from a real artifact fetch served to a client (downloaded).
+const (
+	KindScanned    = "scanned"
+	KindDownloaded = "downloaded"
+)
+
 type PackageEvent struct {
 	Timestamp time.Time    `json:"timestamp"`
 	Ecosystem string       `json:"ecosystem"`
@@ -28,6 +36,7 @@ type PackageEvent struct {
 	Action    string       `json:"action"`
 	Signal    string       `json:"signal"`
 	Reason    string       `json:"reason"`
+	Kind      string       `json:"kind,omitempty"` // "scanned" (index listing) or "downloaded" (artifact fetch)
 	Operator  string       `json:"operator,omitempty"` // set for dashboard audit actions
 	Vulns     []trust.Vuln `json:"vulns,omitempty"`
 }

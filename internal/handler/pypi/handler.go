@@ -202,11 +202,31 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, filename str
 		http.Error(w, `{"blocked":true,"signal":"sdist","reason":"source distributions are blocked by policy"}`, http.StatusForbidden)
 		return
 	}
+	// Record a download event once per served artifact, on both cache-hit and
+	// cache-miss serve paths. Name/version are parsed from the wheel/sdist
+	// filename; the name is PEP 503-normalized to match the listing events
+	// (which record the normalized simple-index name pip/uv requests).
+	recordDownload := func() {
+		if h.evlog == nil {
+			return
+		}
+		if name, version := pkgVersionFromFilename(filename); name != "" && version != "" {
+			h.evlog.Record(eventlog.PackageEvent{
+				Ecosystem: string(trust.EcosystemPyPI),
+				Package:   name + "@" + version,
+				Action:    "allow",
+				Kind:      eventlog.KindDownloaded,
+				Reason:    "artifact downloaded",
+			})
+		}
+	}
+
 	cacheKey := "pypi/packages/" + filename
 	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
 		defer blob.Close()
 		metrics.CacheHitsTotal.WithLabelValues("pypi", "blob").Inc()
 		io.Copy(w, blob)
+		recordDownload()
 		return
 	}
 	// Look up the actual CDN URL that was cached when the package index was fetched.
@@ -243,6 +263,7 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, filename str
 	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
 	pw.CloseWithError(copyErr)
 	<-cacheDone
+	recordDownload()
 }
 
 func (h *Handler) fetchReleases(ctx context.Context, name string) map[string][]map[string]any {
@@ -308,6 +329,7 @@ func (h *Handler) versionAllowed(ctx context.Context, name, version string, file
 			Action:    string(d.Action),
 			Signal:    d.Signal,
 			Reason:    d.Reason,
+			Kind:      eventlog.KindScanned,
 			Vulns:     d.Vulns,
 		})
 	}
@@ -356,4 +378,60 @@ func pkgFromFilename(filename string) string {
 		return strings.ToLower(strings.ReplaceAll(base[:i], "_", "-"))
 	}
 	return ""
+}
+
+// normalizePyPI applies PEP 503 name normalization: runs of [-_.] collapse to a
+// single '-' and the result is lowercased. This matches the simple-index name
+// pip/uv request (and that the listing path records), so download events merge
+// onto the same tree node.
+func normalizePyPI(name string) string {
+	var b strings.Builder
+	prevSep := false
+	for _, r := range name {
+		switch r {
+		case '-', '_', '.':
+			if !prevSep && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			prevSep = true
+		default:
+			if r >= 'A' && r <= 'Z' {
+				r += 'a' - 'A'
+			}
+			b.WriteRune(r)
+			prevSep = false
+		}
+	}
+	return strings.TrimSuffix(b.String(), "-")
+}
+
+// pkgVersionFromFilename parses (normalized name, version) from a wheel or sdist
+// filename. Wheels (PEP 427) are reliable: "name-version-pytag-abi-plat.whl",
+// so field[1] is the version. Sdists use "name-version.tar.gz"/".zip"; the
+// first '-' after the name marks the version for modern (PEP 625) sdists whose
+// name uses '_'. Legacy hyphenated sdist names (e.g. "django-allauth-0.50.0")
+// can misparse — best-effort first-dash split. Returns "","" if unparseable.
+func pkgVersionFromFilename(filename string) (name, version string) {
+	if strings.HasSuffix(filename, ".whl") {
+		base := strings.TrimSuffix(filename, ".whl")
+		parts := strings.Split(base, "-")
+		if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
+			return normalizePyPI(parts[0]), parts[1]
+		}
+		return "", ""
+	}
+	base := filename
+	switch {
+	case strings.HasSuffix(filename, ".tar.gz"):
+		base = strings.TrimSuffix(filename, ".tar.gz")
+	case strings.HasSuffix(filename, ".zip"):
+		base = strings.TrimSuffix(filename, ".zip")
+	default:
+		return "", "" // not a recognized artifact (e.g. .egg, .metadata)
+	}
+	i := strings.IndexByte(base, '-')
+	if i <= 0 || i+1 >= len(base) {
+		return "", ""
+	}
+	return normalizePyPI(base[:i]), base[i+1:]
 }
