@@ -17,7 +17,9 @@ import (
 	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
+	"github.com/jverhoeks/escrow/internal/dlstats"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/rescan"
 	"github.com/jverhoeks/escrow/internal/upstreamlog"
 	"github.com/rs/zerolog"
 )
@@ -37,9 +39,12 @@ type Dashboard struct {
 
 	accessRing  *accesslog.Log   // may be nil
 	upstreamLog *upstreamlog.Log // may be nil
+
+	dl      *dlstats.Store  // may be nil
+	scanner *rescan.Scanner // may be nil
 }
 
-func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache, accessRing *accesslog.Log, upstreamLog *upstreamlog.Log) *Dashboard {
+func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache, accessRing *accesslog.Log, upstreamLog *upstreamlog.Log, dl *dlstats.Store, scanner *rescan.Scanner) *Dashboard {
 	return &Dashboard{
 		cfg:          cfg,
 		auth:         NewAuth(cfg.Username, cfg.Password, cfg.Secret),
@@ -51,7 +56,20 @@ func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, a
 		cache:        c,
 		accessRing:   accessRing,
 		upstreamLog:  upstreamLog,
+		dl:           dl,
+		scanner:      scanner,
 	}
+}
+
+// dlStat returns (count, lastAt) for a version, or (0, zero) when unknown.
+func (d *Dashboard) dlStat(eco, name, version string) (int, time.Time) {
+	if d.dl == nil {
+		return 0, time.Time{}
+	}
+	if st, ok := d.dl.Get(eco, name, version); ok {
+		return st.Count, st.LastAt
+	}
+	return 0, time.Time{}
 }
 
 // originOK returns false when the request comes from a different origin (CSRF guard).
@@ -356,6 +374,9 @@ func (d *Dashboard) handlePackages(w http.ResponseWriter, r *http.Request) {
 		HitCount   int       `json:"hit_count"`
 		Cached     bool      `json:"cached"`
 		Downloaded bool      `json:"downloaded"` // true if any artifact-fetch event was recorded for this version
+
+		DownloadCount int       `json:"download_count"`
+		LastDownload  time.Time `json:"last_download"`
 	}
 
 	type key struct{ eco, name, version string }
@@ -391,6 +412,11 @@ func (d *Dashboard) handlePackages(w http.ResponseWriter, r *http.Request) {
 		for k, entry := range seen {
 			entry.Cached = blobCached(r.Context(), d.cache, k.eco, k.name, k.version)
 		}
+	}
+
+	// Surface persistent download stats (independent of cache presence).
+	for k, entry := range seen {
+		entry.DownloadCount, entry.LastDownload = d.dlStat(k.eco, k.name, k.version)
 	}
 
 	result := make([]pkgEntry, 0, len(seen))

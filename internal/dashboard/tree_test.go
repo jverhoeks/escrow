@@ -3,8 +3,10 @@ package dashboard
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/jverhoeks/escrow/internal/dlstats"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
@@ -104,6 +106,28 @@ func TestPackages_DownloadedFlag(t *testing.T) {
 	}
 	if got["scan"] {
 		t.Errorf("scan Downloaded = true, want false (only scanned events)")
+	}
+}
+
+// TestTree_DownloadStats verifies that persistent download counts from the
+// dlstats store are surfaced as download_count on the tree version rows.
+func TestTree_DownloadStats(t *testing.T) {
+	log := eventlog.New(50)
+	log.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "lodash@4.17.21", Action: "allow", Kind: eventlog.KindDownloaded})
+	dl, _ := dlstats.New("")
+	dl.Incr("npm", "lodash", "4.17.21")
+	dl.Incr("npm", "lodash", "4.17.21")
+
+	d := &Dashboard{log: log, dl: dl}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/packages/tree?eco=npm", nil)
+	d.handlePackagesTree(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"download_count":2`) {
+		t.Errorf("body missing download_count:2: %s", rec.Body.String())
 	}
 }
 

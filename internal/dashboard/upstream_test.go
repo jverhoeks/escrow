@@ -21,7 +21,7 @@ func TestUpstreamLog_ReturnsEvents(t *testing.T) {
 	cfg := config.DashboardConfig{Enabled: true, Path: "/dashboard", Username: "admin", Password: "pass", Secret: "aabbccddeeff00112233445566778899"}
 	ul := upstreamlog.New(10)
 	ul.Record(upstreamlog.Event{Ecosystem: "npm", URL: "https://registry.npmjs.org/a", Status: 200, Bytes: 123})
-	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al, nil, nil, nil, ul)
+	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al, nil, nil, nil, ul, nil, nil)
 	r := chi.NewRouter()
 	dash.Mount(r)
 
