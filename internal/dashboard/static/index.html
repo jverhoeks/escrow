@@ -399,6 +399,16 @@
     }
     .user-dropdown-item:hover { background: var(--bg-tertiary); }
 
+    /* Nav "More ▾" dropdown */
+    .more-menu { position: relative; display: inline-flex; align-items: center; }
+    .more-dropdown {
+      position: absolute; left: 0; top: calc(100% + 2px); z-index: 50;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      min-width: 180px; padding: 4px; display: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+    .more-dropdown.open { display: block; }
+
     /* ── Settings ──────────────────────────────────────────────────────────── */
     .settings-banner { margin: 12px 24px; padding: 10px 14px; border-radius: 6px; font-size: 13px; }
     .settings-banner.ok { background: color-mix(in srgb, var(--status-allowed) 15%, transparent); color: var(--status-allowed); }
@@ -961,13 +971,18 @@
 <div class="nav-bar">
   <div class="nav-tabs">
     <div class="nav-tab active" id="tab-live" onclick="setTab('live')">Live Feed</div>
-    <div class="nav-tab" id="tab-graphs" onclick="setTab('graphs')">Analytics</div>
     <div class="nav-tab" id="tab-packages" onclick="setTab('packages')">Packages</div>
-    <div class="nav-tab" id="tab-tree" onclick="setTab('tree')">Package Tree</div>
     <div class="nav-tab" id="tab-cves" onclick="setTab('cves')">CVEs</div>
-    <div class="nav-tab" id="tab-newvuln" onclick="setTab('newvuln')">Newly Vulnerable</div>
-    <div class="nav-tab" id="tab-logs" onclick="setTab('logs')">Access Logs</div>
-    <div class="nav-tab" id="tab-upstream" onclick="setTab('upstream')">Upstream</div>
+    <div class="more-menu">
+      <div class="nav-tab" id="more-btn" onclick="toggleMoreMenu(event)">More <span class="user-caret">▾</span></div>
+      <div class="more-dropdown" id="more-dropdown">
+        <button class="user-dropdown-item" onclick="pickMore('newvuln')">Newly Vulnerable</button>
+        <button class="user-dropdown-item" onclick="pickMore('graphs')">Analytics</button>
+        <button class="user-dropdown-item" onclick="pickMore('tree')">Package Tree</button>
+        <button class="user-dropdown-item" onclick="pickMore('logs')">Access Logs</button>
+        <button class="user-dropdown-item" onclick="pickMore('upstream')">Upstream</button>
+      </div>
+    </div>
   </div>
   <div class="filter-groups">
     <div class="eco-filters">
@@ -2211,20 +2226,41 @@ async function reloadConfig() {
   } catch (e) { showSettingsBanner(false, 'Error: ' + e); }
 }
 
-// ── User dropdown (Settings / Logout) ───────────────────────────────────────
+// ── Dropdown menus (user + nav "More") ───────────────────────────────────────
+const MORE_VIEWS = { newvuln: 'Newly Vulnerable', graphs: 'Analytics', tree: 'Package Tree', logs: 'Access Logs', upstream: 'Upstream' };
+
 function toggleUserMenu(e) {
   if (e) e.stopPropagation();
+  closeMoreMenu();
   document.getElementById('user-dropdown').classList.toggle('open');
 }
 function closeUserMenu() { document.getElementById('user-dropdown').classList.remove('open'); }
 function gotoSettings() { closeUserMenu(); setTab('settings'); }
-document.addEventListener('click', () => closeUserMenu());
+
+function toggleMoreMenu(e) {
+  if (e) e.stopPropagation();
+  closeUserMenu();
+  document.getElementById('more-dropdown').classList.toggle('open');
+}
+function closeMoreMenu() { document.getElementById('more-dropdown').classList.remove('open'); }
+function pickMore(view) { closeMoreMenu(); setTab(view); }
+
+document.addEventListener('click', () => { closeUserMenu(); closeMoreMenu(); });
 
 function setTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   const activeTab = document.getElementById('tab-' + tab);
   if (activeTab) activeTab.classList.add('active'); // 'settings' has no nav tab (it's in the user menu)
+  // Secondary views live under "More ▾": highlight that button and show the name.
+  const moreBtn = document.getElementById('more-btn');
+  if (MORE_VIEWS[tab]) {
+    moreBtn.classList.add('active');
+    moreBtn.innerHTML = MORE_VIEWS[tab] + ' <span class="user-caret">▾</span>';
+  } else {
+    moreBtn.classList.remove('active');
+    moreBtn.innerHTML = 'More <span class="user-caret">▾</span>';
+  }
 
   ['live','graphs','packages','tree','cves','newvuln','logs','upstream','settings'].forEach(v => {
     document.getElementById('view-' + v).style.display = tab === v ? 'flex' : 'none';
