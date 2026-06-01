@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -49,36 +50,67 @@ func Run(opts Options) error {
 // connected client. On any failure it returns (nil, "offline: <reason>") so the
 // caller starts in offline mode.
 func buildClient(opts Options) (*Client, string) {
-	base := opts.URL
-	if base == "" {
-		port := 7888
-		if rt, err := config.ReadRuntime(); err == nil && rt.Port > 0 {
-			port = rt.Port
-		}
-		base = fmt.Sprintf("http://127.0.0.1:%d", port)
-	}
-
+	// Resolve credentials + the configured port from a discovered escrow.toml.
 	user, pass, dashPath := opts.User, opts.Password, ""
-	if user == "" || pass == "" || dashPath == "" {
-		if cfg, ok := loadDiscoveredConfig(); ok {
-			if user == "" {
-				user = cfg.Dashboard.Username
-			}
-			if pass == "" {
-				pass = cfg.Dashboard.Password
-			}
-			dashPath = cfg.Dashboard.Path
+	cfgPort := 0
+	if cfg, ok := loadDiscoveredConfig(); ok {
+		if user == "" {
+			user = cfg.Dashboard.Username
 		}
+		if pass == "" {
+			pass = cfg.Dashboard.Password
+		}
+		dashPath = cfg.Dashboard.Path
+		cfgPort = cfg.Server.Port
 	}
 
-	c, err := NewClient(base, dashPath, user, pass)
-	if err != nil {
-		return nil, "offline: " + err.Error()
+	// Candidate base URLs, in priority order. Without --url we try the live
+	// instance from runtime.json — but only if its recorded PID is still alive,
+	// so a stale file from a dead instance can't pin us to a dead port — then
+	// the configured port, then the default 7888.
+	var bases []string
+	if opts.URL != "" {
+		bases = []string{opts.URL}
+	} else {
+		if rt, err := config.ReadRuntime(); err == nil && rt.Port > 0 && pidAlive(rt.PID) {
+			bases = append(bases, fmt.Sprintf("http://127.0.0.1:%d", rt.Port))
+		}
+		if cfgPort > 0 {
+			bases = append(bases, fmt.Sprintf("http://127.0.0.1:%d", cfgPort))
+		}
+		bases = append(bases, "http://127.0.0.1:7888")
 	}
-	if err := c.Login(); err != nil {
-		return nil, "offline: " + err.Error()
+
+	var lastErr error
+	seen := map[string]bool{}
+	for _, base := range bases {
+		if seen[base] {
+			continue
+		}
+		seen[base] = true
+		c, err := NewClient(base, dashPath, user, pass)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if err := c.Login(); err != nil {
+			lastErr = err
+			continue
+		}
+		return c, "connected to " + base
 	}
-	return c, "connected to " + base
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no reachable escrow instance")
+	}
+	return nil, "offline: " + lastErr.Error()
+}
+
+// pidAlive reports whether a process with pid exists (signal 0 probes liveness).
+func pidAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	return syscall.Kill(pid, 0) == nil
 }
 
 // loadDiscoveredConfig searches the common escrow.toml locations and returns the

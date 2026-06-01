@@ -547,6 +547,8 @@ func main() {
 	}
 	if err := config.WriteRuntime(config.Runtime{EventLogPath: evLogAbs, PID: os.Getpid(), Port: cfg.Server.Port}); err != nil {
 		log.Debug().Err(err).Msg("could not write runtime discovery file")
+	} else if rp, perr := config.RuntimePath(); perr == nil {
+		defer os.Remove(rp) // remove on shutdown so the CLI never trusts a stale port
 	}
 
 	// SIGHUP → reload the live-reloadable config subset.
