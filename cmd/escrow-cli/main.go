@@ -27,6 +27,7 @@ Usage:
   escrow-cli config restore-shell    [--profiles LIST]
   escrow-cli status                  [--json]
   escrow-cli service                 <start|stop|restart|status>
+  escrow-cli tui                     interactive terminal dashboard [--url URL] [--user USER] [--password PW] [--path FILE]
 
 Aliases (backward-compatible):
   pf-enable  →  fw-enable
@@ -39,6 +40,12 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprint(os.Stderr, cliUsage)
 		os.Exit(1)
+	}
+
+	// Top-level alias: `escrow-cli --tui` is shorthand for `escrow-cli tui`.
+	if os.Args[1] == "--tui" {
+		runTUI(os.Args[2:])
+		return
 	}
 
 	switch os.Args[1] {
@@ -90,6 +97,8 @@ func main() {
 		runReload(os.Args[2:])
 	case "live":
 		runLive(os.Args[2:])
+	case "tui":
+		runTUI(os.Args[2:])
 	case "status":
 		runStatus(os.Args[2:])
 	case "service":

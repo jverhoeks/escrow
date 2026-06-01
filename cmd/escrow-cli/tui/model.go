@@ -44,12 +44,8 @@ func NewModel(c *Client) Model {
 	return Model{client: c, offline: c == nil, eco: "", activity: "all", status: ""}
 }
 
-func (m Model) Init() tea.Cmd { return nil }
-
-// View is a stub here so Model satisfies tea.Model (required because Update
-// returns the concrete Model as a tea.Model). The real rendering lands in
-// views.go (Task 3); that task must move View there and delete this stub.
-func (m Model) View() string { return "" }
+// Init loads the first tab's data on startup (no-op when offline).
+func (m Model) Init() tea.Cmd { return m.loadTab() }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
