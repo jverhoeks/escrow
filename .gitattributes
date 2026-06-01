@@ -1,7 +1,9 @@
 # Exclude pre-built binaries from GitHub source archives (brew install uses these).
 # Homebrew builds from source, so the binaries add ~100 MB of dead weight per release.
 /escrow                 export-ignore
+/escrow-cli             export-ignore
 escrow-darwin-*         export-ignore
 escrow-linux-*          export-ignore
 escrow-windows-*        export-ignore
+escrow-cli-*            export-ignore
 escrow-cache/           export-ignore

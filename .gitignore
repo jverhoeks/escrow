@@ -1,6 +1,9 @@
 escrow.toml
 escrow-cache/
 /escrow
+/escrow-cli
 /escrow-darwin-*
 /escrow-linux-*
+/escrow-cli-darwin-*
+/escrow-cli-linux-*
 .superpowers/

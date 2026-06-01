@@ -78,6 +78,17 @@ runs:
         chmod +x /usr/local/bin/escrow
         escrow --version 2>/dev/null || escrow -version 2>/dev/null || echo "escrow installed"
 
+        # escrow-cli — system/package-manager configuration + status (best-effort)
+        CLI_BINARY="escrow-cli-${OS}-${ARCH}"
+        echo "→ Installing ${CLI_BINARY}"
+        if curl -fsSL \
+          "https://raw.githubusercontent.com/jverhoeks/escrow/${ESCROW_VERSION}/${CLI_BINARY}" \
+          -o /usr/local/bin/escrow-cli; then
+          chmod +x /usr/local/bin/escrow-cli
+        else
+          echo "  (escrow-cli not available for ${ESCROW_VERSION}; skipping)"
+        fi
+
     # ── 3. Write config ────────────────────────────────────────────────────────
     - name: Write escrow config
       shell: bash

@@ -31,7 +31,7 @@ fi
 # (binaries are built fresh by this script; cache files are runtime artefacts)
 DIRTY=$(git status --porcelain \
   | grep -v '^??' \
-  | grep -vE '^.M (escrow$|escrow-darwin|escrow-linux|escrow-windows|escrow-cache/)' \
+  | grep -vE '^.M (escrow$|escrow-cli|escrow-darwin|escrow-linux|escrow-windows|escrow-cache/)' \
   | grep -vE '^ D escrow-cache/' \
   || true)
 if [[ -n "$DIRTY" ]]; then
@@ -60,6 +60,8 @@ done
 git add -f escrow-darwin-amd64 escrow-darwin-arm64 \
              escrow-linux-amd64 escrow-linux-arm64 \
              escrow-windows-amd64.exe \
+             escrow-cli-darwin-amd64 escrow-cli-darwin-arm64 \
+             escrow-cli-linux-amd64 escrow-cli-linux-arm64 \
              action.yml \
              .github/actions/setup-escrow/action.yml
 
