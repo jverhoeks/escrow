@@ -116,26 +116,65 @@ func startFeed(ctx context.Context, client *Client, opts Options, p *tea.Program
 	go tailOffline(ctx, opts, p)
 }
 
-// streamOnline reads the SSE stream and forwards each event to the program.
+// streamOnline reads the SSE stream and forwards each event to the program,
+// reconnecting with a fixed backoff if the stream drops (proxy restart, network
+// blip) until ctx is cancelled.
 func streamOnline(ctx context.Context, client *Client, p *tea.Program) {
-	ch, err := client.Stream(ctx)
-	if err != nil {
-		return
-	}
+	const backoff = 3 * time.Second
+	first := true
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		case e, ok := <-ch:
-			if !ok {
+		}
+		ch, err := client.Stream(ctx)
+		if err != nil {
+			p.Send(connMsg{"reconnecting…"})
+			if !sleepCtx(ctx, backoff) {
 				return
 			}
-			p.Send(streamMsg{e})
+			continue
+		}
+		if !first {
+			p.Send(connMsg{"reconnected"})
+		} else {
+			first = false
+		}
+		// Drain until the stream closes or ctx is cancelled.
+		dropped := false
+		for !dropped {
+			select {
+			case <-ctx.Done():
+				return
+			case e, ok := <-ch:
+				if !ok {
+					dropped = true
+					break
+				}
+				p.Send(streamMsg{e})
+			}
+		}
+		p.Send(connMsg{"reconnecting…"})
+		if !sleepCtx(ctx, backoff) {
+			return
 		}
 	}
 }
 
-// tailOffline tails the event-log JSONL from the end, forwarding new events.
+// sleepCtx waits for d or until ctx is cancelled. Returns false if cancelled.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// tailOffline tails the event-log JSONL from the end, forwarding new events. It
+// is rotation-safe: if the file shrinks (truncated or replaced by log rotation)
+// it re-opens from the start so it doesn't get stuck past the new EOF.
 func tailOffline(ctx context.Context, opts Options, p *tea.Program) {
 	path := opts.Path
 	if path == "" {
@@ -149,27 +188,38 @@ func tailOffline(ctx context.Context, opts Options, p *tea.Program) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
-	f.Seek(0, io.SeekEnd)
+	defer func() { f.Close() }()
+	pos, _ := f.Seek(0, io.SeekEnd) // start tailing from the end
 	reader := bufio.NewReader(f)
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		default:
 		}
 		line, err := reader.ReadString('\n')
 		if err == io.EOF {
-			select {
-			case <-ctx.Done():
+			pos += int64(len(line)) // partial line read; remember bytes consumed
+			// Detect rotation: if the file is now smaller than our position, the
+			// file was truncated or replaced — re-open from the start.
+			if fi, statErr := os.Stat(path); statErr == nil && fi.Size() < pos {
+				f.Close()
+				nf, openErr := os.Open(path)
+				if openErr != nil {
+					return
+				}
+				f = nf
+				pos = 0
+				reader = bufio.NewReader(f)
+				continue
+			}
+			if !sleepCtx(ctx, 500*time.Millisecond) {
 				return
-			case <-time.After(500 * time.Millisecond):
 			}
 			continue
 		}
 		if err != nil {
 			return
 		}
+		pos += int64(len(line))
 		var e Event
 		if json.Unmarshal([]byte(strings.TrimSpace(line)), &e) != nil {
 			continue

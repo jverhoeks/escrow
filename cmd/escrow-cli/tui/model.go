@@ -10,6 +10,7 @@ var activityCycle = []string{"all", "downloaded", "scanned", "blocked"}
 
 // Messages delivered to Update.
 type streamMsg struct{ e Event }
+type connMsg struct{ s string } // feed connection status (e.g. "reconnecting…")
 type errMsg struct{ err error }
 type statsMsg struct{ s Stats }
 type eventsMsg struct{ events []Event }
@@ -97,6 +98,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "allow":
 			m.live.Allowed++
 		}
+	case connMsg:
+		m.status = msg.s
 	case statsMsg:
 		m.live = msg.s
 	case eventsMsg:
