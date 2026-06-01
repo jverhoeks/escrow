@@ -122,19 +122,23 @@ type NewVuln struct {
 	DownloadCount int      `json:"download_count"`
 }
 
+type TreeVer struct {
+	Version       string `json:"version"`
+	Action        string `json:"action"`
+	Downloaded    bool   `json:"downloaded"`
+	DownloadCount int    `json:"download_count"`
+	CVECount      int    `json:"cve_count"`
+}
+
+type TreePkg struct {
+	Namespace string    `json:"namespace"`
+	Name      string    `json:"name"`
+	Versions  []TreeVer `json:"versions"`
+}
+
 type TreeEco struct {
-	Ecosystem string `json:"ecosystem"`
-	Packages  []struct {
-		Namespace string `json:"namespace"`
-		Name      string `json:"name"`
-		Versions  []struct {
-			Version       string `json:"version"`
-			Action        string `json:"action"`
-			Downloaded    bool   `json:"downloaded"`
-			DownloadCount int    `json:"download_count"`
-			CVECount      int    `json:"cve_count"`
-		} `json:"versions"`
-	} `json:"packages"`
+	Ecosystem string    `json:"ecosystem"`
+	Packages  []TreePkg `json:"packages"`
 }
 
 type AccessEntry struct {

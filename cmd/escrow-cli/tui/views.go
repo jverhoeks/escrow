@@ -19,6 +19,7 @@ var (
 	styHead   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
 	styEco    = lipgloss.NewStyle().Foreground(lipgloss.Color("44")) // cyan
 	styPkg    = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	styCursor = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("39")) // selected row
 
 	// Decision badges — green allowed, amber warned, red blocked (CVD users still
 	// have the glyph ✓/⚠/✕ to disambiguate, so color is a secondary cue).
@@ -155,7 +156,7 @@ func (m Model) View() string {
 
 	// ── Footer ──
 	b.WriteString("\n")
-	help := "Tab/1-6 views · ←→ switch · e eco · a activity · j/k scroll · r refresh · q quit"
+	help := "Tab/1-6 views · ↑↓ move · enter expand · e eco · a activity · r refresh · q quit"
 	b.WriteString(truncate(styDim.Render(help), w))
 	return b.String()
 }
@@ -295,54 +296,98 @@ func (m Model) bodyNewVuln(w, maxLines int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func (m Model) bodyPackages(w, maxLines int) string {
-	// Flatten the tree into lines, applying the activity filter at the version
-	// level (mirrors the web tree: "all" shows everything; downloaded/blocked/
-	// scanned filter versions, and the eco filter prunes ecosystems).
-	var lines []string
+// pkgRef is one package visible after the eco + activity filters.
+type pkgRef struct {
+	eco      string
+	display  string // namespace/name
+	key      string // eco\x00name (matches m.pkgOpen keys)
+	versions []TreeVer
+}
+
+// visiblePackages flattens the tree into the filtered, ordered package list the
+// Packages tab shows: eco filter + at least one version matching the activity
+// filter. Order matches the rendered order so m.pkgCursor lines up.
+func (m Model) visiblePackages() []pkgRef {
+	var out []pkgRef
 	for _, eco := range m.tree {
 		if m.eco != "" && eco.Ecosystem != m.eco {
 			continue
 		}
-		var ecoLines []string
 		for _, pkg := range eco.Packages {
 			name := pkg.Name
 			if pkg.Namespace != "" {
 				name = pkg.Namespace + "/" + pkg.Name
 			}
-			var verLines []string
+			var vs []TreeVer
 			for _, v := range pkg.Versions {
-				if !versionMatches(v.Action, v.Downloaded, m.activity) {
-					continue
+				if versionMatches(v.Action, v.Downloaded, m.activity) {
+					vs = append(vs, v)
 				}
+			}
+			if len(vs) == 0 {
+				continue
+			}
+			out = append(out, pkgRef{eco: eco.Ecosystem, display: name, key: eco.Ecosystem + "\x00" + name, versions: vs})
+		}
+	}
+	return out
+}
+
+func (m Model) bodyPackages(w, maxLines int) string {
+	pkgs := m.visiblePackages()
+	if len(pkgs) == 0 {
+		return styDim.Render("(no packages match the current filters)")
+	}
+	// Packages are collapsed by default (▸); the selected one (▶ highlight)
+	// expands (▾) to show its versions. ↑↓ move the selection, enter toggles.
+	var lines []string
+	cursorLine := 0
+	lastEco := ""
+	for i, p := range pkgs {
+		if p.eco != lastEco {
+			lines = append(lines, styHead.Render(strings.ToUpper(p.eco)))
+			lastEco = p.eco
+		}
+		caret := "▸"
+		if m.pkgOpen[p.key] {
+			caret = "▾"
+		}
+		nameCol := trim(p.display, max(w-20, 4))
+		count := fmt.Sprintf("(%d ver)", len(p.versions))
+		if i == m.pkgCursor {
+			cursorLine = len(lines)
+			lines = append(lines, styCursor.Render(fmt.Sprintf("  %s %s %s", caret, nameCol, count)))
+		} else {
+			lines = append(lines, fmt.Sprintf("  %s %s %s", caret, styPkg.Render(nameCol), styDim.Render(count)))
+		}
+		if m.pkgOpen[p.key] {
+			for _, v := range p.versions {
 				marker := " "
 				if v.Downloaded {
-					marker = styOnline.Render("⤓") // downloaded marker
+					marker = styOnline.Render("⤓")
 				}
 				cve := ""
 				if v.CVECount > 0 {
 					cve = styBlock.Render(fmt.Sprintf(" %d CVE", v.CVECount))
 				}
-				verLines = append(verLines, fmt.Sprintf("      %s %s  %s%s",
+				lines = append(lines, fmt.Sprintf("      %s %s  %s%s",
 					marker, styDim.Render(trim(v.Version, 24)), statusBadge(v.Action), cve))
 			}
-			if len(verLines) == 0 {
-				continue
-			}
-			ecoLines = append(ecoLines, "  "+styPkg.Render(trim(name, w-4)))
-			ecoLines = append(ecoLines, verLines...)
 		}
-		if len(ecoLines) == 0 {
-			continue
-		}
-		lines = append(lines, styHead.Render(strings.ToUpper(eco.Ecosystem)))
-		lines = append(lines, ecoLines...)
 	}
-	if len(lines) == 0 {
-		return styDim.Render("(no packages match the current filters)")
+	// Window so the selected package's line stays visible as the cursor moves.
+	start := 0
+	if cursorLine >= maxLines {
+		start = cursorLine - maxLines + 1
+	}
+	end := start + maxLines
+	if end > len(lines) {
+		end = len(lines)
+	}
+	if start > end {
+		start = end
 	}
 	var b strings.Builder
-	start, end := m.window(len(lines), maxLines)
 	for _, ln := range lines[start:end] {
 		b.WriteString(truncate(ln, w))
 		b.WriteString("\n")

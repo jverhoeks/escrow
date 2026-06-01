@@ -31,14 +31,16 @@ type Model struct {
 	height   int
 	status   string // status/error line
 
-	live     Stats // running counts from the stream
-	events   []Event
-	cves     []CVE
-	newvuln  []NewVuln
-	tree     []TreeEco
-	access   []AccessEntry
-	upstream []UpstreamEntry
-	scroll   int // per-tab scroll offset (reset on tab switch)
+	live      Stats // running counts from the stream
+	events    []Event
+	cves      []CVE
+	newvuln   []NewVuln
+	tree      []TreeEco
+	access    []AccessEntry
+	upstream  []UpstreamEntry
+	scroll    int             // per-tab scroll offset (reset on tab switch)
+	pkgCursor int             // selected package on the Packages tab
+	pkgOpen   map[string]bool // expanded packages on the Packages tab (key: eco\x00name)
 }
 
 func NewModel(c *Client) Model {
@@ -58,31 +60,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "tab", "right":
 			m.tab = (m.tab + 1) % len(tabNames)
-			m.scroll = 0
+			m.scroll, m.pkgCursor = 0, 0
 			return m, m.loadTab()
 		case "shift+tab", "left":
 			m.tab = (m.tab - 1 + len(tabNames)) % len(tabNames)
-			m.scroll = 0
+			m.scroll, m.pkgCursor = 0, 0
 			return m, m.loadTab()
 		case "e":
 			m.eco = next(ecoCycle, m.eco)
+			m.pkgCursor = 0
 			return m, m.loadTab()
 		case "a":
 			m.activity = next(activityCycle, m.activity)
+			m.pkgCursor = 0
 			return m, m.loadTab()
 		case "r":
 			return m, m.loadTab()
+		case "enter", " ":
+			// Packages tab: expand/collapse the selected package's versions.
+			if m.tab == 3 {
+				if pk := m.visiblePackages(); m.pkgCursor < len(pk) {
+					if m.pkgOpen == nil {
+						m.pkgOpen = map[string]bool{}
+					}
+					k := pk[m.pkgCursor].key
+					m.pkgOpen[k] = !m.pkgOpen[k]
+				}
+			}
 		case "down", "j":
-			m.scroll++
+			if m.tab == 3 {
+				if n := len(m.visiblePackages()); m.pkgCursor < n-1 {
+					m.pkgCursor++
+				}
+			} else {
+				m.scroll++
+			}
 		case "up", "k":
-			if m.scroll > 0 {
+			if m.tab == 3 {
+				if m.pkgCursor > 0 {
+					m.pkgCursor--
+				}
+			} else if m.scroll > 0 {
 				m.scroll--
 			}
 		}
 		// number keys 1-6 jump to a tab
 		if s := msg.String(); len(s) == 1 && s[0] >= '1' && s[0] <= '6' {
 			m.tab = int(s[0] - '1')
-			m.scroll = 0
+			m.scroll, m.pkgCursor = 0, 0
 			return m, m.loadTab()
 		}
 	case streamMsg:

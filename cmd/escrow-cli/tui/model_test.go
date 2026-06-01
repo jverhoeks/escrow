@@ -44,3 +44,26 @@ func TestModel_QuitKey(t *testing.T) {
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	require.NotNil(t, cmd) // tea.Quit
 }
+
+func TestModel_PackagesExpandCollapse(t *testing.T) {
+	m := NewModel(nil)
+	m.tab = 3
+	m.tree = []TreeEco{{Ecosystem: "npm", Packages: []TreePkg{
+		{Name: "lodash", Versions: []TreeVer{{Version: "4.17.21", Action: "allow", Downloaded: true}}},
+		{Name: "left-pad", Versions: []TreeVer{{Version: "1.3.0", Action: "allow", Downloaded: true}}},
+	}}}
+	require.Len(t, m.visiblePackages(), 2)
+	require.Equal(t, 0, m.pkgCursor)
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown}) // move to 2nd package
+	require.Equal(t, 1, m2.(Model).pkgCursor)
+	m3, _ := m2.(Model).Update(tea.KeyMsg{Type: tea.KeyDown}) // clamp at last
+	require.Equal(t, 1, m3.(Model).pkgCursor)
+
+	m4, _ := m3.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter}) // expand selected
+	mm := m4.(Model)
+	require.True(t, mm.pkgOpen["npm\x00left-pad"])
+
+	mm.width, mm.height = 100, 30
+	require.Contains(t, mm.View(), "1.3.0") // expanded version renders
+}
