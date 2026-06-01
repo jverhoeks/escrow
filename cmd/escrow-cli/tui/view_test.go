@@ -21,13 +21,15 @@ func TestView_AllTabsRenderWithoutPanic(t *testing.T) {
 		upstream: []UpstreamEntry{{Ecosystem: "npm", Method: "GET", URL: "https://registry.npmjs.org/lodash", Status: 200}},
 		eco:      "", activity: "all",
 	}
-	for _, width := range []int{0, 120} {
+	// Include the 1-3 "tiny terminal" band where width-derived truncation can go
+	// negative — a render panic there would crash the TUI for a real user.
+	for _, width := range []int{0, 1, 2, 3, 4, 8, 120} {
 		for tab := 0; tab < len(tabNames); tab++ {
 			m := seed
 			m.tab = tab
 			m.width, m.height = width, 30
-			out := m.View() // must not panic
-			if width > 0 && strings.TrimSpace(out) == "" {
+			out := m.View() // must not panic at any width
+			if width >= 8 && strings.TrimSpace(out) == "" {
 				t.Errorf("tab %d rendered empty at width %d", tab, width)
 			}
 		}

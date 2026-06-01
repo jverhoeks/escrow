@@ -36,7 +36,15 @@ func NewClient(base, dashPath, user, pass string) (*Client, error) {
 		base: strings.TrimRight(base, "/"),
 		path: dashPath,
 		user: user, pass: pass,
-		http: &http.Client{Timeout: 10 * time.Second, Jar: jar},
+		// Don't auto-follow redirects: the dashboard answers an expired/missing
+		// session with 302→/login (which serves 200 HTML). Following it would
+		// hide auth failures behind an HTML-decode error and a silent SSE
+		// reconnect loop. With ErrUseLastResponse, getJSON/Stream see the 302
+		// and report "unauthorized" cleanly.
+		http: &http.Client{
+			Timeout: 10 * time.Second, Jar: jar,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 	}, nil
 }
 

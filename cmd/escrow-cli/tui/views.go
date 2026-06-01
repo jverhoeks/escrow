@@ -426,12 +426,15 @@ func statusColor(code int) string {
 
 // trim shortens a plain (unstyled) string to n runes with an ellipsis.
 func trim(s string, n int) string {
+	if n <= 0 {
+		return "" // guard: width-derived n can be negative on a tiny terminal
+	}
 	r := []rune(s)
 	if len(r) <= n {
 		return s
 	}
-	if n <= 1 {
-		return string(r[:n])
+	if n == 1 {
+		return string(r[:1])
 	}
 	return string(r[:n-1]) + "…"
 }

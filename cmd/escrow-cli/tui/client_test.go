@@ -59,3 +59,23 @@ func TestClient_StatsWithoutLoginUnauthorized(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "unauthor"))
 }
+
+// The real dashboard redirects an expired/missing session to /login (200 HTML)
+// rather than returning 401. The client must NOT follow that redirect and must
+// report it as unauthorized (not a confusing HTML-decode error).
+func TestClient_Redirect302ReportedAsUnauthorized(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dashboard/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard/login", http.StatusFound)
+	})
+	mux.HandleFunc("/dashboard/login", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("<html><body>login</body></html>"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c, _ := NewClient(srv.URL, "/dashboard", "root", "escrow")
+	_, err := c.Stats()
+	require.Error(t, err)
+	require.Contains(t, strings.ToLower(err.Error()), "unauthor")
+}
