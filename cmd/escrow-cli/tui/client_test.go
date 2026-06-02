@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -78,4 +81,54 @@ func TestClient_Redirect302ReportedAsUnauthorized(t *testing.T) {
 	_, err := c.Stats()
 	require.Error(t, err)
 	require.Contains(t, strings.ToLower(err.Error()), "unauthor")
+}
+
+// Regression: the SSE stream must use a client WITHOUT an http.Client.Timeout.
+// http.Client.Timeout also caps response-body reads, so sharing the 10s JSON
+// client for the long-lived stream force-closed the live feed every ~10s and
+// dropped events during the reconnect gap. One-shot JSON calls keep the 10s.
+func TestClient_StreamClientHasNoTimeout(t *testing.T) {
+	c, err := NewClient("http://127.0.0.1:7888", "/dashboard", "root", "escrow")
+	require.NoError(t, err)
+	require.Equal(t, 10*time.Second, c.http.Timeout, "one-shot JSON client keeps its bounded timeout")
+	require.Zero(t, c.stream.Timeout, "SSE stream client must have no timeout (ctx controls lifetime)")
+	require.NotNil(t, c.stream.Jar)
+	require.Same(t, c.http.Jar, c.stream.Jar, "stream shares the cookie jar so the session cookie applies")
+}
+
+// Stream() should deliver events end-to-end over the dedicated stream client.
+func TestClient_StreamDeliversEvents(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dashboard/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "escrow_session", Value: "ok", Path: "/"})
+		w.WriteHeader(http.StatusFound)
+	})
+	mux.HandleFunc("/dashboard/api/stream", func(w http.ResponseWriter, r *http.Request) {
+		fl, ok := w.(http.Flusher)
+		require.True(t, ok)
+		fmt.Fprint(w, ": connected\n\n")
+		fl.Flush()
+		fmt.Fprint(w, "data: {\"package\":\"evil@1.0.0\",\"action\":\"block\",\"ecosystem\":\"npm\"}\n\n")
+		fl.Flush()
+		<-r.Context().Done() // hold the stream open until the client cancels
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c, err := NewClient(srv.URL, "/dashboard", "root", "escrow")
+	require.NoError(t, err)
+	require.NoError(t, c.Login())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := c.Stream(ctx)
+	require.NoError(t, err)
+
+	select {
+	case e := <-ch:
+		require.Equal(t, "evil@1.0.0", e.Package)
+		require.Equal(t, "block", e.Action)
+	case <-time.After(3 * time.Second):
+		t.Fatal("no event received from SSE stream")
+	}
 }

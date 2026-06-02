@@ -17,11 +17,12 @@ import (
 
 // Client talks to a running escrow dashboard API using a session cookie.
 type Client struct {
-	base string // e.g. http://127.0.0.1:7888
-	path string // dashboard path, e.g. /dashboard
-	user string
-	pass string
-	http *http.Client
+	base   string // e.g. http://127.0.0.1:7888
+	path   string // dashboard path, e.g. /dashboard
+	user   string
+	pass   string
+	http   *http.Client // one-shot JSON calls (Stats/CVEs/tree/...); 10s timeout
+	stream *http.Client // long-lived SSE stream; no timeout (ctx controls lifetime)
 }
 
 func NewClient(base, dashPath, user, pass string) (*Client, error) {
@@ -32,19 +33,25 @@ func NewClient(base, dashPath, user, pass string) (*Client, error) {
 	if dashPath == "" {
 		dashPath = "/dashboard"
 	}
+	// Don't auto-follow redirects: the dashboard answers an expired/missing
+	// session with 302→/login (which serves 200 HTML). Following it would
+	// hide auth failures behind an HTML-decode error and a silent SSE
+	// reconnect loop. With ErrUseLastResponse, getJSON/Stream see the 302
+	// and report "unauthorized" cleanly.
+	noRedirect := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &Client{
 		base: strings.TrimRight(base, "/"),
 		path: dashPath,
 		user: user, pass: pass,
-		// Don't auto-follow redirects: the dashboard answers an expired/missing
-		// session with 302→/login (which serves 200 HTML). Following it would
-		// hide auth failures behind an HTML-decode error and a silent SSE
-		// reconnect loop. With ErrUseLastResponse, getJSON/Stream see the 302
-		// and report "unauthorized" cleanly.
-		http: &http.Client{
-			Timeout: 10 * time.Second, Jar: jar,
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		},
+		// One-shot JSON calls get a 10s timeout.
+		http: &http.Client{Timeout: 10 * time.Second, Jar: jar, CheckRedirect: noRedirect},
+		// The SSE stream gets a SEPARATE client with NO Timeout. http.Client.Timeout
+		// also caps response-body reads, so a timeout here would force-close the
+		// long-lived event stream every ~10s (before the server's 15s heartbeat),
+		// dropping events during the reconnect gap. The stream's lifetime is
+		// controlled by its request context instead. The Jar is shared, so the
+		// session cookie set by Login is visible to both clients.
+		stream: &http.Client{Jar: jar, CheckRedirect: noRedirect},
 	}, nil
 }
 
@@ -177,7 +184,7 @@ func (c *Client) UpstreamLog(n int) ([]UpstreamEntry, error) {
 // channel until ctx is cancelled. Lines are "data: {json}" (comments ignored).
 func (c *Client) Stream(ctx context.Context) (<-chan Event, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.base+c.path+"/api/stream", nil)
-	resp, err := c.http.Do(req)
+	resp, err := c.stream.Do(req)
 	if err != nil {
 		return nil, err
 	}
