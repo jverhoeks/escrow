@@ -211,3 +211,47 @@ commit the updated `go.sum`.
 
 **NuGet `CS0103: Console does not exist`**  
 Add `<ImplicitUsings>enable</ImplicitUsings>` to your `.csproj`.
+
+---
+
+## Composing with Renovate
+
+Renovate discovers new versions using its own HTTP client — it does **not** use the same registry config as your package managers. The escrow security check still fires at install/build time:
+
+```
+Renovate: finds "lodash 4.17.22 exists" → queries registry directly (discovery only)
+Developer: npm install after accepting PR  → escrow checks age + OSV ← this is the gate
+```
+
+**What Renovate auto-detects (no extra config):**
+
+| Ecosystem | Auto-detected? | Notes |
+|---|:-:|---|
+| npm | ❌ | Renovate explicitly rejects `localhost` registries from `.npmrc` (security feature) |
+| PyPI | ✅ | Reads `PIP_INDEX_URL` env var |
+| Go | ✅ | Reads `GOPROXY` env var |
+| Cargo | ❌ | Uses git-clone for custom registries; sparse HTTP not supported |
+| Maven | ⚠️ | Only if pom.xml has `<repositories>` pointing to escrow |
+| NuGet / Composer | ⚠️ | Merge/hunt strategy; need project config |
+
+**For maven/nuget/composer with a network-accessible escrow instance**, generate and commit a `renovate.json`:
+
+```bash
+escrow-cli config write-renovate --ecosystems maven,nuget,composer
+```
+
+**In GitHub Actions** — PyPI and Go are covered by the exported env vars; for maven/nuget/composer use the `renovate-config` output:
+
+```yaml
+- uses: jverhoeks/escrow@v1
+  id: escrow
+  with:
+    ecosystems: 'npm,pypi,go,cargo,maven,nuget,composer'
+
+- uses: renovatebot/github-action@v40
+  env:
+    RENOVATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # PyPI + Go auto-detected via PIP_INDEX_URL / GOPROXY already exported above
+    # Maven/NuGet/Composer: explicit registryUrls (npm/cargo: go direct by design)
+    RENOVATE_CONFIG: ${{ steps.escrow.outputs.renovate-config }}
+```
