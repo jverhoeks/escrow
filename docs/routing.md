@@ -2,9 +2,11 @@
 
 [← Back to README](../README.md) · Related: [escrow-cli reference](escrow-cli.md) · [Per-tool quickstarts](quickstart/)
 
-`escrow-cli` is a companion tool (installed alongside `escrow` via Homebrew) that routes your
-development environment's package traffic through the proxy. Four methods are available — use
-one or combine several for complete coverage.
+`escrow-cli` is a companion tool (installed alongside `escrow` via Homebrew) that makes pointing
+your tools at the proxy a **one-command** job — no hand-editing `.npmrc`, `pip.conf`,
+`settings.xml`, `config.toml`, and friends, and every file is backed up before it's touched.
+It routes your whole development environment's package traffic through the proxy. Four methods
+are available — use one, or combine several for complete coverage.
 
 | | Method | Catches | Root? | Platform |
 |---|---|---|---|---|

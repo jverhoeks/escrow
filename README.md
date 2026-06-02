@@ -86,6 +86,19 @@ chmod +x escrow && ./escrow            # binds 127.0.0.1:7888 (localhost only)
 
 On first boot escrow generates `escrow.toml` with a random dashboard password and prints the credentials to stdout — save them.
 
+### 🔌 Point your tools at the proxy — one command
+
+No hand-editing `.npmrc`, `pip.conf`, `settings.xml`, `config.toml`… `escrow-cli` wires up **every package manager on the machine** to use the proxy, and backs up each file before it touches it:
+
+```bash
+escrow-cli config write                      # configure all tools, globally
+escrow-cli config write --ecosystems npm,pypi  # …or just the ones you use
+escrow-cli status                            # is the proxy up? which tools are wired up?
+escrow-cli config restore                    # undo — restore the originals it backed up
+```
+
+It covers npm/pnpm/yarn/bun · pip/uv/poetry · go · cargo · nuget · maven/gradle · composer — and can also inject proxy env vars for GUI editors (VSCode, Zed) or add a kernel-level network redirect that catches **every** process. → [Routing traffic to escrow](docs/routing.md).
+
 ---
 
 ## 🌐 Supported ecosystems
