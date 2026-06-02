@@ -78,8 +78,8 @@ cd docker/ && mkdir -p data && cp escrow.debug.toml data/escrow.toml && docker c
 ### 📦 Binary
 
 ```bash
-# pick your platform: darwin-arm64 · darwin-amd64 · linux-amd64
-curl -L https://github.com/jverhoeks/escrow/releases/latest/download/escrow-darwin-arm64 -o escrow
+# pick your platform: darwin-arm64 · darwin-amd64 · linux-amd64 · linux-arm64
+curl -L https://raw.githubusercontent.com/jverhoeks/escrow/main/escrow-darwin-arm64 -o escrow
 chmod +x escrow && ./escrow            # binds 127.0.0.1:7888 (localhost only)
 ./escrow --host=0.0.0.0                # listen on all interfaces (team/CI use)
 ```
