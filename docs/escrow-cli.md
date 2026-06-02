@@ -54,7 +54,35 @@ sudo escrow-cli service start|stop|restart|status
 
 # Overall status
      escrow-cli status [--json]
+
+# Monitor & control
+escrow-cli tui    [--url URL] [--user U] [--password P]   # interactive terminal dashboard
+escrow-cli live   [--eco ECO] [--activity downloaded|scanned|blocked|all]  # tail events
+escrow-cli reload [--pid FILE]                            # hot-reload running proxy (SIGHUP)
 ```
+
+---
+
+## Monitor & control
+
+These talk to a **running** escrow proxy (discovered via the runtime file it writes, or
+`--url`); no extra setup required.
+
+**`escrow-cli tui`** — an interactive terminal dashboard mirroring the web views (Live + stats,
+CVEs, Newly Vulnerable, Packages, Access, Upstream). It auto-logs-in using the
+`dashboard.username`/`password` from your `escrow.toml`; override with `--url/--user/--password`
+for a remote instance. Falls back to an offline event-log tail if the API is unreachable. Keys:
+`Tab`/`1`–`6` switch views · `↑↓` move · `enter` expand (Packages) · `e` ecosystem · `a` activity
+· `r` refresh · `q` quit. Requires an interactive terminal (use `live` for piped output).
+
+**`escrow-cli live`** — tails the persisted event-log JSONL and prints colorized,
+filtered lines (`--eco`, `--activity`). Works locally without auth; requires event-log
+persistence (the disk backend enables it by default).
+
+**`escrow-cli reload`** — sends `SIGHUP` to the running proxy so it re-reads `escrow.toml` and
+applies the live-reloadable parts (policy, `[rescan]`, alerts webhook) without a restart;
+restart-required changes (listen socket, storage, ecosystems, auth secret) are reported in the
+proxy log. Also reachable via `POST /dashboard/api/reload` (the dashboard's Reload button).
 
 ---
 

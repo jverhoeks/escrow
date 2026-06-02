@@ -1,6 +1,6 @@
 # escrow
 
-> Supply-chain proxy for package managers — age gates, CVE scanning, and a real-time operator dashboard. Single binary, 7 ecosystems.
+> Supply-chain proxy for package managers — age gates, CVE scanning, continuous re-scanning, and a real-time operator dashboard (web + terminal). Single binary, 7 ecosystems.
 
 ```
 developer / CI  →  escrow proxy  →  upstream registry
@@ -42,12 +42,17 @@ brew services restart escrow   # reload config
 
 Config lives at `$(brew --prefix)/etc/escrow/escrow.toml` — edit it to enable more ecosystems, then restart the service.
 
-The Homebrew formula also installs **`escrow-cli`**, the companion tool for routing your development environment's traffic through the proxy. See [Routing Traffic to Escrow](#-routing-traffic-to-escrow) for setup options.
+The Homebrew formula also installs **`escrow-cli`**, the companion tool for routing your
+development environment's traffic through the proxy, watching activity, and reloading config.
+See [Routing Traffic to Escrow](#-routing-traffic-to-escrow) for setup options.
 
 ```bash
 escrow-cli setup --dry-run      # preview system setup
 escrow-cli config write         # configure all tools globally
 escrow-cli status               # check proxy + config + firewall state
+escrow-cli tui                  # interactive terminal dashboard
+escrow-cli live --eco npm       # tail package events in the terminal
+escrow-cli reload               # hot-reload the running proxy's config
 ```
 
 ### 🐳 Docker
@@ -184,7 +189,7 @@ escrow-cli config write-renovate --ecosystems maven,nuget,composer
 | `ecosystems` | `npm,pypi,go,cargo` | Comma-separated list to enable |
 | `min-days` | `7` | Age gate threshold |
 | `osv-severity` | `HIGH` | Minimum CVE severity to block (`off` to disable) |
-| `version` | `v1.4.1` | Escrow binary version |
+| `version` | `v1.10.0` | Escrow binary version |
 | `port` | `7888` | Local proxy port |
 | `cache-key-suffix` | `` | Append to cache key for manual busting |
 
@@ -491,19 +496,84 @@ pf and iptables resolve hostnames to IP addresses at rule-load time. This means:
 
 ## 📊 Dashboard
 
-Real-time package event stream with approve/block controls.
+A real-time operator console — light/dark, color-blind-safe status coding, and an
+**Activity** filter (Downloaded / All) plus an **Ecosystem** filter shared across views.
+Access at `http://localhost:7888/dashboard`; credentials are printed on first boot and
+stored in `$(brew --prefix)/var/log/escrow.log`.
 
-![escrow dashboard](docs/dashboard-screenshot.png)
+**Live Feed** — every package event as it happens, with running blocked/warned/allowed
+counts and top-blocked packages. Each row shows the classification (`scanned` /
+`downloaded` / `blocked`) and a one-click **Approve** / **Block** action.
 
-Access at `http://localhost:7888/dashboard`. Credentials are printed on first boot and stored in `$(brew --prefix)/var/log/escrow.log`.
+![Live feed with blocked packages](docs/images/dashboard-live.png)
 
-**Approve a blocked package:** click ✓ next to any blocked event. Added to
-`escrow-allowlist.json` immediately. No restart needed.
+**CVEs** — every version blocked by a vulnerability, grouped by advisory with severity and
+a link to the OSV/GitHub advisory.
 
-**Remove from allowlist:** `DELETE /dashboard/api/allow` with `{"ecosystem","name","version"}`.
-All changes are recorded in the live feed with the operator's username.
+![CVE view](docs/images/dashboard-cves.png)
 
-**Block a package manually:** `POST /dashboard/api/block`. Same format.
+**Package Tree** — ecosystem → namespace/package → version, collapsed by default. Each
+version shows its status, `scanned`/`downloaded` marker, hit & download counts, size, and a
+Block/Approve button.
+
+![Package tree](docs/images/dashboard-tree.png)
+
+Other views (under **More ▾**): **Newly Vulnerable** (packages that gained a CVE *after* you
+used them — see [Continuous CVE re-scan](#-continuous-cve-re-scan)), **Analytics** (24-hour
+stacked-column trends per ecosystem), **Access Logs** (clients → escrow), and **Upstream**
+(escrow → registries, i.e. cache misses). Light and dark:
+
+| Light | Dark |
+|:---:|:---:|
+| ![light](docs/images/dashboard-live.png) | ![dark](docs/images/dashboard-live-dark.png) |
+
+**Approve a blocked package:** click **Approve** on any blocked event (or version in the
+tree). Added to `escrow-allowlist.json` immediately — no restart. **Block manually:** the
+**Block** button, or `POST /dashboard/api/block`. All allow/block actions are recorded in the
+live feed with the operator's username.
+
+---
+
+## 🖥️ Terminal UI — `escrow-cli tui`
+
+Prefer the terminal? `escrow-cli tui` (alias `escrow-cli --tui`) is an interactive,
+keyboard-driven dashboard that mirrors the web views over the local API, with an offline
+event-log fallback.
+
+```bash
+escrow-cli tui
+```
+
+It auto-discovers the running proxy and logs in from your `escrow.toml`; pass
+`--url/--user/--password` to point at a remote instance. Keys: **Tab** / **1–6** switch views ·
+**↑↓** move · **enter** expand (Packages) · **e** ecosystem · **a** activity · **r** refresh ·
+**q** quit. Views: Live (+stats), CVEs, Newly Vulnerable, Packages, Access, Upstream.
+
+`escrow-cli live [--eco npm] [--activity downloaded|scanned|blocked]` tails the event log as
+plain colorized lines — handy for piping or a side pane.
+
+---
+
+## 🔁 Continuous CVE re-scan
+
+OSV is checked when a package is first fetched — but new CVEs are published every day. The
+background **re-scanner** periodically re-checks the versions you've actually **downloaded**
+against OSV, and on a *new* finding it records it, fires the webhook, and (by default)
+auto-adds the version to the blocklist. Findings appear in the **Newly Vulnerable** view with
+how many times the package was pulled, for triage.
+
+![Newly Vulnerable](docs/images/dashboard-newly-vulnerable.png)
+
+```toml
+[rescan]
+  enabled        = true   # default
+  interval_hours = 24     # default; also a manual "Re-scan now" button + POST /api/rescan
+  auto_block     = true   # default; set false for alert-only
+  min_severity   = "HIGH" # defaults to policy.osv.min_severity
+```
+
+A daily sweep catches a freshly-disclosed CVE on something already in your builds within ~24h;
+auto-block is severity-gated and can be turned off for alert-only.
 
 ---
 
@@ -578,6 +648,29 @@ results are cached 1 hour per account.
 | `block` | Removed from manifest/metadata — tools see it as non-existent |
 | `warn`  | Allowed through; event logged with WARN status |
 | `allow` | Signal evaluated but never blocks (monitoring mode) |
+
+---
+
+## 🛠️ Settings & hot-reload
+
+You can view and edit the whole config from the dashboard's **Settings** page (everything
+except the dashboard password, which is shown read-only and never writable via the API). A
+**Validate** button checks a change before you save.
+
+![Settings page](docs/images/dashboard-settings.png)
+
+**Save** writes `escrow.toml` (backing up the previous file to `escrow.toml.bak`) and then
+**hot-reloads** the live-reloadable parts immediately — **policy gates, `[rescan]`, and the
+alerts webhook** apply without a restart. Changes to the listen socket, storage, ecosystems,
+or the auth secret are reported as **restart-required**.
+
+Reload is also available three other ways, all running the same in-process routine:
+
+```bash
+escrow-cli reload          # signals the running proxy (SIGHUP)
+kill -HUP <pid>            # SIGHUP directly
+curl -XPOST .../api/reload  # dashboard "Reload" button hits this
+```
 
 ---
 
