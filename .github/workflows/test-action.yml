@@ -103,10 +103,9 @@ jobs:
         run: |
           mkdir /tmp/cargo-test && cd /tmp/cargo-test
           cargo init --name test-escrow
-          cat >> Cargo.toml <<'EOF'
-          [dependencies]
-          once_cell = "1"
-          EOF
+          # `cargo init` already writes an empty [dependencies] table; use
+          # `cargo add` instead of appending a second one (duplicate-key error).
+          cargo add once_cell@1
           cargo fetch
           echo "✅ cargo fetch OK"
 
