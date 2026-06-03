@@ -133,3 +133,35 @@ func TestLoad_RescanExplicitDisable(t *testing.T) {
 		t.Error("AutoBlock should be explicitly false")
 	}
 }
+
+func TestLoad_EgressProxy(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "escrow.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+[egress_proxy]
+enabled = true
+forward_port = 7889
+policy = "whitelist"
+allow_hosts = ["registry.npmjs.org", ".pypi.org"]
+block_cidrs = ["169.254.0.0/16"]
+`), 0o600))
+
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.EgressProxy)
+	require.NotNil(t, cfg.EgressProxy.Enabled)
+	assert.True(t, *cfg.EgressProxy.Enabled)
+	assert.Equal(t, 7889, cfg.EgressProxy.ForwardPort)
+	assert.Equal(t, "whitelist", cfg.EgressProxy.Policy)
+	assert.Equal(t, []string{"registry.npmjs.org", ".pypi.org"}, cfg.EgressProxy.AllowHosts)
+	assert.Equal(t, []string{"169.254.0.0/16"}, cfg.EgressProxy.BlockCIDRs)
+}
+
+func TestLoad_EgressProxyAbsentIsNil(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "escrow.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[server]\nport = 7888\n"), 0o600))
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	assert.Nil(t, cfg.EgressProxy, "absent section => nil => disabled")
+}
