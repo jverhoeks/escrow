@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jverhoeks/escrow/internal/alerts"
+	"github.com/jverhoeks/escrow/internal/egress"
 	"github.com/jverhoeks/escrow/internal/allow"
 	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/cache"
@@ -360,6 +361,26 @@ func main() {
 		}, rescan.Config{Enabled: enabled, IntervalHours: interval, AutoBlock: autoBlock, MinSeverity: minSev})
 		scanner.Start(rootCtx)
 		log.Info().Bool("auto_block", autoBlock).Int("interval_hours", interval).Str("min_severity", minSev).Msg("CVE re-scanner enabled")
+	}
+
+	// Egress proxy (Docker build protection, Phase 1): optional second listener.
+	// nil section => disabled. Forward proxy only; no TLS interception.
+	if ep := cfg.EgressProxy; ep != nil && (ep.Enabled == nil || *ep.Enabled) {
+		pol, err := egress.NewPolicy(*ep)
+		if err != nil {
+			log.Fatal().Err(err).Msg("egress proxy: invalid policy")
+		}
+		port := ep.ForwardPort
+		if port == 0 {
+			port = 7889
+		}
+		eproxy := egress.New(fmt.Sprintf("%s:%d", cfg.Server.Host, port), pol, evLog)
+		go func() {
+			log.Info().Int("port", port).Str("policy", ep.Policy).Msg("egress proxy listening")
+			if err := eproxy.Serve(rootCtx); err != nil {
+				log.Error().Err(err).Msg("egress proxy stopped")
+			}
+		}()
 	}
 
 	// restartSnapshot captures the fields that cannot be applied live; a reload
