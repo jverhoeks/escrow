@@ -19,7 +19,7 @@ jobs:
   test-npm-pypi:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v6.0.3
 
       - name: Setup escrow
         id: escrow
@@ -69,7 +69,7 @@ jobs:
   test-go-cargo:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v6.0.3
 
       - name: Setup escrow
         id: escrow
@@ -113,7 +113,7 @@ jobs:
   test-age-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v6.0.3
 
       - name: Setup escrow (block-all)
         uses: ./.github/actions/setup-escrow
