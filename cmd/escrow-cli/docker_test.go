@@ -27,6 +27,18 @@ func assertHasPair(t *testing.T, argv []string, flag, val string) {
 	t.Fatalf("expected %s %q in argv: %v", flag, val, argv)
 }
 
+func TestComposeOverride(t *testing.T) {
+	da := deriveDockerArgs([]string{"npm"}, "host.docker.internal", 7889)
+	out := composeOverride([]string{"web", "worker"}, da)
+
+	assert.Contains(t, out, "services:\n")
+	assert.Contains(t, out, "  web:\n")
+	assert.Contains(t, out, "  worker:\n")
+	assert.Contains(t, out, `HTTP_PROXY: "http://host.docker.internal:7889"`)
+	assert.Contains(t, out, `NPM_CONFIG_REGISTRY: "http://host.docker.internal:7888/"`)
+	assert.Contains(t, out, `- "host.docker.internal:host-gateway"`)
+}
+
 func TestDeriveDockerArgs(t *testing.T) {
 	got := deriveDockerArgs([]string{"npm", "pypi", "go"}, "host.docker.internal", 7889)
 
