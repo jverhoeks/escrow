@@ -18,6 +18,26 @@
 - **DNS interception** — belongs with transparent mode.
 - **File-based registry tools in builds** (cargo/nuget/maven/gradle/composer): they get egress coverage but not registry-env injection (no standard env var) — documented gap.
 
+## ⚠️ Known limitation (verified): registry build-args need a cooperating `ARG`
+
+BuildKit auto-propagates **only** the predeclared proxy vars (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`
++ lowercase) into `RUN`. Any other `--build-arg` — including `NPM_CONFIG_REGISTRY` / `PIP_INDEX_URL`
+/ `GOPROXY` — reaches `RUN` **only if the Dockerfile declares a matching `ARG`** (verified:
+`reg=[]` without the `ARG`, populated with it). Consequence for this plan:
+
+- On a **stock/unmodified Dockerfile**, `escrow-cli docker build` delivers the **egress lane**
+  (auto-propagated `HTTP_PROXY` → escrow egress proxy) but the **registry env is dropped**, so a
+  `RUN npm install` over HTTPS hits rule 3 and **tunnels to the real registry with no package
+  policy**. Phase 1 on a stock Dockerfile = **egress host/IP control only**.
+- **Registry package policy in Phase 1** requires a **cooperating Dockerfile** (declares `ARG
+  NPM_CONFIG_REGISTRY` etc.), a **base stage** that writes the tool config files, or
+  **explicitly-configured tools**. Unmodified-Dockerfile registry policy is a **Phase-2 (MITM)**
+  deliverable (where `HTTP_PROXY` carries registry traffic and escrow decrypts it).
+
+The `escrow-cli docker` commands still inject the registry build-args (harmless, and effective on
+cooperating Dockerfiles) — but the docs (Task 8) and the e2e (Task 4) must state this plainly so
+the registry lane isn't *believed* to work when it silently doesn't.
+
 ## File structure
 
 | File | Responsibility |
@@ -956,6 +976,25 @@ func runDockerBuild(args []string) {
 Run: `go test ./cmd/escrow-cli/ -run TestDockerBuildArgv -v && go build ./cmd/escrow-cli`
 Expected: PASS + build OK.
 
+- [ ] **Step 4b: Manual e2e — make the registry-lane limitation visible**
+
+With escrow running (egress proxy enabled, age gate on) and a *fresh* npm package name handy, prove
+both halves of the "Known limitation" section so it is observed, not assumed:
+
+```bash
+# STOCK Dockerfile (no ARG): registry env is dropped -> install hits the real registry, NOT age-gated.
+printf 'FROM node:20-alpine\nRUN npm install <fresh-pkg> || true\n' > /tmp/stock.Dockerfile
+./escrow-cli docker build --ecosystems npm -- -f /tmp/stock.Dockerfile /tmp     # expect: NOT blocked (no policy)
+
+# COOPERATING Dockerfile (ARG declared): registry env reaches RUN -> escrow mirror age-gates it.
+printf 'FROM node:20-alpine\nARG NPM_CONFIG_REGISTRY\nRUN npm install <fresh-pkg>\n' > /tmp/coop.Dockerfile
+./escrow-cli docker build --ecosystems npm -- -f /tmp/coop.Dockerfile /tmp     # expect: install FAILS — version age-gated by escrow
+```
+
+Expected: the stock build is **not** age-gated (registry lane no-ops); the cooperating build **is**
+blocked by the mirror. If the stock build *were* somehow gated, the `NO_PROXY`/ARG assumptions changed —
+re-verify. (Local only — do not release.)
+
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -1099,8 +1138,19 @@ Create `docs/docker.md` with these sections (real content, not placeholders):
    escrow-cli docker compose init --service web --ecosystems npm
    docker compose -f docker-compose.yml -f docker-compose.escrow.yml build
    ````
-3. **What's gated** — a table: npm/pypi/go get full package policy via the mirror; all hosts get name/IP egress control; cargo/nuget/maven/composer get egress but not registry-env (documented gap); HTTPS is name/IP-level (no package policy without the future MITM phase).
-4. **Honesty box** — advisory `HTTP_PROXY` inside a plain `RUN` is bypassable; forced only when escrow is the network gateway (transparent mode — future). No CA yet.
+3. **What's gated** — a table:
+   - **All hosts** get name/IP egress control (the egress lane) — via the auto-propagated `HTTP_PROXY`.
+   - **Registry package policy (npm/pypi/go) only when the Dockerfile cooperates** — it must declare
+     `ARG NPM_CONFIG_REGISTRY` / `ARG PIP_INDEX_URL` / `ARG GOPROXY` (BuildKit drops non-proxy
+     build-args otherwise), **or** use an escrow base stage that writes the tool config. On a stock
+     Dockerfile the registry lane silently no-ops → egress control only.
+   - cargo/nuget/maven/composer: egress only, no registry-env (no standard env var) — gap.
+   - HTTPS is name/IP-level (no package policy) until the future MITM phase.
+   Include a copy-pasteable cooperating-Dockerfile snippet (the `ARG` lines above the install `RUN`).
+4. **Honesty box** — (a) advisory `HTTP_PROXY` inside a plain `RUN` is bypassable; forced only when
+   escrow is the network gateway (transparent mode — future). (b) **Registry policy needs `ARG`
+   declarations or a base stage** — `escrow-cli docker build` cannot make a stock third-party
+   Dockerfile route registry traffic through the mirror; that's the Phase-2 (MITM) deliverable. No CA yet.
 
 - [ ] **Step 2: Add a row to `docs/routing.md`**
 

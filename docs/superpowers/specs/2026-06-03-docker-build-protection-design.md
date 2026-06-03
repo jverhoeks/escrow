@@ -87,7 +87,20 @@ unified policy-aware proxy. The existing path-mirror is untouched throughout.
 | `RUN wget http://host.docker.internal:7888` from a BuildKit step | **reachable, no `--add-host` needed** on Desktop, even with escrow on `127.0.0.1` only | Desktop forwards host loopback; don't rely on it for Linux |
 | `--network=host` + `127.0.0.1:7888` | reachable on Desktop | not portable (host == VM on Linux) |
 | Proxy-env auto-injection from `~/.docker/config.json` `proxies` | **did NOT inject** `HTTP_PROXY` into `RUN` (classic *and* buildx driver) | **don't build on it** — unreliable on 29.x |
-| Explicit `--build-arg HTTP_PROXY=… HTTPS_PROXY=…` | **works**; BuildKit mirrors to lowercase too | the delivery mechanism for proxy env |
+| Explicit `--build-arg HTTP_PROXY=… HTTPS_PROXY=…` | **works** without an `ARG` line; BuildKit mirrors to lowercase too | proxy env is **auto-propagated** into `RUN` — predeclared args |
+| Explicit `--build-arg NPM_CONFIG_REGISTRY=…` (any non-proxy arg) **without** a matching `ARG` in the Dockerfile | **dropped** — *not* in the `RUN` env (verified: `reg=[]`); present only when `ARG NPM_CONFIG_REGISTRY` is declared | **registry-env build-args silently no-op on unmodified Dockerfiles** — see below |
+
+> ⚠️ **Registry lane in Phase 1 needs Dockerfile cooperation.** Only the proxy vars
+> (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` + lowercase) auto-propagate into `RUN`. A registry env
+> var (`NPM_CONFIG_REGISTRY`, `PIP_INDEX_URL`, `GOPROXY`, …) reaches `RUN` **only if the Dockerfile
+> declares a matching `ARG`**. So on a *stock* third-party Dockerfile, `escrow-cli docker build`
+> delivers the **egress** lane (auto-propagated `HTTP_PROXY`) but **not** the registry lane — a
+> `RUN npm install` over HTTPS then hits rule 3 and tunnels to the real registry with **no package
+> policy**. Phase-1 registry policy therefore requires one of: a **cooperating Dockerfile** (declared
+> `ARG`s), a **base stage** that writes the tool config files, or **explicitly-configured tools**.
+> **Unmodified-Dockerfile registry policy is a Phase-2 (MITM) deliverable** — there `HTTP_PROXY`
+> (which *does* auto-propagate) carries the registry traffic and escrow decrypts it. This is the
+> single strongest argument for Phase 2.
 
 > ⚠️ Verified on **Docker Desktop (macOS)** only. The Linux-engine transparent path
 > (`SO_ORIGINAL_DST` + REDIRECT/TPROXY, `--add-host=…:host-gateway`, escrow on `0.0.0.0`) is
