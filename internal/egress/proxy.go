@@ -36,17 +36,29 @@ func (p *Proxy) Serve(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	go func() { <-ctx.Done(); _ = ln.Close() }()
-	return p.serveListener(ln)
+	// Assign p.srv before starting the shutdown goroutine so the goroutine never
+	// races a nil read, and so it can call srv.Close() (which makes Serve return
+	// http.ErrServerClosed). Closing only the listener would surface a raw
+	// "use of closed network connection" error instead.
+	p.srv = &http.Server{Handler: http.HandlerFunc(p.handle)}
+	go func() {
+		<-ctx.Done()
+		_ = p.srv.Close()
+	}()
+	if err := p.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 func (p *Proxy) serveListener(ln net.Listener) error {
-	p.srv = &http.Server{Handler: http.HandlerFunc(p.handle)}
-	err := p.srv.Serve(ln)
-	if err == http.ErrServerClosed {
-		return nil
+	if p.srv == nil {
+		p.srv = &http.Server{Handler: http.HandlerFunc(p.handle)}
 	}
-	return err
+	if err := p.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
@@ -69,22 +81,30 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	defer upstream.Close()
 	hj, ok := w.(http.Hijacker)
 	if !ok {
+		_ = upstream.Close()
 		http.Error(w, "hijack unsupported", http.StatusInternalServerError)
 		return
 	}
 	client, _, err := hj.Hijack()
 	if err != nil {
+		_ = upstream.Close()
 		return
 	}
-	defer client.Close()
 	p.record(host, "allow", "tunnel")
 	_, _ = io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n")
+	// Each direction closes the *other* conn when it finishes so both io.Copy
+	// calls unblock on a half-close (otherwise an idle peer would wedge the
+	// teardown and leak the goroutine + both connections).
 	done := make(chan struct{})
-	go func() { _, _ = io.Copy(upstream, client); close(done) }()
+	go func() {
+		_, _ = io.Copy(upstream, client)
+		_ = upstream.Close() // unblocks the io.Copy(client, upstream) below
+		close(done)
+	}()
 	_, _ = io.Copy(client, upstream)
+	_ = client.Close() // unblocks the goroutine's io.Copy(upstream, client)
 	<-done
 }
 

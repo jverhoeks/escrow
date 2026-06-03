@@ -2,6 +2,7 @@ package egress
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -116,4 +117,94 @@ func mustHost(t *testing.T, raw string) string {
 	u, err := url.Parse(raw)
 	require.NoError(t, err)
 	return u.Hostname()
+}
+
+// freePort grabs a momentarily-free 127.0.0.1 port and returns its addr.
+// There's an inherent TOCTOU window before Serve re-binds it, which is fine
+// for a local test.
+func freePort(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+	return addr
+}
+
+// TestProxy_ServeReturnsNilOnCtxCancel is a regression test for Bug 1: Serve
+// must return nil on a normal ctx-cancel shutdown (not a raw
+// "use of closed network connection" error).
+func TestProxy_ServeReturnsNilOnCtxCancel(t *testing.T) {
+	pol, err := NewPolicy(config.EgressProxyConfig{Policy: "forward"})
+	require.NoError(t, err)
+	addr := freePort(t)
+	p := New(addr, pol, eventlog.New(10))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() { errc <- p.Serve(ctx) }()
+
+	// Wait until the proxy is actually accepting before cancelling.
+	require.Eventually(t, func() bool {
+		c, derr := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if derr != nil {
+			return false
+		}
+		_ = c.Close()
+		return true
+	}, 2*time.Second, 20*time.Millisecond, "proxy never started listening")
+
+	cancel()
+	select {
+	case err := <-errc:
+		assert.NoError(t, err, "Serve must return nil on ctx cancel")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after ctx cancel")
+	}
+}
+
+// TestProxy_ConnectHalfCloseDoesNotHang is a regression test for Bug 2: when
+// the upstream half-closes while the client stays idle, the tunnel teardown
+// must complete (the spawned copy goroutine must not wedge on an idle peer).
+// We assert the client-side read returns promptly rather than blocking forever.
+func TestProxy_ConnectHalfCloseDoesNotHang(t *testing.T) {
+	up, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer up.Close()
+	go func() {
+		c, aerr := up.Accept()
+		if aerr != nil {
+			return
+		}
+		// Immediately close the upstream side: this triggers a half-close on the
+		// tunnel while the proxy client stays idle.
+		_ = c.Close()
+	}()
+
+	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward"}, eventlog.New(10))
+	conn, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	defer conn.Close()
+	fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", up.Addr(), up.Addr())
+
+	br := bufio.NewReader(conn)
+	status, err := br.ReadString('\n')
+	require.NoError(t, err)
+	assert.Contains(t, status, "200")
+	for {
+		line, err := br.ReadString('\n')
+		require.NoError(t, err)
+		if line == "\r\n" || line == "\n" {
+			break
+		}
+	}
+
+	// The upstream closed, so the proxy should close our side too. Reading must
+	// return (EOF or a read error) promptly; if Bug 2 regresses it hangs here.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	_, err = br.ReadByte()
+	require.Error(t, err, "tunnel read should return after upstream half-close")
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		t.Fatal("tunnel teardown hung: read timed out instead of returning EOF")
+	}
 }
