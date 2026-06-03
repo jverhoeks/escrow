@@ -383,15 +383,32 @@ func main() {
 		}()
 	}
 
+	// egressFingerprint returns a stable string representation of the egress proxy
+	// config fields that require a restart to change. *bool is dereferenced to
+	// avoid comparing heap addresses across Load calls.
+	egressFingerprint := func(ep *config.EgressProxyConfig) string {
+		if ep == nil {
+			return ""
+		}
+		enabled := false
+		if ep.Enabled != nil {
+			enabled = *ep.Enabled
+		}
+		return fmt.Sprintf("%v:%d:%s:%v:%v:%v:%v",
+			enabled, ep.ForwardPort, ep.Policy,
+			ep.AllowHosts, ep.BlockHosts, ep.AllowCIDRs, ep.BlockCIDRs)
+	}
+
 	// restartSnapshot captures the fields that cannot be applied live; a reload
 	// reports any that changed as restart-required.
 	restartSnapshot := func(c config.Config) map[string]string {
 		return map[string]string{
-			"server":     fmt.Sprintf("%s:%d:%s:%s", c.Server.Host, c.Server.Port, c.Server.TLSCertFile, c.Server.TLSKeyFile),
-			"storage":    fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
-			"ecosystems": fmt.Sprintf("%v", c.Ecosystems),
-			"secret":     c.Dashboard.Secret,
-			"paths":      fmt.Sprintf("%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath),
+			"server":      fmt.Sprintf("%s:%d:%s:%s", c.Server.Host, c.Server.Port, c.Server.TLSCertFile, c.Server.TLSKeyFile),
+			"storage":     fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
+			"ecosystems":  fmt.Sprintf("%v", c.Ecosystems),
+			"secret":      c.Dashboard.Secret,
+			"paths":       fmt.Sprintf("%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath),
+			"egress_proxy": egressFingerprint(c.EgressProxy),
 		}
 	}
 	startupSnapshot := restartSnapshot(cfg)

@@ -86,9 +86,9 @@ func runDockerCheck(args []string) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	if resp, err := client.Get("http://127.0.0.1:7888/healthz"); err == nil {
 		_ = resp.Body.Close()
-		fmt.Println("escrow mirror: reachable on 127.0.0.1:7888")
+		fmt.Println("escrow mirror: reachable on the host (127.0.0.1:7888) — note: a Linux build container reaches escrow via host.docker.internal only if escrow binds 0.0.0.0/the docker gateway")
 	} else {
-		fmt.Println("escrow mirror: NOT reachable on 127.0.0.1:7888 — start escrow first")
+		fmt.Println("escrow mirror: NOT reachable on the host (127.0.0.1:7888) — start escrow first")
 	}
 }
 

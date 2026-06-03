@@ -165,3 +165,67 @@ func TestLoad_EgressProxyAbsentIsNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cfg.EgressProxy, "absent section => nil => disabled")
 }
+
+func TestValidate_EgressProxyPolicy(t *testing.T) {
+	enabled := true
+	base := func(policy string) config.Config {
+		return config.Config{
+			Server: config.ServerConfig{Port: 7888},
+			EgressProxy: &config.EgressProxyConfig{
+				Enabled: &enabled,
+				Policy:  policy,
+			},
+		}
+	}
+
+	// Valid policies must not produce an egress_proxy.policy error.
+	for _, p := range []string{"", "forward", "whitelist", "FORWARD", "WHITELIST", "Forward"} {
+		cfg := base(p)
+		errs := cfg.Validate()
+		for _, e := range errs {
+			if strings.Contains(e.Error(), "egress_proxy.policy") {
+				t.Errorf("policy %q: unexpected egress_proxy.policy error: %v", p, e)
+			}
+		}
+	}
+
+	// Invalid (typo) policy must error.
+	for _, p := range []string{"whitlist", "forwrad", "deny", "allow"} {
+		cfg := base(p)
+		errs := cfg.Validate()
+		found := false
+		for _, e := range errs {
+			if strings.Contains(e.Error(), "egress_proxy.policy") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("policy %q: expected egress_proxy.policy error, got none (errs=%v)", p, errs)
+		}
+	}
+
+	// ForwardPort out of range must error.
+	cfg := base("forward")
+	cfg.EgressProxy.ForwardPort = 99999
+	errs := cfg.Validate()
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "egress_proxy.forward_port") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("forward_port 99999: expected egress_proxy.forward_port error, got none (errs=%v)", errs)
+	}
+
+	// ForwardPort 0 (default) must be accepted.
+	cfg2 := base("forward")
+	cfg2.EgressProxy.ForwardPort = 0
+	for _, e := range cfg2.Validate() {
+		if strings.Contains(e.Error(), "egress_proxy.forward_port") {
+			t.Errorf("forward_port 0 (default): unexpected error: %v", e)
+		}
+	}
+}

@@ -363,6 +363,16 @@ func (c Config) Validate() []error {
 	if c.Rescan != nil && !validSeverities[c.Rescan.MinSeverity] {
 		errs = append(errs, fmt.Errorf("rescan.min_severity %q is not one of CRITICAL/HIGH/MEDIUM/LOW", c.Rescan.MinSeverity))
 	}
+	if c.EgressProxy != nil {
+		switch strings.ToLower(c.EgressProxy.Policy) {
+		case "", "forward", "whitelist":
+		default:
+			errs = append(errs, fmt.Errorf("invalid egress_proxy.policy %q (want \"forward\" or \"whitelist\")", c.EgressProxy.Policy))
+		}
+		if c.EgressProxy.ForwardPort < 0 || c.EgressProxy.ForwardPort > 65535 {
+			errs = append(errs, fmt.Errorf("egress_proxy.forward_port %d is out of range 0–65535", c.EgressProxy.ForwardPort))
+		}
+	}
 	return errs
 }
 

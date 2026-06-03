@@ -80,7 +80,11 @@ func (p *Proxy) Serve(ctx context.Context) error {
 	// races a nil read, and so it can call srv.Close() (which makes Serve return
 	// http.ErrServerClosed). Closing only the listener would surface a raw
 	// "use of closed network connection" error instead.
-	p.srv = &http.Server{Handler: http.HandlerFunc(p.handle)}
+	p.srv = &http.Server{
+		Handler:           http.HandlerFunc(p.handle),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	go func() {
 		<-ctx.Done()
 		_ = p.srv.Close()
@@ -93,7 +97,11 @@ func (p *Proxy) Serve(ctx context.Context) error {
 
 func (p *Proxy) serveListener(ln net.Listener) error {
 	if p.srv == nil {
-		p.srv = &http.Server{Handler: http.HandlerFunc(p.handle)}
+		p.srv = &http.Server{
+			Handler:           http.HandlerFunc(p.handle),
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
 	}
 	if err := p.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		return err
