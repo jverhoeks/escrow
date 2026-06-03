@@ -14,6 +14,7 @@ are available — use one, or combine several for complete coverage.
 | **2** | [Local project config](#method-2--local-project-config) | Per-project, checked-in | No | All |
 | **3** | [Shell / launch env](#method-3--shell--launch-environment) | CLI + GUI apps (VSCode, Zed...) | No | macOS / Linux |
 | **4** | [Network redirect](#method-4--network-redirect) | Every process, no config needed | Yes | macOS / Linux |
+| **5** | [Docker / containers](#method-5--docker--containers) | `docker build` & container egress, via the escrow egress proxy | No | All |
 
 ### Recommended combination for a developer machine
 
@@ -208,6 +209,29 @@ pf and iptables resolve hostnames to IP addresses at rule-load time. This means:
 | New bundled runtimes | Tool that ignores config and bypasses TCP (e.g. custom go binary) | Methods 1–3 provide defence-in-depth |
 
 > For complete hostname-based interception immune to IP rotation, a macOS Network Extension (`NETransparentProxyProvider`) is the path forward. See [`specs/swift-network-extension-prompt.md`](specs/swift-network-extension-prompt.md).
+
+---
+
+### Method 5 — Docker / containers
+
+Methods 1–4 act on the **host**; a `docker build` runs in an isolated container that sees none of
+them. escrow adds a dedicated **egress proxy** for builds and containers, with two lanes:
+
+- **Registry traffic** → escrow's path-mirror (full age/OSV/publisher policy), delivered into the
+  build via `escrow-cli docker build` / a compose override.
+- **Everything else** → the egress proxy with an optional host + IP/CIDR allow/blocklist.
+
+```bash
+# enable the egress proxy in escrow.toml: [egress_proxy] enabled = true
+escrow-cli docker build --ecosystems npm,pypi,go -- -t myimg .
+escrow-cli docker compose init --service web --ecosystems npm
+escrow-cli docker check                      # print resolved build-args + reachability
+```
+
+> ⚠️ Inside a plain `docker build` `RUN`, the egress proxy is **advisory** (`HTTP_PROXY`) — forced
+> only when escrow is the container's gateway. And registry **package policy** needs a cooperating
+> `ARG`/base stage (or the future MITM phase). Full details, security model, and limitations:
+> **[Docker & docker build protection →](docker.md)**.
 
 ---
 
