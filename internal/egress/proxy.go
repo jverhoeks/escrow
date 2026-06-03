@@ -2,6 +2,7 @@ package egress
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -22,12 +23,51 @@ type Proxy struct {
 
 // New builds a Proxy bound to addr (host:port).
 func New(addr string, policy *Policy, evlog *eventlog.Log) *Proxy {
-	return &Proxy{
-		addr:      addr,
-		policy:    policy,
-		evlog:     evlog,
-		transport: &http.Transport{Proxy: nil},
+	p := &Proxy{addr: addr, policy: policy, evlog: evlog}
+	p.transport = &http.Transport{Proxy: nil, DialContext: p.dialChecked}
+	return p
+}
+
+// dialChecked resolves addr's host, enforces the egress policy against EVERY
+// resolved IP (deny if any is blocked), then dials one of the vetted IPs
+// directly — never the hostname — so the connection target is exactly what was
+// policy-checked (defeats DNS rebinding). Used for CONNECT and as the HTTP
+// transport's DialContext.
+func (p *Proxy) dialChecked(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
 	}
+	var ips []net.IP
+	if lit := net.ParseIP(host); lit != nil {
+		ips = []net.IP{lit}
+	} else {
+		resolved, rerr := net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if rerr != nil || len(resolved) == 0 {
+			// Ambiguous: cannot vet against CIDR rules. Deny rather than dial blind.
+			p.record(host, "block", "unresolvable")
+			return nil, fmt.Errorf("egress: cannot resolve %q: %w", host, rerr)
+		}
+		ips = resolved
+	}
+	// Deny if ANY resolved IP is blocked by policy.
+	for _, ip := range ips {
+		if d := p.policy.Check(host, ip); !d.Allow {
+			p.record(host, "block", d.Reason+" (resolved "+ip.String()+")")
+			return nil, fmt.Errorf("egress: blocked %s -> %s: %s", host, ip, d.Reason)
+		}
+	}
+	// Dial a vetted IP directly (anti-rebinding). Try each until one connects.
+	dialer := net.Dialer{Timeout: 10 * time.Second}
+	var lastErr error
+	for _, ip := range ips {
+		conn, derr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if derr == nil {
+			return conn, nil
+		}
+		lastErr = derr
+	}
+	return nil, lastErr
 }
 
 // Serve listens on the configured address and serves until ctx is cancelled.
@@ -76,7 +116,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "blocked by escrow egress policy", http.StatusForbidden)
 		return
 	}
-	upstream, err := net.DialTimeout("tcp", r.Host, 10*time.Second)
+	upstream, err := p.dialChecked(r.Context(), "tcp", r.Host)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

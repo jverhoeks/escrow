@@ -119,6 +119,32 @@ func mustHost(t *testing.T, raw string) string {
 	return u.Hostname()
 }
 
+func mustPort(t *testing.T, raw string) string {
+	t.Helper()
+	u, err := url.Parse(raw)
+	require.NoError(t, err)
+	return u.Port()
+}
+
+// TestProxy_BlocksHostnameResolvingToBlockedCIDR is a regression test for the
+// SSRF / egress-CIDR bypass: net.ParseIP returns nil for a hostname, so CIDR
+// rules were silently skipped for hostname targets. The host "localhost" is NOT
+// in block_hosts but resolves into the blocked 127.0.0.0/8 range, so the
+// request must be denied (CIDR enforced on the resolved IP).
+func TestProxy_BlocksHostnameResolvingToBlockedCIDR(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "should not reach")
+	}))
+	defer upstream.Close()
+	port := mustPort(t, upstream.URL)
+
+	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", BlockCIDRs: []string{"127.0.0.0/8"}}, eventlog.New(10))
+	resp, err := proxyClient(addr).Get("http://localhost:" + port + "/")
+	require.NoError(t, err) // the proxy responds (it doesn't crash)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadGateway, resp.StatusCode) // dial denied by CIDR
+}
+
 // freePort grabs a momentarily-free 127.0.0.1 port and returns its addr.
 // There's an inherent TOCTOU window before Serve re-binds it, which is fine
 // for a local test.
