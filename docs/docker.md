@@ -182,6 +182,17 @@ allow_cidrs  = []
 The egress proxy is **off by default**, on its own listener, separate from the dashboard/mirror
 port — never an accidental open relay. Run it only on a controlled dev/CI host.
 
+> ⚠️ **Linux / CI: bind escrow where the build can reach it.** escrow defaults to `host = "127.0.0.1"`,
+> and the egress proxy + mirror bind to that host. On **Docker Desktop** (macOS/Windows) the VM
+> routes `host.docker.internal` to the host's loopback, so it works as-is. On a **Linux engine**,
+> `--add-host=host.docker.internal:host-gateway` resolves to the docker **bridge gateway**
+> (e.g. `172.17.0.1`), which a `127.0.0.1`-only listener **refuses** — both the egress proxy *and*
+> the registry mirror become unreachable from the build. Run escrow with `--host=0.0.0.0` (or bind
+> the docker gateway IP) on Linux/CI. Because `0.0.0.0` + `policy = "forward"` is an open relay,
+> pair it with **`policy = "whitelist"`** (or a host firewall) and keep it to a controlled host.
+> Note: `escrow-cli docker check` only probes the **host's** loopback — it cannot confirm the
+> *container* can reach escrow, so verify reachability from inside a build on Linux.
+
 ### Plain `docker build`
 
 ```bash
