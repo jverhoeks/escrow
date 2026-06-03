@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"sort"
 	"time"
 )
@@ -90,11 +91,30 @@ func runDockerCheck(args []string) {
 	}
 }
 
+// dockerBuildArgv assembles the full `docker build ...` argument vector
+// (escrow wiring first, then the user's args). Build-args are emitted in a
+// stable (sorted) order for determinism.
+func dockerBuildArgv(da dockerProxyArgs, userArgs []string) []string {
+	argv := []string{"build", "--add-host", da.AddHost}
+	for _, k := range sortedKeys(da.BuildArgs) {
+		argv = append(argv, "--build-arg", k+"="+da.BuildArgs[k])
+	}
+	return append(argv, userArgs...)
+}
+
 func runDockerBuild(args []string) {
-	// implemented in Task 6
-	_ = args
-	fmt.Fprintln(os.Stderr, "docker build: not yet implemented")
-	os.Exit(2)
+	ecos, proxyHost, egressPort, userArgs := parseDockerFlags(args)
+	da := deriveDockerArgs(ecos, proxyHost, egressPort)
+	argv := dockerBuildArgv(da, userArgs)
+
+	cmd := exec.Command("docker", argv...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "docker build failed: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runDockerCompose(args []string) {

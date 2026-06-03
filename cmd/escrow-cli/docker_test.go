@@ -6,6 +6,27 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestDockerBuildArgv(t *testing.T) {
+	da := deriveDockerArgs([]string{"npm"}, "host.docker.internal", 7889)
+	argv := dockerBuildArgv(da, []string{"-t", "myimg", "."})
+
+	assert.Equal(t, "build", argv[0])
+	assertHasPair(t, argv, "--add-host", "host.docker.internal:host-gateway")
+	assertHasPair(t, argv, "--build-arg", "NPM_CONFIG_REGISTRY=http://host.docker.internal:7888/")
+	assertHasPair(t, argv, "--build-arg", "HTTP_PROXY=http://host.docker.internal:7889")
+	assert.Equal(t, []string{"-t", "myimg", "."}, argv[len(argv)-3:])
+}
+
+func assertHasPair(t *testing.T, argv []string, flag, val string) {
+	t.Helper()
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == flag && argv[i+1] == val {
+			return
+		}
+	}
+	t.Fatalf("expected %s %q in argv: %v", flag, val, argv)
+}
+
 func TestDeriveDockerArgs(t *testing.T) {
 	got := deriveDockerArgs([]string{"npm", "pypi", "go"}, "host.docker.internal", 7889)
 
