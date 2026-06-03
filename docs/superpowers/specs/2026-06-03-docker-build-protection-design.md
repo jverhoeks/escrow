@@ -63,7 +63,11 @@ over the **same** cache+policy engine — not a teardown.
   bypass" hole. Non-bypassable for anything crossing the boundary.
 - **Advisory `HTTP_PROXY`/`HTTPS_PROXY`** — inside a plain build `RUN`, where escrow can't be the
   gateway (no kernel redirect without a non-default insecure entitlement). Honored only by tools
-  that read proxy env; a tool that ignores it egresses directly.
+  that read proxy env; a tool that ignores it egresses directly. For traffic that *does* traverse
+  the proxy, escrow still enforces the **full host + CIDR policy**: it resolves the destination and
+  dials the **vetted IP** (anti-DNS-rebinding), so `block_cidrs` (e.g. cloud-metadata ranges) apply
+  to hostname targets too, not just IP literals. What advisory mode can't do is *force* a bypassing
+  tool through the proxy.
 
 **(B) Trust the CA in the build** (rule 1 only). Per-ecosystem trust injection delivered by
 `escrow-cli docker`: `NODE_EXTRA_CA_CERTS`, `PIP_CERT`/`REQUESTS_CA_BUNDLE`, `CARGO_HTTP_CAINFO`,

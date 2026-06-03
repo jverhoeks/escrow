@@ -52,16 +52,15 @@ mirror (full policy, no CA); everything else gets host/IP egress control.
 | ✅ Known-CVE package version pulled during a build | yes¹ | registry lane — OSV |
 | ✅ Build reaching out to a **known-bad host** (C2, exfil, typo-CDN) | yes² | egress lane — blacklist |
 | ✅ Locking a build to an **allowlist of hosts** (deny-by-default) | yes² | egress lane — whitelist mode |
-| ✅ Bypass by connecting to a **raw IP** or a custom resolver | yes² ³ | egress lane — IP/CIDR + DNS (transparent mode) |
-| ✅ **IPv6** egress | yes² ³ | egress lane — dual-stack |
+| ✅ Bypass by connecting to a **raw IP**, or a hostname that resolves into a blocked **CIDR** | yes² | egress lane — CIDR checked on the literal **and** resolved IP; escrow dials the **vetted IP** (anti-DNS-rebinding) |
+| ✅ **IPv6** egress | yes² | egress lane — dual-stack (v4 + v6) |
 | ❌ Package policy on an **unmodified third-party Dockerfile** | **not in Phase 1** — see ⁴ | needs cooperating `ARG` / base stage, or Phase 2 MITM |
 | ❌ A tool that **ignores `HTTP_PROXY`** in a plain `RUN` | no² | not forceable in a build `RUN` — see below |
 | ❌ **Package** policy on arbitrary HTTPS egress (non-registry) | no | host/IP only without MITM |
 | ❌ Postinstall hooks / typosquatting / git deps | no | same gaps as [security.md](security.md) — escrow filters versions, not behavior |
 
 ¹ **Registry lane only takes effect when the build actually uses escrow's mirror** — see ⁴.
-² Egress enforcement strength depends on **placement** — forced only when escrow is the gateway; advisory otherwise. See "Enforcement strength".
-³ IP/CIDR + DNS filtering requires **transparent mode** (escrow as the network gateway). **(Phase 2 / transparent mode.)**
+² Egress enforcement strength depends on **placement** — forced only when escrow is the gateway; advisory otherwise (a tool that ignores `HTTP_PROXY` skips the proxy, and with it all egress checks). CIDR rules apply to traffic that *does* pass through the proxy: escrow resolves the host and dials the vetted IP. See "Enforcement strength".
 ⁴ See "The `ARG` requirement" — the most important Phase-1 caveat.
 
 ---
