@@ -8,12 +8,18 @@ on:
       - '.github/workflows/test-action.yml'
   workflow_dispatch:
 
+# Least privilege: these jobs only read the repo and run installs, so
+# GITHUB_TOKEN gets no write scope — limiting blast radius if a third-party
+# action is ever compromised (tj-actions/changed-files-style attacks).
+permissions:
+  contents: read
+
 jobs:
   # ── npm + PyPI ───────────────────────────────────────────────────────────────
   test-npm-pypi:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
 
       - name: Setup escrow
         id: escrow
@@ -31,7 +37,7 @@ jobs:
             | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status'] in ('ok','degraded'), d"
           echo "✅ healthz ok"
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
 
@@ -47,7 +53,7 @@ jobs:
           echo "NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY"
           [[ -n "$NPM_CONFIG_REGISTRY" ]] && echo "✅ registry set" || (echo "❌ missing"; exit 1)
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
 
@@ -63,7 +69,7 @@ jobs:
   test-go-cargo:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
 
       - name: Setup escrow
         id: escrow
@@ -73,7 +79,7 @@ jobs:
           min-days: '1'
           osv-severity: 'off'
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: '1.22'
 
@@ -89,7 +95,9 @@ jobs:
           echo "GOPROXY=$GOPROXY"
           [[ "$GOPROXY" == *"7888"* ]] && echo "✅ GOPROXY points at escrow" || (echo "❌ wrong"; exit 1)
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
 
       - name: cargo fetch through escrow
         run: |
@@ -106,7 +114,7 @@ jobs:
   test-age-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
 
       - name: Setup escrow (block-all)
         uses: ./.github/actions/setup-escrow
@@ -115,7 +123,7 @@ jobs:
           min-days: '99999'
           osv-severity: 'off'
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
 
