@@ -39,7 +39,7 @@ jobs:
         run: |
           mkdir /tmp/npm-test && cd /tmp/npm-test
           npm init -y
-          npm install once --ignore-scripts
+          npm install once --no-save --ignore-scripts
           echo "✅ npm install OK"
 
       - name: Verify npm registry env var
