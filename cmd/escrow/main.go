@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -373,6 +374,10 @@ func main() {
 		port := ep.ForwardPort
 		if port == 0 {
 			port = 7889
+		}
+		if egress.ExposedBind(cfg.Server.Host) && !strings.EqualFold(ep.Policy, "whitelist") {
+			log.Warn().Str("host", cfg.Server.Host).
+				Msg("egress proxy is reachable off-host with policy=forward — this is an OPEN RELAY; set egress_proxy.policy=\"whitelist\" or firewall the egress port")
 		}
 		eproxy := egress.New(fmt.Sprintf("%s:%d", cfg.Server.Host, port), pol, evLog)
 		go func() {

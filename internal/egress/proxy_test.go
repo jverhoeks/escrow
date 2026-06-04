@@ -189,6 +189,30 @@ func TestProxy_ServeReturnsNilOnCtxCancel(t *testing.T) {
 	}
 }
 
+// TestProxy_StripHopByHop asserts that hop-by-hop headers (e.g. Proxy-Authorization)
+// are stripped before forwarding, while normal headers (X-Trace) pass through.
+func TestProxy_StripHopByHop(t *testing.T) {
+	var gotHeaders http.Header
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeaders = r.Header.Clone()
+		fmt.Fprint(w, "ok")
+	}))
+	defer upstream.Close()
+
+	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward"}, eventlog.New(10))
+	req, err := http.NewRequest(http.MethodGet, upstream.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Proxy-Authorization", "secret")
+	req.Header.Set("X-Trace", "trace-id-123")
+
+	resp, err := proxyClient(addr).Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, "trace-id-123", gotHeaders.Get("X-Trace"), "normal header must pass through")
+	assert.Empty(t, gotHeaders.Get("Proxy-Authorization"), "Proxy-Authorization must be stripped")
+}
+
 // TestProxy_ConnectHalfCloseDoesNotHang is a regression test for Bug 2: when
 // the upstream half-closes while the client stays idle, the tunnel teardown
 // must complete (the spawned copy goroutine must not wedge on an idle peer).

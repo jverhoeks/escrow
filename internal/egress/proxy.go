@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -156,6 +157,24 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	<-done
 }
 
+// hopByHop are headers that must not be forwarded by a proxy (RFC 7230 §6.1).
+var hopByHop = []string{"Connection", "Proxy-Connection", "Keep-Alive",
+	"Proxy-Authenticate", "Proxy-Authorization", "Te", "Trailer", "Transfer-Encoding", "Upgrade"}
+
+func stripHopByHop(h http.Header) {
+	// Remove headers named in Connection, then the standard hop-by-hop set.
+	for _, v := range h["Connection"] {
+		for _, name := range strings.Split(v, ",") {
+			if n := strings.TrimSpace(name); n != "" {
+				h.Del(n)
+			}
+		}
+	}
+	for _, k := range hopByHop {
+		h.Del(k)
+	}
+}
+
 func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	host := r.URL.Hostname()
 	if d := p.policy.Check(host, net.ParseIP(host)); !d.Allow {
@@ -164,7 +183,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.RequestURI = ""
-	r.Header.Del("Proxy-Connection")
+	stripHopByHop(r.Header)
 	resp, err := p.transport.RoundTrip(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

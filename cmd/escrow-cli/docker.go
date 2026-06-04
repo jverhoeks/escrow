@@ -19,9 +19,10 @@ type dockerProxyArgs struct {
 
 // deriveDockerArgs assembles the proxy/registry build-args for the given
 // ecosystems. proxyHost is the build-reachable address of escrow (default
-// host.docker.internal); egressPort is escrow's egress-proxy port.
-func deriveDockerArgs(ecosystems []string, proxyHost string, egressPort int) dockerProxyArgs {
-	mirrorBase := fmt.Sprintf("http://%s:7888", proxyHost)
+// host.docker.internal); egressPort is escrow's egress-proxy port;
+// mirrorPort is escrow's mirror port (default 7888).
+func deriveDockerArgs(ecosystems []string, proxyHost string, egressPort, mirrorPort int) dockerProxyArgs {
+	mirrorBase := fmt.Sprintf("http://%s:%d", proxyHost, mirrorPort)
 	proxyURL := fmt.Sprintf("http://%s:%d", proxyHost, egressPort)
 	noProxy := proxyHost + ",localhost,127.0.0.1"
 
@@ -49,13 +50,14 @@ func sortedKeys(m map[string]string) []string {
 }
 
 // parseDockerFlags extracts escrow flags and returns the remaining (user) args.
-func parseDockerFlags(args []string) (ecosystems []string, proxyHost string, egressPort int, rest []string) {
+func parseDockerFlags(args []string) (ecosystems []string, proxyHost string, egressPort, mirrorPort int, rest []string) {
 	fs := flag.NewFlagSet("docker", flag.ExitOnError)
 	ecoStr := fs.String("ecosystems", "npm,pypi,go", "comma-separated ecosystems")
 	host := fs.String("proxy-host", "host.docker.internal", "build-reachable escrow host")
 	port := fs.Int("egress-port", 7889, "escrow egress-proxy port")
+	mport := fs.Int("mirror-port", 7888, "escrow mirror port")
 	_ = fs.Parse(args)
-	return parseEcosystems(*ecoStr), *host, *port, fs.Args()
+	return parseEcosystems(*ecoStr), *host, *port, *mport, fs.Args()
 }
 
 func runDocker(args []string) {
@@ -77,11 +79,11 @@ func runDocker(args []string) {
 }
 
 func runDockerCheck(args []string) {
-	ecos, proxyHost, egressPort, _ := parseDockerFlags(args)
-	da := deriveDockerArgs(ecos, proxyHost, egressPort)
+	ecos, proxyHost, egressPort, mirrorPort, _ := parseDockerFlags(args)
+	da := deriveDockerArgs(ecos, proxyHost, egressPort, mirrorPort)
 	fmt.Printf("--add-host %s\n", da.AddHost)
 	for _, k := range sortedKeys(da.BuildArgs) {
-		fmt.Printf("--build-arg %s=%s\n", k, da.BuildArgs[k])
+		fmt.Printf("--build-arg %s='%s'\n", k, da.BuildArgs[k])
 	}
 	client := &http.Client{Timeout: 2 * time.Second}
 	if resp, err := client.Get("http://127.0.0.1:7888/healthz"); err == nil {
@@ -104,8 +106,8 @@ func dockerBuildArgv(da dockerProxyArgs, userArgs []string) []string {
 }
 
 func runDockerBuild(args []string) {
-	ecos, proxyHost, egressPort, userArgs := parseDockerFlags(args)
-	da := deriveDockerArgs(ecos, proxyHost, egressPort)
+	ecos, proxyHost, egressPort, mirrorPort, userArgs := parseDockerFlags(args)
+	da := deriveDockerArgs(ecos, proxyHost, egressPort, mirrorPort)
 	argv := dockerBuildArgv(da, userArgs)
 
 	cmd := exec.Command("docker", argv...)
@@ -156,8 +158,8 @@ func runDockerCompose(args []string) {
 		fmt.Fprintln(os.Stderr, "at least one --service NAME is required")
 		os.Exit(2)
 	}
-	ecos, proxyHost, egressPort, _ := parseDockerFlags(passthrough)
-	da := deriveDockerArgs(ecos, proxyHost, egressPort)
+	ecos, proxyHost, egressPort, mirrorPort, _ := parseDockerFlags(passthrough)
+	da := deriveDockerArgs(ecos, proxyHost, egressPort, mirrorPort)
 
 	const out = "docker-compose.escrow.yml"
 	if _, err := os.Stat(out); err == nil {

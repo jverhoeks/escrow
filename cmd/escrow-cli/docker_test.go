@@ -7,7 +7,7 @@ import (
 )
 
 func TestDockerBuildArgv(t *testing.T) {
-	da := deriveDockerArgs([]string{"npm"}, "host.docker.internal", 7889)
+	da := deriveDockerArgs([]string{"npm"}, "host.docker.internal", 7889, 7888)
 	argv := dockerBuildArgv(da, []string{"-t", "myimg", "."})
 
 	assert.Equal(t, "build", argv[0])
@@ -28,7 +28,7 @@ func assertHasPair(t *testing.T, argv []string, flag, val string) {
 }
 
 func TestComposeOverride(t *testing.T) {
-	da := deriveDockerArgs([]string{"npm"}, "host.docker.internal", 7889)
+	da := deriveDockerArgs([]string{"npm"}, "host.docker.internal", 7889, 7888)
 	out := composeOverride([]string{"web", "worker"}, da)
 
 	assert.Contains(t, out, "services:\n")
@@ -40,7 +40,7 @@ func TestComposeOverride(t *testing.T) {
 }
 
 func TestDeriveDockerArgs(t *testing.T) {
-	got := deriveDockerArgs([]string{"npm", "pypi", "go"}, "host.docker.internal", 7889)
+	got := deriveDockerArgs([]string{"npm", "pypi", "go"}, "host.docker.internal", 7889, 7888)
 
 	assert.Equal(t, "host.docker.internal:host-gateway", got.AddHost)
 	assert.Equal(t, "http://host.docker.internal:7889", got.BuildArgs["HTTP_PROXY"])
@@ -50,4 +50,8 @@ func TestDeriveDockerArgs(t *testing.T) {
 	assert.Equal(t, "http://host.docker.internal:7888/", got.BuildArgs["NPM_CONFIG_REGISTRY"])
 	assert.Equal(t, "http://host.docker.internal:7888/pypi/simple/", got.BuildArgs["PIP_INDEX_URL"])
 	assert.Contains(t, got.BuildArgs["GOPROXY"], "/go,off")
+
+	// Custom mirror port: registry URLs must use the specified port.
+	custom := deriveDockerArgs([]string{"npm"}, "h", 9, 12345)
+	assert.Equal(t, "http://h:12345/", custom.BuildArgs["NPM_CONFIG_REGISTRY"])
 }
