@@ -49,8 +49,22 @@ func TestWriteCargoConfigLocal_CreatesCargoDir(t *testing.T) {
 	if !strings.Contains(string(data), `replace-with = "escrow"`) {
 		t.Errorf("unexpected cargo config: %s", data)
 	}
-	if !strings.Contains(string(data), "http://127.0.0.1:7888/cargo/") {
-		t.Errorf("expected cargo registry URL: %s", data)
+	if !strings.Contains(string(data), "sparse+http://127.0.0.1:7888/cargo/") {
+		t.Errorf("cargo registry must use the sparse+ prefix (else cargo uses the git-index protocol, which escrow rejects): %s", data)
+	}
+}
+
+func TestWriteCargoConfig_UsesSparsePrefix(t *testing.T) {
+	home := t.TempDir()
+	if err := writeCargoConfig(home, "http://127.0.0.1:7888"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".cargo", "config.toml"))
+	if err != nil {
+		t.Fatalf("expected ~/.cargo/config.toml: %v", err)
+	}
+	if !strings.Contains(string(data), "sparse+http://127.0.0.1:7888/cargo/") {
+		t.Errorf("global cargo config must use the sparse+ prefix: %s", data)
 	}
 }
 
