@@ -420,6 +420,10 @@
     .settings-row { display: grid; grid-template-columns: 220px 1fr; gap: 12px; align-items: center; padding: 5px 0; }
     .settings-row label { font-size: 13px; color: var(--text-secondary); }
     .settings-input { background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); padding: 5px 8px; border-radius: 4px; font-size: 13px; font-family: inherit; max-width: 360px; }
+    .subtabs { display: flex; gap: 2px; padding: 8px 24px 0; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+    .subtab { padding: 7px 16px; color: var(--text-secondary); font-size: 13px; font-weight: 500; cursor: pointer; background: none; border: none; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .subtab:hover { color: var(--text-primary); }
+    .subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
     .btn-secondary:hover {
       border-color: var(--accent);
@@ -1364,6 +1368,12 @@
     </div>
   </div>
   <div id="settings-banner" class="settings-banner" style="display:none;"></div>
+  <div id="settings-tabs" class="subtabs">
+    <button class="subtab active" data-g="general"  onclick="setSettingsTab('general')">General</button>
+    <button class="subtab"        data-g="policy"   onclick="setSettingsTab('policy')">Policy</button>
+    <button class="subtab"        data-g="egress"   onclick="setSettingsTab('egress')">Egress</button>
+    <button class="subtab"        data-g="advanced" onclick="setSettingsTab('advanced')">Advanced</button>
+  </div>
   <div id="settings-form" style="flex:1; overflow-y:auto; padding: 8px 24px 24px;"></div>
 </div>
 
@@ -2262,6 +2272,22 @@ async function triggerRescan() {
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
+const SETTINGS_GROUPS = {
+  server:'general', storage:'general', dashboard:'general',
+  policy:'policy', allow:'policy', block:'policy', rescan:'policy',
+  egress_proxy:'egress',
+  alerts:'advanced', cireport:'advanced', cache:'advanced'
+};
+let settingsTab = 'general';
+function settingsGroupOf(section){ return SETTINGS_GROUPS[section] || 'advanced'; }
+function setSettingsTab(g){
+  settingsTab = g;
+  document.querySelectorAll('#settings-tabs .subtab').forEach(b => b.classList.toggle('active', b.dataset.g === g));
+  document.querySelectorAll('#view-settings .settings-section').forEach(card => {
+    card.style.display = (card.dataset.group === g) ? '' : 'none';
+  });
+}
+
 let settingsCfg = {};
 // Fields that cannot be applied live — shown with a restart warning.
 const RESTART_FIELDS = ['server', 'storage', 'ecosystems'];
@@ -2300,6 +2326,7 @@ function renderSettings(cfg, meta) {
     if (val === null) return; // unset section (e.g. no [rescan]) — edit the file to add it
     if (typeof val !== 'object' || Array.isArray(val)) { scalars.push(section); return; }
     const card = settingsCard(section);
+    card.dataset.group = settingsGroupOf(section);
     renderSettingsFields(card, val, section, section);
     // Credentials: read-only "set" indicators under the dashboard section.
     if (section === 'dashboard') {
@@ -2310,9 +2337,11 @@ function renderSettings(cfg, meta) {
   });
   if (scalars.length) {
     const card = settingsCard('general');
+    card.dataset.group = 'general';
     scalars.forEach(k => settingsField(card, k, cfg[k], k));
     form.appendChild(card);
   }
+  setSettingsTab(settingsTab);
 }
 
 function roField(name, isSet) {
