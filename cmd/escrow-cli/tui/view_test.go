@@ -19,6 +19,7 @@ func TestView_AllTabsRenderWithoutPanic(t *testing.T) {
 		tree:     []TreeEco{{Ecosystem: "npm"}},
 		access:   []AccessEntry{{Host: "127.0.0.1", Method: "GET", Path: "/npm/lodash", Status: 200}},
 		upstream: []UpstreamEntry{{Ecosystem: "npm", Method: "GET", URL: "https://registry.npmjs.org/lodash", Status: 200}},
+		egress:   []EgressEntry{{Host: "a.com", IP: "1.2.3.4", Verb: "CONNECT", Action: "allow", Reason: "tunnel"}},
 		eco:      "", activity: "all",
 	}
 	// Include the 1-3 "tiny terminal" band where width-derived truncation can go

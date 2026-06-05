@@ -180,6 +180,20 @@ func (c *Client) UpstreamLog(n int) ([]UpstreamEntry, error) {
 	return u, c.getJSON(fmt.Sprintf("/api/upstreamlog?n=%d", n), &u)
 }
 
+type EgressEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Host      string    `json:"host"`
+	IP        string    `json:"ip"`
+	Verb      string    `json:"verb"`
+	Action    string    `json:"action"`
+	Reason    string    `json:"reason"`
+}
+
+func (c *Client) EgressLog(n int) ([]EgressEntry, error) {
+	var e []EgressEntry
+	return e, c.getJSON(fmt.Sprintf("/api/egresslog?n=%d", n), &e)
+}
+
 // Stream connects to the SSE endpoint and emits each event on the returned
 // channel until ctx is cancelled. Lines are "data: {json}" (comments ignored).
 func (c *Client) Stream(ctx context.Context) (<-chan Event, error) {

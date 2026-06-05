@@ -156,7 +156,7 @@ func (m Model) View() string {
 
 	// ── Footer ──
 	b.WriteString("\n")
-	help := "Tab/1-6 views · ↑↓ move · enter expand · e eco · a activity · r refresh · q quit"
+	help := "Tab/1-7 views · ↑↓ move · enter expand · e eco · a activity · r refresh · q quit"
 	b.WriteString(truncate(styDim.Render(help), w))
 	return b.String()
 }
@@ -183,6 +183,8 @@ func (m Model) body(w, maxLines int) string {
 		return m.bodyAccess(w, maxLines)
 	case 5:
 		return m.bodyUpstream(w, maxLines)
+	case 6:
+		return m.bodyEgress(w, maxLines)
 	}
 	return ""
 }
@@ -450,6 +452,39 @@ func (m Model) bodyUpstream(w, maxLines int) string {
 			trim(u.URL, 44),
 			statusColor(u.Status),
 			u.MS,
+		)
+		b.WriteString(truncate(row, w))
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func (m Model) bodyEgress(w, maxLines int) string {
+	if len(m.egress) == 0 {
+		return styDim.Render("(no egress-log entries)")
+	}
+	var b strings.Builder
+	b.WriteString(styHead.Render(fmt.Sprintf("%-8s  %-6s  %-7s  %-30s  %-15s  %s", "TIME", "ACT", "VERB", "HOST", "IP", "REASON")))
+	b.WriteString("\n")
+	start, end := m.window(len(m.egress), maxLines-1)
+	for _, e := range m.egress[start:end] {
+		ts := "--:--:--"
+		if !e.Timestamp.IsZero() {
+			ts = e.Timestamp.Local().Format("15:04:05")
+		}
+		var act string
+		if e.Action == "block" {
+			act = styBlock.Render("✕ block")
+		} else {
+			act = styAllow.Render("✓ allow")
+		}
+		row := fmt.Sprintf("%-8s  %-6s  %-7s  %-30s  %-15s  %s",
+			styDim.Render(ts),
+			act,
+			e.Verb,
+			trim(e.Host, 30),
+			styDim.Render(trim(e.IP, 15)),
+			styDim.Render(trim(e.Reason, 40)),
 		)
 		b.WriteString(truncate(row, w))
 		b.WriteString("\n")
