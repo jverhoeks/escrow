@@ -425,7 +425,7 @@ func main() {
 			"storage":     fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
 			"ecosystems":  fmt.Sprintf("%v", c.Ecosystems),
 			"secret":      c.Dashboard.Secret,
-			"paths":       fmt.Sprintf("%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath),
+			"paths":       fmt.Sprintf("%s:%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath, c.EgressLogPath),
 			"egress_proxy": egressFingerprint(c.EgressProxy),
 		}
 	}
@@ -579,7 +579,7 @@ func main() {
 
 	if cfg.Dashboard.Enabled {
 		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
-			srv.AccessRing(), upstreamLog, dlStore, scanner, *cfgPath, reloadFn)
+			srv.AccessRing(), upstreamLog, egressLog, dlStore, scanner, *cfgPath, reloadFn)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
 	}
