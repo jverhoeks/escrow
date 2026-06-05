@@ -12,6 +12,74 @@
 
 ---
 
+## ⚠️ Revision 1 — record allow at *open*; bytes as aggregate (SUPERSEDES inline Bytes/timing in Tasks 1, 3, 5, 7)
+
+The egress log + SSE must be **live for allows too**, not just blocks. Recording the allow event only after a tunnel closes (`<-done`) delays it for the whole life of a long-lived connection (an `npm install`, a stream) — so a build's allowed egress wouldn't appear until it finished. Fix: **record the allow event at connection *open*** (symmetric with blocks), and track bytes as an **aggregate counter**, not a per-event field.
+
+**Task 1 (egresslog):**
+- `Event` has **NO `Bytes` field**:
+```go
+type Event struct {
+	Timestamp time.Time `json:"timestamp"`
+	Host      string    `json:"host"`
+	IP        string    `json:"ip,omitempty"`
+	Verb      string    `json:"verb"`   // CONNECT | GET | POST | DIAL
+	Action    string    `json:"action"` // allow | block
+	Reason    string    `json:"reason"`
+}
+```
+- `Log` gains a byte accumulator + method:
+```go
+// field in Log: bytes int64   (guarded by mu)
+func (l *Log) AddBytes(n int64) { l.mu.Lock(); l.bytes += n; l.mu.Unlock() }
+```
+- In `Stats`: **remove** `s.Bytes += e.Bytes`. Under the same `RLock` that copies events, read `b := l.bytes`; set `s.Bytes = b` after the loop. (Bytes = all-time total proxied — fine for the card.)
+- Tests: `ev()` drops the `bytes` arg; `TestLog_Stats` calls `l.AddBytes(150)` and asserts `s.Bytes == int64(150)`.
+
+**Task 3 (proxy) — the important change:** `recordEgress` drops bytes; allow is recorded at open; bytes accumulated at close.
+```go
+func (p *Proxy) recordEgress(e egresslog.Event) {
+	metrics.EgressRequestsTotal.WithLabelValues(e.Action).Inc()
+	if p.egress != nil { p.egress.Record(e) }
+}
+```
+`handleConnect` — record allow immediately after the `200`, accumulate bytes after teardown:
+```go
+	_, _ = io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n")
+	ip := ""
+	if ra, ok := upstream.RemoteAddr().(*net.TCPAddr); ok { ip = ra.IP.String() }
+	p.recordEgress(egresslog.Event{Host: host, IP: ip, Verb: "CONNECT", Action: "allow", Reason: "tunnel"}) // LIVE: at open
+	var up int64
+	done := make(chan struct{})
+	go func() { up, _ = io.Copy(upstream, client); _ = upstream.Close(); close(done) }()
+	dn, _ := io.Copy(client, upstream)
+	_ = client.Close()
+	<-done
+	n := up + dn
+	if p.egress != nil { p.egress.AddBytes(n) }
+	metrics.EgressBytesTotal.Add(float64(n))
+```
+`handleHTTP` — record allow right after a successful `RoundTrip`, accumulate after the body copy:
+```go
+	resp, err := p.transport.RoundTrip(r)
+	if err != nil { http.Error(w, err.Error(), http.StatusBadGateway); return }
+	defer resp.Body.Close()
+	p.recordEgress(egresslog.Event{Host: host, Verb: r.Method, Action: "allow", Reason: "forward"}) // at open
+	// … copy headers …
+	w.WriteHeader(resp.StatusCode)
+	n, _ := io.Copy(w, resp.Body)
+	if p.egress != nil { p.egress.AddBytes(n) }
+	metrics.EgressBytesTotal.Add(float64(n))
+```
+Blocks stay immediate (early host-`Check` in both handlers; resolved-IP block in `dialChecked` records `Verb:"DIAL"`). `EgressBytesTotal` is a plain `promauto.NewCounter` (no labels). The Task-3 allow test asserts `Host/Verb/Action` only (no Bytes).
+**Before removing egress from the shared eventlog:** `grep -rn "KindEgress" internal/ cmd/` to confirm no other consumer relies on it (the package timeseries simply stops counting egress — correct).
+
+**Task 5 / 7 (display):** **no per-event bytes column** (bytes aren't on the event) — keep the **bytes card** (from `Stats.Bytes`). `egressRow` (T5) and `EgressEntry`/`bodyEgress` (T7) have no bytes field; the T7 client test drops the bytes assertion.
+
+**Minor:** `grep -rn "dashboard.New(" cmd/ internal/` first (Task 4) — the new param breaks every caller incl. tests. `renderStackedChart`'s colors are keyed by series name — add `allow`/`block` entries to its color dict or the egress chart renders uncolored.
+
+---
+
 ## File structure
 
 | File | Responsibility |

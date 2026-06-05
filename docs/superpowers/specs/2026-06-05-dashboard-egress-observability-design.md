@@ -31,7 +31,8 @@ Three dashboard/UI gaps, all surfacing now that the egress proxy ([2026-06-03 sp
 | Egress storage | **Dedicated `internal/egresslog` store** (ring + optional file), *not* the shared eventlog |
 | Egress ↔ eventlog | Egress records **leave** the shared eventlog — the package Live Feed no longer mixes them in; they get their own view |
 | Metrics surfaced | **All**: cards (total/allow/block/distinct/bytes) + top-hosts tables + requests-over-time chart + Prometheus counters |
-| Bytes | Count bytes on the allow path (tunnel both directions + forward body), carefully preserving the half-close teardown |
+| Recording timing | **Record allow at connection *open*** (symmetric with blocks) so the live view/SSE reflects long-lived allowed connections immediately — not only at teardown |
+| Bytes | An **aggregate counter** (egresslog accumulator `AddBytes` + Prometheus `EgressBytesTotal`), incremented at close — *not* a per-event field (the per-event record fires at open, before bytes are known). The "bytes" card reads `Stats.Bytes`. Must preserve the half-close teardown |
 | Settings | **Sub-tabs inside the Settings view** (client-side), no API change |
 | TUI | **Include egress parity** this iteration |
 
@@ -124,7 +125,7 @@ dashboard/TUI: initial Recent() + Stats(); subscribe for live.
 
 ## Error handling / edge cases
 
-- **Bytes vs half-close:** byte capture must not reintroduce the tunnel goroutine/connection leak — sum the two `io.Copy` returns after both finish, `Record` once.
+- **Bytes vs half-close:** the allow event is `Record`ed at open; byte capture happens *after* teardown via `AddBytes(up+dn)` and must not reintroduce the tunnel goroutine/connection leak — keep the existing teardown (goroutine closes the other conn), read `up` after `<-done` (race-free: `close(done)` happens-before the read).
 - **Egress leaves the eventlog:** the package Live Feed + `/api/events` no longer include `kind=egress` (acceptable — egress was only added recently; it now has a dedicated view). `eventlog.KindEgress` may be retired or left unused.
 - **nil-safe:** proxy guards a nil egresslog (as it does today for the eventlog).
 - **High volume:** bounded ring (cap); optional file append for retention; `Stats` computed over the ring only.
