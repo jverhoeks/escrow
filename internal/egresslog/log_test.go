@@ -77,3 +77,11 @@ func TestNewWithPath_RoundTrip(t *testing.T) {
 	require.Len(t, got, 2)
 	assert.Equal(t, "b.com", got[0].Host)
 }
+
+func TestRecord_StampsTimestamp(t *testing.T) {
+	l := New(5)
+	l.Record(Event{Host: "a.com", Action: "allow", Verb: "CONNECT"}) // no Timestamp
+	got := l.Recent(1, "")
+	require.Len(t, got, 1)
+	assert.False(t, got[0].Timestamp.IsZero(), "Record must stamp a zero Timestamp")
+}

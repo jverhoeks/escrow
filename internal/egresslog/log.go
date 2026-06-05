@@ -93,6 +93,9 @@ func NewWithPath(cap int, path string) (*Log, error) {
 }
 
 func (l *Log) Record(e Event) {
+	if e.Timestamp.IsZero() {
+		e.Timestamp = time.Now().UTC()
+	}
 	l.mu.Lock()
 	l.events = append([]Event{e}, l.events...)
 	if len(l.events) > l.cap {

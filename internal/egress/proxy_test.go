@@ -53,6 +53,7 @@ func TestProxy_ForwardsHTTPAndRecordsEgress(t *testing.T) {
 		assert.Equal(t, "allow", e.Action)
 		assert.Equal(t, mustHost(t, upstream.URL), e.Host)
 		assert.Equal(t, "GET", e.Verb)
+		assert.False(t, e.Timestamp.IsZero())
 	case <-time.After(2 * time.Second):
 		t.Fatal("no egress event recorded")
 	}
