@@ -23,7 +23,21 @@ type Config struct {
 
 	DownloadStatsPath string `json:"download_stats_path" toml:"download_stats_path"` // JSON; empty = default to cache dir on disk backend, else in-memory
 
-	Rescan *RescanConfig `json:"rescan" toml:"rescan"`
+	Rescan      *RescanConfig      `json:"rescan" toml:"rescan"`
+	EgressProxy *EgressProxyConfig `json:"egress_proxy" toml:"egress_proxy"`
+}
+
+// EgressProxyConfig configures the Docker-build egress proxy. A nil pointer
+// (the [egress_proxy] section omitted) means disabled. Forward-proxy / rules 2+3
+// only in this phase: host + CIDR allow/block, no TLS interception, no CA.
+type EgressProxyConfig struct {
+	Enabled     *bool    `json:"enabled" toml:"enabled"`           // nil => disabled
+	ForwardPort int      `json:"forward_port" toml:"forward_port"` // 0 => 7889
+	Policy      string   `json:"policy" toml:"policy"`             // "forward" (default-allow) | "whitelist" (deny-by-default)
+	AllowHosts  []string `json:"allow_hosts" toml:"allow_hosts"`
+	BlockHosts  []string `json:"block_hosts" toml:"block_hosts"`
+	AllowCIDRs  []string `json:"allow_cidrs" toml:"allow_cidrs"`
+	BlockCIDRs  []string `json:"block_cidrs" toml:"block_cidrs"`
 }
 
 type RescanConfig struct {
@@ -348,6 +362,16 @@ func (c Config) Validate() []error {
 	}
 	if c.Rescan != nil && !validSeverities[c.Rescan.MinSeverity] {
 		errs = append(errs, fmt.Errorf("rescan.min_severity %q is not one of CRITICAL/HIGH/MEDIUM/LOW", c.Rescan.MinSeverity))
+	}
+	if c.EgressProxy != nil {
+		switch strings.ToLower(c.EgressProxy.Policy) {
+		case "", "forward", "whitelist":
+		default:
+			errs = append(errs, fmt.Errorf("invalid egress_proxy.policy %q (want \"forward\" or \"whitelist\")", c.EgressProxy.Policy))
+		}
+		if c.EgressProxy.ForwardPort < 0 || c.EgressProxy.ForwardPort > 65535 {
+			errs = append(errs, fmt.Errorf("egress_proxy.forward_port %d is out of range 0–65535", c.EgressProxy.ForwardPort))
+		}
 	}
 	return errs
 }
