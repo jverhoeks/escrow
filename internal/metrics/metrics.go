@@ -39,6 +39,16 @@ var (
 		Help:    "End-to-end proxy request latency",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"ecosystem"})
+
+	EgressRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "escrow_egress_requests_total",
+		Help: "Egress proxy decisions by action",
+	}, []string{"action"})
+
+	EgressBytesTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "escrow_egress_bytes_total",
+		Help: "Total bytes proxied through the egress proxy (allow path)",
+	})
 )
 
 var startTime = time.Now()
