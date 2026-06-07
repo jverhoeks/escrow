@@ -9,40 +9,69 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
 const cookieName = "escrow_session"
 const cookieTTL = 24 * time.Hour
 
-type Auth struct {
+// authCreds is an immutable snapshot of auth credentials. It is stored behind
+// an atomic.Pointer so reads are lock-free and rotations are race-free.
+type authCreds struct {
 	username string
 	password string
 	secret   []byte
 }
 
+// sign computes the HMAC-SHA256 signature of payload using the creds' secret.
+func (c *authCreds) sign(payload string) string {
+	mac := hmac.New(sha256.New, c.secret)
+	mac.Write([]byte(payload))
+	return base64.URLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// Auth manages dashboard session authentication. All credential state lives
+// inside an atomically-swapped *authCreds so that SetCredentials and concurrent
+// request handlers never race.
+type Auth struct {
+	creds atomic.Pointer[authCreds]
+}
+
+// NewAuth constructs an Auth with the given credentials.
 func NewAuth(username, password, secret string) *Auth {
-	return &Auth{username: username, password: password, secret: []byte(secret)}
+	a := &Auth{}
+	a.creds.Store(&authCreds{username: username, password: password, secret: []byte(secret)})
+	return a
+}
+
+// SetCredentials atomically swaps the active credentials (live rotation).
+// Rotating the secret invalidates all existing session cookies (they were
+// signed with the old secret) — callers re-authenticate. This is intended.
+func (a *Auth) SetCredentials(username, password, secret string) {
+	a.creds.Store(&authCreds{username: username, password: password, secret: []byte(secret)})
 }
 
 func (a *Auth) CheckCredentials(username, password string) bool {
+	c := a.creds.Load()
 	// Hash both the stored and provided values before comparing so that
 	// ConstantTimeCompare always receives equal-length slices. Without this,
 	// different-length inputs short-circuit and leak the stored value's length.
 	hStored := func(prefix, s string) []byte {
-		m := hmac.New(sha256.New, a.secret)
+		m := hmac.New(sha256.New, c.secret)
 		m.Write([]byte(prefix + s))
 		return m.Sum(nil)
 	}
-	uOK := subtle.ConstantTimeCompare(hStored("u:", a.username), hStored("u:", username)) == 1
-	pOK := subtle.ConstantTimeCompare(hStored("p:", a.password), hStored("p:", password)) == 1
+	uOK := subtle.ConstantTimeCompare(hStored("u:", c.username), hStored("u:", username)) == 1
+	pOK := subtle.ConstantTimeCompare(hStored("p:", c.password), hStored("p:", password)) == 1
 	return uOK && pOK
 }
 
 func (a *Auth) SetCookie(w http.ResponseWriter, r *http.Request, username string) {
+	c := a.creds.Load()
 	expiry := time.Now().Add(cookieTTL).Unix()
 	payload := fmt.Sprintf("%s|%d", username, expiry)
-	value := base64.URLEncoding.EncodeToString([]byte(payload)) + "." + a.sign(payload)
+	value := base64.URLEncoding.EncodeToString([]byte(payload)) + "." + c.sign(payload)
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
@@ -56,6 +85,7 @@ func (a *Auth) SetCookie(w http.ResponseWriter, r *http.Request, username string
 }
 
 func (a *Auth) IsValid(r *http.Request) bool {
+	c := a.creds.Load()
 	cookie, err := r.Cookie(cookieName)
 	if err != nil {
 		return false
@@ -69,7 +99,7 @@ func (a *Auth) IsValid(r *http.Request) bool {
 		return false
 	}
 	payload := string(payloadBytes)
-	if !hmac.Equal([]byte(a.sign(payload)), []byte(parts[1])) {
+	if !hmac.Equal([]byte(c.sign(payload)), []byte(parts[1])) {
 		return false
 	}
 	fields := strings.SplitN(payload, "|", 2)
@@ -100,11 +130,12 @@ func (a *Auth) Middleware(loginPath string) func(http.Handler) http.Handler {
 }
 
 func (a *Auth) Username(r *http.Request) (string, bool) {
-	c, err := r.Cookie(cookieName)
+	c := a.creds.Load()
+	cookie, err := r.Cookie(cookieName)
 	if err != nil {
 		return "", false
 	}
-	parts := strings.SplitN(c.Value, ".", 2)
+	parts := strings.SplitN(cookie.Value, ".", 2)
 	if len(parts) != 2 {
 		return "", false
 	}
@@ -113,7 +144,7 @@ func (a *Auth) Username(r *http.Request) (string, bool) {
 		return "", false
 	}
 	payload := string(payloadBytes)
-	if !hmac.Equal([]byte(a.sign(payload)), []byte(parts[1])) {
+	if !hmac.Equal([]byte(c.sign(payload)), []byte(parts[1])) {
 		return "", false
 	}
 	fields := strings.SplitN(payload, "|", 2)
@@ -121,10 +152,4 @@ func (a *Auth) Username(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return fields[0], true
-}
-
-func (a *Auth) sign(payload string) string {
-	mac := hmac.New(sha256.New, a.secret)
-	mac.Write([]byte(payload))
-	return base64.URLEncoding.EncodeToString(mac.Sum(nil))
 }
