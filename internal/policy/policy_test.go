@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -146,6 +148,46 @@ func TestStrictSignals_OSVTransientFailure_EndToEnd(t *testing.T) {
 	allowed := policy.New(&config.PolicyConfig{}).Evaluate(result)
 	assert.Equal(t, policy.ActionAllow, allowed.Action,
 		"default strict_signals must preserve fail-open behavior (regression guard)")
+}
+
+// TestPublisherManifestError_BlocksUnderPolicy is the end-to-end guard for the
+// residual publisher fail-open: an established npm account whose first-release
+// manifest fetch fails transiently (500) must produce SignalError and, under a
+// configured publisher.action=block, the policy must block — not silently allow
+// via "established publisher" PASS.
+func TestPublisherManifestError_BlocksUnderPolicy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/-/user/") {
+			// Established account (old created date).
+			created := time.Now().Add(-365 * 24 * time.Hour).Format(time.RFC3339)
+			_, _ = w.Write([]byte(`{"created":"` + created + `"}`))
+			return
+		}
+		// Package-manifest endpoint fails transiently.
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	pub := trust.NewPublisherSignal(30, srv.Client(), nil, srv.URL, "")
+	rep, err := pub.Check(context.Background(), trust.Package{
+		Ecosystem: trust.EcosystemNPM, Name: "established-pkg", Version: "2.0.0", Author: "veteran",
+	})
+	require.NoError(t, err)
+	require.Equal(t, trust.SignalError, rep.Result,
+		"manifest fetch failure must surface as SignalError")
+
+	result := trust.TrustResult{
+		Package: trust.Package{Ecosystem: trust.EcosystemNPM, Name: "established-pkg", Version: "2.0.0"},
+		Reports: []trust.SignalReport{rep},
+	}
+
+	// publisher.action=block → fail closed on the errored signal.
+	blocked := policy.New(&config.PolicyConfig{
+		StrictSignals: "block",
+	}).Evaluate(result)
+	assert.Equal(t, policy.ActionBlock, blocked.Action,
+		"strict_signals=block must fail closed when the publisher signal errors")
+	assert.Equal(t, "publisher", blocked.Signal)
 }
 
 func TestEngine_SetConfig_AppliesLive(t *testing.T) {

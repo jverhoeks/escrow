@@ -109,3 +109,35 @@ func TestPublisherSignal_UpstreamError_Errors(t *testing.T) {
 	assert.Equal(t, trust.SignalError, report.Result,
 		"transient publisher fetch failure should surface as SignalError")
 }
+
+// TestPublisherSignal_ManifestFetchError_Errors verifies that an established
+// npm account whose first-release MANIFEST request fails transiently (HTTP 500)
+// surfaces as SignalError — not a silent SignalPass "established publisher".
+// Previously the second-request Do-error/non-200/decode-failure all fell through
+// to SignalPass, masking a configured publisher.action=block on a transient
+// failure.
+func TestPublisherSignal_ManifestFetchError_Errors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Account endpoint: established account (old created date).
+		if strings.Contains(r.URL.Path, "/-/user/") {
+			json.NewEncoder(w).Encode(map[string]any{
+				"created": time.Now().Add(-365 * 24 * time.Hour).Format(time.RFC3339),
+			})
+			return
+		}
+		// Package-manifest endpoint: transient failure.
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	sig := trust.NewPublisherSignal(30, srv.Client(), nil, srv.URL, "")
+	pkg := trust.Package{
+		Ecosystem: trust.EcosystemNPM,
+		Name:      "established-pkg",
+		Version:   "2.0.0",
+		Author:    "veteran",
+	}
+	report, err := sig.Check(context.Background(), pkg)
+	require.NoError(t, err)
+	assert.Equal(t, trust.SignalError, report.Result,
+		"manifest fetch failure must surface as SignalError, not silent established-publisher PASS")
+}

@@ -104,22 +104,27 @@ func (s *PublisherSignal) checkNPM(ctx context.Context, pkg Package) (SignalRepo
 		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not build package request"}, nil
 	}
 	pkgResp, err := s.client.Do(pkgReq)
-	if err == nil {
-		defer pkgResp.Body.Close() // close regardless of status to prevent body leak
-		if pkgResp.StatusCode == http.StatusOK {
-			var manifest struct {
-				Versions map[string]any `json:"versions"`
-			}
-			if json.NewDecoder(pkgResp.Body).Decode(&manifest) == nil && len(manifest.Versions) == 1 {
-				report := SignalReport{
-					Signal: s.Name(),
-					Result: SignalWarn,
-					Reason: "first-ever release from this account",
-				}
-				s.cacheReport(ctx, cacheKey, report)
-				return report, nil
-			}
+	if err != nil {
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch package manifest"}, nil
+	}
+	defer pkgResp.Body.Close() // close regardless of status to prevent body leak
+	if pkgResp.StatusCode != http.StatusOK {
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch package manifest"}, nil
+	}
+	var manifest struct {
+		Versions map[string]any `json:"versions"`
+	}
+	if err := json.NewDecoder(pkgResp.Body).Decode(&manifest); err != nil {
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not parse package manifest"}, nil
+	}
+	if len(manifest.Versions) == 1 {
+		report := SignalReport{
+			Signal: s.Name(),
+			Result: SignalWarn,
+			Reason: "first-ever release from this account",
 		}
+		s.cacheReport(ctx, cacheKey, report)
+		return report, nil
 	}
 	report := SignalReport{Signal: s.Name(), Result: SignalPass, Reason: "established publisher"}
 	s.cacheReport(ctx, cacheKey, report)

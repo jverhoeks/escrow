@@ -88,7 +88,9 @@ func (s *PopularitySignal) fetchNPMDownloads(ctx context.Context, name string) (
 	var data struct {
 		Downloads int `json:"downloads"`
 	}
-	json.NewDecoder(resp.Body).Decode(&data)
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return 0, fmt.Errorf("decode download stats: %w", err)
+	}
 	return data.Downloads, nil
 }
 
@@ -111,6 +113,8 @@ func (s *PopularitySignal) fetchPyPIDownloads(ctx context.Context, name string) 
 			LastWeek int `json:"last_week"`
 		} `json:"data"`
 	}
-	json.NewDecoder(resp.Body).Decode(&data)
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return 0, fmt.Errorf("decode download stats: %w", err)
+	}
 	return data.Data.LastWeek, nil
 }
