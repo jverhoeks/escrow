@@ -20,12 +20,17 @@ type Proxy struct {
 	evlog     *eventlog.Log // may be nil
 	transport *http.Transport
 	srv       *http.Server
+	limiter   *rateLimiter // nil = rate limiting disabled
 }
 
-// New builds a Proxy bound to addr (host:port).
-func New(addr string, policy *Policy, evlog *eventlog.Log) *Proxy {
+// New builds a Proxy bound to addr (host:port). When rateLimitPerMin > 0 a
+// per-IP sliding-window limiter is attached; 0 disables rate limiting.
+func New(addr string, policy *Policy, evlog *eventlog.Log, rateLimitPerMin int) *Proxy {
 	p := &Proxy{addr: addr, policy: policy, evlog: evlog}
 	p.transport = &http.Transport{Proxy: nil, DialContext: p.dialChecked}
+	if rateLimitPerMin > 0 {
+		p.limiter = newRateLimiter(rateLimitPerMin)
+	}
 	return p
 }
 
@@ -77,6 +82,9 @@ func (p *Proxy) Serve(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if p.limiter != nil {
+		defer p.limiter.stop()
+	}
 	// Assign p.srv before starting the shutdown goroutine so the goroutine never
 	// races a nil read, and so it can call srv.Close() (which makes Serve return
 	// http.ErrServerClosed). Closing only the listener would surface a raw
@@ -97,6 +105,9 @@ func (p *Proxy) Serve(ctx context.Context) error {
 }
 
 func (p *Proxy) serveListener(ln net.Listener) error {
+	if p.limiter != nil {
+		defer p.limiter.stop()
+	}
 	if p.srv == nil {
 		p.srv = &http.Server{
 			Handler:           http.HandlerFunc(p.handle),
@@ -111,6 +122,17 @@ func (p *Proxy) serveListener(ln net.Listener) error {
 }
 
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
+	// Per-IP rate limit (optional). Checked before policy and before the CONNECT
+	// dispatch — returning 429 here is correct for CONNECT too, since we reply
+	// and return before any hijack/tunnel.
+	if p.limiter != nil {
+		ip := hostOnly(r.RemoteAddr)
+		if !p.limiter.allow(ip) {
+			p.record(ip, "block", "rate limited")
+			http.Error(w, "egress rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+	}
 	if r.Method == http.MethodConnect {
 		p.handleConnect(w, r)
 		return

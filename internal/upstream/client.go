@@ -14,7 +14,11 @@ import (
 func New() *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
-			MaxIdleConns:          100, // global cap; 7 upstreams × 20/host = 140 potential, cap at 100
+			// Global idle-connection cap. Sized above the worst case (7 ecosystems ×
+			// MaxIdleConnsPerHost 20 = 140 potential) with headroom so a single busy
+			// upstream can't fill the shared idle pool and starve the other ecosystems'
+			// idle connections (which the previous cap of 100 allowed).
+			MaxIdleConns:          256,
 			MaxIdleConnsPerHost:   20,
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,

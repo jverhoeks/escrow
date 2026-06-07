@@ -379,7 +379,7 @@ func main() {
 			log.Warn().Str("host", cfg.Server.Host).
 				Msg("egress proxy is reachable off-host with policy=forward — this is an OPEN RELAY; set egress_proxy.policy=\"whitelist\" or firewall the egress port")
 		}
-		eproxy := egress.New(fmt.Sprintf("%s:%d", cfg.Server.Host, port), pol, evLog)
+		eproxy := egress.New(fmt.Sprintf("%s:%d", cfg.Server.Host, port), pol, evLog, ep.RateLimitPerMin)
 		go func() {
 			log.Info().Int("port", port).Str("policy", ep.Policy).Msg("egress proxy listening")
 			if err := eproxy.Serve(rootCtx); err != nil {
@@ -486,6 +486,7 @@ func main() {
 		TLSCertFile:              cfg.Server.TLSCertFile,
 		TLSKeyFile:               cfg.Server.TLSKeyFile,
 		ProxyRateLimitPerMin:     cfg.Server.ProxyRateLimitPerMin,
+		MaxRequestBodyMB:         cfg.Server.EffectiveMaxRequestBodyMB(),
 		AccessLogPath:            config.ExpandPath(cfg.Server.AccessLogPath),
 		AccessLogMaxDays:         cfg.Server.AccessLogMaxDays,
 		UpstreamURLs:             upstreamURLs,
