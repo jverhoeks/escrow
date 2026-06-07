@@ -187,6 +187,7 @@ func main() {
 	} else {
 		egressLog = egresslog.New(5000)
 	}
+	defer egressLog.Close()
 
 	hostEco := map[string]string{
 		"registry.npmjs.org":     "npm",

@@ -126,6 +126,19 @@ func (l *Log) AddBytes(n int64) {
 	l.mu.Unlock()
 }
 
+// Close flushes and closes the underlying file (if any). Safe to call multiple
+// times. Mirrors eventlog.Log.Close (parity).
+func (l *Log) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.file == nil {
+		return nil
+	}
+	err := l.file.Close()
+	l.file = nil // prevent double-close and stale Write calls in Record
+	return err
+}
+
 func (l *Log) Recent(n int, action string) []Event {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
