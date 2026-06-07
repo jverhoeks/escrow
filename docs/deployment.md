@@ -122,6 +122,7 @@ WantedBy=multi-user.target
 ```toml
 [storage]
   backend = "disk"         # disk | s3 | memory
+                           # ⚠️ "memory" is UNBOUNDED (metadata never evicts) — dev/test only
 
   [storage.disk]
     path = "./escrow-cache"
@@ -130,7 +131,10 @@ WantedBy=multi-user.target
     bucket   = "my-escrow-cache"
     region   = "eu-west-1"
     endpoint = ""            # blank = AWS; set for MinIO/Ceph
-                             # S3 uploads use temp files, not RAM buffers
+    temp_dir = ""            # where uploads are buffered before PutObject;
+                             # blank = OS default ($TMPDIR or /tmp). S3 uploads
+                             # use temp files, not RAM — point this at a sized
+                             # volume if /tmp is small/tmpfs.
 ```
 
 **What is cached:**
