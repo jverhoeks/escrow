@@ -21,5 +21,9 @@ type Cache interface {
 	BlobSize(ctx context.Context, key string) int64
 	// Flush removes all cached entries (metadata and blobs).
 	Flush() error
+	// Healthy reports whether the cache backend is usable (nil = healthy). Disk
+	// does a probe-write, S3 a HeadBucket, memory always returns nil. Used by
+	// /healthz to surface cache degradation for every backend.
+	Healthy(ctx context.Context) error
 	Close() error
 }

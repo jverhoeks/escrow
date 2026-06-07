@@ -69,6 +69,11 @@ func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, a
 	}
 }
 
+// UpdateCredentials live-rotates the dashboard auth credentials (called on reload).
+func (d *Dashboard) UpdateCredentials(username, password, secret string) {
+	d.auth.SetCredentials(username, password, secret)
+}
+
 // dlStat returns (count, lastAt) for a version, or (0, zero) when unknown.
 func (d *Dashboard) dlStat(eco, name, version string) (int, time.Time) {
 	if d.dl == nil {

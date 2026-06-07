@@ -103,7 +103,11 @@ func TestOSVSignal_CachesResult(t *testing.T) {
 	assert.Equal(t, 1, calls, "second check should use cache")
 }
 
-func TestOSVSignal_UpstreamError_Skips(t *testing.T) {
+// TestOSVSignal_UpstreamError_Errors verifies that a transient upstream failure
+// (HTTP 500) surfaces as SignalError so the policy layer's strict_signals knob
+// can decide fail-open vs fail-closed. It must NOT be SignalSkip (which the
+// policy treats as not-applicable and always allows).
+func TestOSVSignal_UpstreamError_Errors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 	}))
@@ -114,7 +118,7 @@ func TestOSVSignal_UpstreamError_Skips(t *testing.T) {
 	pkg := trust.Package{Ecosystem: trust.EcosystemNPM, Name: "errored-pkg", Version: "1.0.0"}
 	report, err := sig.Check(context.Background(), pkg)
 	require.NoError(t, err)
-	assert.Equal(t, trust.SignalSkip, report.Result)
+	assert.Equal(t, trust.SignalError, report.Result)
 }
 
 func TestOSVSignal_LowSeverityFiltered(t *testing.T) {

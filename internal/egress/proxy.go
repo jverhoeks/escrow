@@ -21,12 +21,17 @@ type Proxy struct {
 	egress    *egresslog.Log // may be nil
 	transport *http.Transport
 	srv       *http.Server
+	limiter   *rateLimiter // nil = rate limiting disabled
 }
 
-// New builds a Proxy bound to addr (host:port).
-func New(addr string, policy *Policy, egress *egresslog.Log) *Proxy {
+// New builds a Proxy bound to addr (host:port). When rateLimitPerMin > 0 a
+// per-IP sliding-window limiter is attached; 0 disables rate limiting.
+func New(addr string, policy *Policy, egress *egresslog.Log, rateLimitPerMin int) *Proxy {
 	p := &Proxy{addr: addr, policy: policy, egress: egress}
 	p.transport = &http.Transport{Proxy: nil, DialContext: p.dialChecked}
+	if rateLimitPerMin > 0 {
+		p.limiter = newRateLimiter(rateLimitPerMin)
+	}
 	return p
 }
 
@@ -74,6 +79,11 @@ func (p *Proxy) dialChecked(ctx context.Context, network, addr string) (net.Conn
 
 // Serve listens on the configured address and serves until ctx is cancelled.
 func (p *Proxy) Serve(ctx context.Context) error {
+	// Register limiter teardown before Listen so a Listen failure still stops
+	// the cleanup goroutine started in New (otherwise it would leak).
+	if p.limiter != nil {
+		defer p.limiter.stop()
+	}
 	ln, err := net.Listen("tcp", p.addr)
 	if err != nil {
 		return err
@@ -98,6 +108,9 @@ func (p *Proxy) Serve(ctx context.Context) error {
 }
 
 func (p *Proxy) serveListener(ln net.Listener) error {
+	if p.limiter != nil {
+		defer p.limiter.stop()
+	}
 	if p.srv == nil {
 		p.srv = &http.Server{
 			Handler:           http.HandlerFunc(p.handle),
@@ -112,6 +125,17 @@ func (p *Proxy) serveListener(ln net.Listener) error {
 }
 
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
+	// Per-IP rate limit (optional). Checked before policy and before the CONNECT
+	// dispatch — returning 429 here is correct for CONNECT too, since we reply
+	// and return before any hijack/tunnel.
+	if p.limiter != nil {
+		ip := hostOnly(r.RemoteAddr)
+		if !p.limiter.allow(ip) {
+			p.recordEgress(egresslog.Event{Host: hostOnly(r.Host), IP: ip, Verb: r.Method, Action: "block", Reason: "rate limited"})
+			http.Error(w, "egress rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+	}
 	if r.Method == http.MethodConnect {
 		p.handleConnect(w, r)
 		return

@@ -24,7 +24,7 @@ func startProxy(t *testing.T, cfg config.EgressProxyConfig, el *egresslog.Log) s
 	require.NoError(t, err)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	p := New(ln.Addr().String(), pol, el)
+	p := New(ln.Addr().String(), pol, el, cfg.RateLimitPerMin)
 	go func() { _ = p.serveListener(ln) }()
 	t.Cleanup(func() { _ = ln.Close() })
 	return ln.Addr().String()
@@ -110,6 +110,45 @@ func TestProxy_ConnectTunnelAllowed(t *testing.T) {
 	assert.Equal(t, "ping", string(got))
 }
 
+// TestProxy_RateLimit asserts that with rate_limit_per_min set, requests from a
+// single client IP beyond the limit are rejected with 429, and that with the
+// limit disabled (0) no throttling occurs.
+func TestProxy_RateLimit(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "hello")
+	}))
+	defer upstream.Close()
+
+	t.Run("over limit -> 429", func(t *testing.T) {
+		addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", RateLimitPerMin: 2}, egresslog.New(10))
+		client := proxyClient(addr)
+		// All three requests share the 127.0.0.1 bucket.
+		for i := 1; i <= 3; i++ {
+			resp, err := client.Get(upstream.URL)
+			require.NoError(t, err)
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			if i <= 2 {
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "request %d should pass", i)
+			} else {
+				assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode, "request %d should be rate limited", i)
+			}
+		}
+	})
+
+	t.Run("disabled -> no throttling", func(t *testing.T) {
+		addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", RateLimitPerMin: 0}, egresslog.New(10))
+		client := proxyClient(addr)
+		for i := 1; i <= 5; i++ {
+			resp, err := client.Get(upstream.URL)
+			require.NoError(t, err)
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			assert.Equal(t, http.StatusOK, resp.StatusCode, "request %d should pass with limiter disabled", i)
+		}
+	})
+}
+
 func mustHost(t *testing.T, raw string) string {
 	t.Helper()
 	u, err := url.Parse(raw)
@@ -162,7 +201,7 @@ func TestProxy_ServeReturnsNilOnCtxCancel(t *testing.T) {
 	pol, err := NewPolicy(config.EgressProxyConfig{Policy: "forward"})
 	require.NoError(t, err)
 	addr := freePort(t)
-	p := New(addr, pol, egresslog.New(10))
+	p := New(addr, pol, egresslog.New(10), 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
