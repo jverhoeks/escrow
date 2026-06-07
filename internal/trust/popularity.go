@@ -42,7 +42,7 @@ func (s *PopularitySignal) Check(ctx context.Context, pkg Package) (SignalReport
 		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "unsupported ecosystem"}, nil
 	}
 	if fetchErr != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not fetch download stats"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch download stats"}, nil
 	}
 
 	baselineKey := fmt.Sprintf("pop/%s/%s/baseline", pkg.Ecosystem, pkg.Name)
@@ -88,7 +88,9 @@ func (s *PopularitySignal) fetchNPMDownloads(ctx context.Context, name string) (
 	var data struct {
 		Downloads int `json:"downloads"`
 	}
-	json.NewDecoder(resp.Body).Decode(&data)
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return 0, fmt.Errorf("decode download stats: %w", err)
+	}
 	return data.Downloads, nil
 }
 
@@ -111,6 +113,8 @@ func (s *PopularitySignal) fetchPyPIDownloads(ctx context.Context, name string) 
 			LastWeek int `json:"last_week"`
 		} `json:"data"`
 	}
-	json.NewDecoder(resp.Body).Decode(&data)
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return 0, fmt.Errorf("decode download stats: %w", err)
+	}
 	return data.Data.LastWeek, nil
 }

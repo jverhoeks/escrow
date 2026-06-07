@@ -23,7 +23,23 @@ type Config struct {
 
 	DownloadStatsPath string `json:"download_stats_path" toml:"download_stats_path"` // JSON; empty = default to cache dir on disk backend, else in-memory
 
-	Rescan *RescanConfig `json:"rescan" toml:"rescan"`
+	Rescan      *RescanConfig      `json:"rescan" toml:"rescan"`
+	EgressProxy *EgressProxyConfig `json:"egress_proxy" toml:"egress_proxy"`
+}
+
+// EgressProxyConfig configures the Docker-build egress proxy. A nil pointer
+// (the [egress_proxy] section omitted) means disabled. Forward-proxy / rules 2+3
+// only in this phase: host + CIDR allow/block, no TLS interception, no CA.
+type EgressProxyConfig struct {
+	Enabled     *bool    `json:"enabled" toml:"enabled"`           // nil => disabled
+	ForwardPort int      `json:"forward_port" toml:"forward_port"` // 0 => 7889
+	Policy      string   `json:"policy" toml:"policy"`             // "forward" (default-allow) | "whitelist" (deny-by-default)
+	AllowHosts  []string `json:"allow_hosts" toml:"allow_hosts"`
+	BlockHosts  []string `json:"block_hosts" toml:"block_hosts"`
+	AllowCIDRs  []string `json:"allow_cidrs" toml:"allow_cidrs"`
+	BlockCIDRs  []string `json:"block_cidrs" toml:"block_cidrs"`
+
+	RateLimitPerMin int `json:"rate_limit_per_min" toml:"rate_limit_per_min"` // per-IP requests/min; 0 = disabled
 }
 
 type RescanConfig struct {
@@ -47,8 +63,12 @@ type ServerConfig struct {
 	TLSCertFile              string `json:"tls_cert_file" toml:"tls_cert_file"`
 	TLSKeyFile               string `json:"tls_key_file" toml:"tls_key_file"`
 	ProxyRateLimitPerMin     int    `json:"proxy_rate_limit_per_min" toml:"proxy_rate_limit_per_min"` // 0 = disabled
-	AccessLogPath            string `json:"access_log_path" toml:"access_log_path"`                   // Apache combined format; empty = disabled
-	AccessLogMaxDays         int    `json:"access_log_max_days" toml:"access_log_max_days"`           // rotate+delete logs older than N days; 0 = 30
+	// MaxRequestBodyMB caps inbound request (upload) body size. *int so absent vs
+	// explicit-0 are distinguishable: nil (key omitted) → default 100MB, 0 →
+	// unlimited, n → n MB. Does not affect response (download) sizes.
+	MaxRequestBodyMB *int   `json:"max_request_body_mb" toml:"max_request_body_mb"`
+	AccessLogPath    string `json:"access_log_path" toml:"access_log_path"`         // Apache combined format; empty = disabled
+	AccessLogMaxDays int    `json:"access_log_max_days" toml:"access_log_max_days"` // rotate+delete logs older than N days; 0 = 30
 }
 
 type StorageConfig struct {
@@ -82,11 +102,18 @@ type PolicyConfig struct {
 	Popularity *PopularityPolicyConfig `json:"popularity" toml:"popularity"`
 	PyPI       *PyPIPolicyConfig       `json:"pypi" toml:"pypi"`
 
-	// StrictSignals controls fail-open vs fail-closed behavior for transient
-	// signal failures (network errors, panics, parse failures the signal
-	// itself didn't handle). Valid values: "allow" (default — fail open;
-	// transient errors don't block), "warn" (log + emit warn decision), or
-	// "block" (fail closed; refuse to install if a signal couldn't run).
+	// StrictSignals controls fail-open vs fail-closed behavior when a trust
+	// signal couldn't actually run — i.e. it reports SignalError. Signals emit
+	// SignalError on transient failures (network/timeout/HTTP 5xx/parse errors,
+	// or an unknown publish time), and the engine also maps any signal panic to
+	// SignalError. Not-applicable cases (unsupported ecosystem, no baseline yet)
+	// report SignalSkip and are unaffected by this setting — they always allow.
+	//
+	// Valid values:
+	//   - "allow" (default): fail open. SignalError is treated as allow, so an
+	//     upstream outage never blocks an install. Default users see no change.
+	//   - "warn": emit a warn decision when a signal errors (logged, not blocked).
+	//   - "block": fail closed. Refuse to install if any signal errored.
 	StrictSignals string `json:"strict_signals" toml:"strict_signals"`
 }
 
@@ -130,6 +157,15 @@ type EcosystemConfig struct {
 	Maven                 bool   `json:"maven" toml:"maven"`
 	MavenUpstream         string `json:"maven_upstream" toml:"maven_upstream"`                   // default https://repo1.maven.org/maven2
 	MavenSnapshotUpstream string `json:"maven_snapshot_upstream" toml:"maven_snapshot_upstream"` // default: same as MavenUpstream
+}
+
+// EffectiveMaxRequestBodyMB resolves the request-body cap: an omitted key (nil)
+// defaults to 100MB; an explicit 0 means unlimited (no middleware registered).
+func (s ServerConfig) EffectiveMaxRequestBodyMB() int {
+	if s.MaxRequestBodyMB == nil {
+		return 100
+	}
+	return *s.MaxRequestBodyMB
 }
 
 func (e EcosystemConfig) EffectiveNPMUpstream() string {
@@ -251,6 +287,7 @@ func GenerateIfMissing(path string) (bool, string, error) {
   # tls_cert_file          = ""
   # tls_key_file           = ""
   # proxy_rate_limit_per_min = 0   # requests/min per IP; 0 = disabled
+  # max_request_body_mb    = 100   # cap inbound upload body size (MB); 0 = unlimited, omit = 100
   # access_log_path        = "~/.cache/escrow/access.log"  # Apache combined format; empty = disabled
   # access_log_max_days    = 30    # delete rotated logs older than N days
 
@@ -324,6 +361,9 @@ func (c Config) Validate() []error {
 	if c.Storage.StaleOnErrorMaxAgeM < 0 {
 		errs = append(errs, fmt.Errorf("storage.stale_on_error_max_age_m %d is negative; use 0 to disable", c.Storage.StaleOnErrorMaxAgeM))
 	}
+	if c.Server.MaxRequestBodyMB != nil && *c.Server.MaxRequestBodyMB < 0 {
+		errs = append(errs, fmt.Errorf("server.max_request_body_mb %d is negative (use 0 for unlimited)", *c.Server.MaxRequestBodyMB))
+	}
 	if c.Policy != nil && c.Policy.Age != nil && c.Policy.Age.MinDays < 0 {
 		errs = append(errs, fmt.Errorf("policy.age.min_days %d is negative; negative values allow all packages through the age gate", c.Policy.Age.MinDays))
 	}
@@ -357,6 +397,19 @@ func (c Config) Validate() []error {
 	}
 	if c.Rescan != nil && !validSeverities[c.Rescan.MinSeverity] {
 		errs = append(errs, fmt.Errorf("rescan.min_severity %q is not one of CRITICAL/HIGH/MEDIUM/LOW", c.Rescan.MinSeverity))
+	}
+	if c.EgressProxy != nil {
+		switch strings.ToLower(c.EgressProxy.Policy) {
+		case "", "forward", "whitelist":
+		default:
+			errs = append(errs, fmt.Errorf("invalid egress_proxy.policy %q (want \"forward\" or \"whitelist\")", c.EgressProxy.Policy))
+		}
+		if c.EgressProxy.ForwardPort < 0 || c.EgressProxy.ForwardPort > 65535 {
+			errs = append(errs, fmt.Errorf("egress_proxy.forward_port %d is out of range 0–65535", c.EgressProxy.ForwardPort))
+		}
+		if c.EgressProxy.RateLimitPerMin < 0 {
+			errs = append(errs, fmt.Errorf("egress_proxy.rate_limit_per_min %d is negative", c.EgressProxy.RateLimitPerMin))
+		}
 	}
 	return errs
 }

@@ -11,10 +11,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jverhoeks/escrow/internal/alerts"
+	"github.com/jverhoeks/escrow/internal/egress"
 	"github.com/jverhoeks/escrow/internal/allow"
 	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/cache"
@@ -370,18 +372,63 @@ func main() {
 		log.Info().Bool("auto_block", autoBlock).Int("interval_hours", interval).Str("min_severity", minSev).Msg("CVE re-scanner enabled")
 	}
 
+	// Egress proxy (Docker build protection, Phase 1): optional second listener.
+	// nil section => disabled. Forward proxy only; no TLS interception.
+	if ep := cfg.EgressProxy; ep != nil && (ep.Enabled == nil || *ep.Enabled) {
+		pol, err := egress.NewPolicy(*ep)
+		if err != nil {
+			log.Fatal().Err(err).Msg("egress proxy: invalid policy")
+		}
+		port := ep.ForwardPort
+		if port == 0 {
+			port = 7889
+		}
+		if egress.ExposedBind(cfg.Server.Host) && !strings.EqualFold(ep.Policy, "whitelist") {
+			log.Warn().Str("host", cfg.Server.Host).
+				Msg("egress proxy is reachable off-host with policy=forward — this is an OPEN RELAY; set egress_proxy.policy=\"whitelist\" or firewall the egress port")
+		}
+		eproxy := egress.New(fmt.Sprintf("%s:%d", cfg.Server.Host, port), pol, evLog, ep.RateLimitPerMin)
+		go func() {
+			log.Info().Int("port", port).Str("policy", ep.Policy).Msg("egress proxy listening")
+			if err := eproxy.Serve(rootCtx); err != nil {
+				log.Error().Err(err).Msg("egress proxy stopped")
+			}
+		}()
+	}
+
+	// egressFingerprint returns a stable string representation of the egress proxy
+	// config fields that require a restart to change. *bool is dereferenced to
+	// avoid comparing heap addresses across Load calls.
+	egressFingerprint := func(ep *config.EgressProxyConfig) string {
+		if ep == nil {
+			return ""
+		}
+		enabled := false
+		if ep.Enabled != nil {
+			enabled = *ep.Enabled
+		}
+		return fmt.Sprintf("%v:%d:%s:%v:%v:%v:%v",
+			enabled, ep.ForwardPort, ep.Policy,
+			ep.AllowHosts, ep.BlockHosts, ep.AllowCIDRs, ep.BlockCIDRs)
+	}
+
 	// restartSnapshot captures the fields that cannot be applied live; a reload
 	// reports any that changed as restart-required.
 	restartSnapshot := func(c config.Config) map[string]string {
 		return map[string]string{
-			"server":     fmt.Sprintf("%s:%d:%s:%s", c.Server.Host, c.Server.Port, c.Server.TLSCertFile, c.Server.TLSKeyFile),
-			"storage":    fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
-			"ecosystems": fmt.Sprintf("%v", c.Ecosystems),
-			"secret":     c.Dashboard.Secret,
-			"paths":      fmt.Sprintf("%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath),
+			"server":      fmt.Sprintf("%s:%d:%s:%s", c.Server.Host, c.Server.Port, c.Server.TLSCertFile, c.Server.TLSKeyFile),
+			"storage":     fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
+			"ecosystems":  fmt.Sprintf("%v", c.Ecosystems),
+			"secret":      c.Dashboard.Secret,
+			"paths":       fmt.Sprintf("%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath),
+			"egress_proxy": egressFingerprint(c.EgressProxy),
 		}
 	}
 	startupSnapshot := restartSnapshot(cfg)
+
+	// dash is declared here (before reloadFn) so the reload closure can call
+	// UpdateCredentials. It is assigned below after dashboard.New(...) is called.
+	var dash *dashboard.Dashboard
 
 	reloadFn := func() (dashboard.ReloadResult, error) {
 		newCfg, err := config.Load(*cfgPath)
@@ -431,26 +478,27 @@ func main() {
 			// Started with no webhook; one can't be created live — needs a restart.
 			restart = append(restart, "alerts")
 		}
+		if dash != nil {
+			dash.UpdateCredentials(newCfg.Dashboard.Username, newCfg.Dashboard.Password, newCfg.Dashboard.Secret)
+			reloaded = append(reloaded, "dashboard_credentials")
+		}
 		log.Info().Strs("reloaded", reloaded).Strs("restart_required", restart).Msg("config reloaded")
 		return dashboard.ReloadResult{Reloaded: reloaded, RestartRequired: restart}, nil
 	}
 
-	cacheDir := ""
-	if cfg.Storage.Backend == "disk" {
-		cacheDir = config.ExpandPath(cfg.Storage.Disk.Path)
-	}
 	srv := server.New(server.Options{
 		Version:                  version,
 		Host:                     cfg.Server.Host,
 		Port:                     cfg.Server.Port,
 		StorageBackend:           cfg.Storage.Backend,
-		CacheDir:                 cacheDir,
+		CacheHealth:              c.Healthy,
 		WriteTimeoutSeconds:      cfg.Server.WriteTimeoutSeconds,
 		ReadHeaderTimeoutSeconds: cfg.Server.ReadHeaderTimeoutSeconds,
 		IdleTimeoutSeconds:       cfg.Server.IdleTimeoutSeconds,
 		TLSCertFile:              cfg.Server.TLSCertFile,
 		TLSKeyFile:               cfg.Server.TLSKeyFile,
 		ProxyRateLimitPerMin:     cfg.Server.ProxyRateLimitPerMin,
+		MaxRequestBodyMB:         cfg.Server.EffectiveMaxRequestBodyMB(),
 		AccessLogPath:            config.ExpandPath(cfg.Server.AccessLogPath),
 		AccessLogMaxDays:         cfg.Server.AccessLogMaxDays,
 		UpstreamURLs:             upstreamURLs,
@@ -530,7 +578,7 @@ func main() {
 	cireport.New(evLog).Mount(r)
 
 	if cfg.Dashboard.Enabled {
-		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
+		dash = dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
 			srv.AccessRing(), upstreamLog, dlStore, scanner, *cfgPath, reloadFn)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")

@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"github.com/jellydator/ttlcache/v3"
+	"github.com/rs/zerolog/log"
+
+	"github.com/jverhoeks/escrow/internal/metrics"
 )
 
 // metaCacheCapacity is the maximum number of metadata entries held in memory.
@@ -242,17 +245,25 @@ func (d *Disk) GetMetaStale(_ context.Context, key string) ([]byte, time.Time, e
 	return entry.Data, entry.ExpiresAt, nil
 }
 
-func (d *Disk) SetMeta(_ context.Context, key string, data []byte, ttl time.Duration) error {
+func (d *Disk) SetMeta(_ context.Context, key string, data []byte, ttl time.Duration) (err error) {
+	// Log + meter any write failure centrally so it's visible even though the
+	// proxy handlers ignore the returned error.
+	defer func() {
+		if err != nil {
+			log.Warn().Err(err).Str("op", "setmeta").Msg("cache write failed")
+			metrics.CacheWriteFailuresTotal.WithLabelValues("disk", "meta").Inc()
+		}
+	}()
 	entry := metaEntry{ExpiresAt: time.Now().Add(ttl), Data: data}
 	encoded, err := json.Marshal(entry)
 	if err != nil {
 		return err
 	}
 	path := d.metaPath(key)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err = os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+	if err = os.WriteFile(path, encoded, 0o644); err != nil {
 		return err
 	}
 	if ttl > 0 {
@@ -276,10 +287,16 @@ func (d *Disk) GetBlob(_ context.Context, key string) (io.ReadCloser, error) {
 	return f, nil
 }
 
-func (d *Disk) SetBlob(_ context.Context, key string, r io.Reader) error {
+func (d *Disk) SetBlob(_ context.Context, key string, r io.Reader) (err error) {
+	defer func() {
+		if err != nil {
+			log.Warn().Err(err).Str("op", "setblob").Msg("cache write failed")
+			metrics.CacheWriteFailuresTotal.WithLabelValues("disk", "blob").Inc()
+		}
+	}()
 	path := d.blobPath(key)
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err = os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	// Write to a temp file in the same directory, then rename atomically.
@@ -294,7 +311,7 @@ func (d *Disk) SetBlob(_ context.Context, key string, r io.Reader) error {
 		os.Remove(tmpName)
 		return err
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err = os.Rename(tmpName, path); err != nil {
 		os.Remove(tmpName)
 		return err
 	}
@@ -332,6 +349,19 @@ func (d *Disk) Flush() error {
 // Exposed for testing; production code relies on the background ticker.
 func (d *Disk) Purge() {
 	d.purge()
+}
+
+// Healthy verifies the disk cache root is writable by creating and removing a
+// probe file (the logic formerly in metrics.probeCacheWritable). Returns the
+// underlying error if the probe write fails (dir removed, read-only, full, etc.).
+func (d *Disk) Healthy(_ context.Context) error {
+	f, err := os.CreateTemp(d.root, ".health-probe-*")
+	if err != nil {
+		return err
+	}
+	f.Close()
+	os.Remove(f.Name())
+	return nil
 }
 
 func (d *Disk) Close() error {

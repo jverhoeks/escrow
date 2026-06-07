@@ -128,6 +128,10 @@ func (m *Memory) BlobSize(_ context.Context, key string) int64 {
 	return info.Size()
 }
 
+// Healthy always returns nil: the in-memory backend cannot become unwritable
+// the way disk/S3 can, so it is reported healthy for /healthz.
+func (m *Memory) Healthy(_ context.Context) error { return nil }
+
 func (m *Memory) Flush() error {
 	m.mu.Lock()
 	m.meta = make(map[string]memEntry)

@@ -114,3 +114,39 @@ blocked) · `r` refresh current tab · `?` toggles a help overlay · `q`/`Ctrl-C
 2. Bubble Tea shell — model/update/nav, the Live tab + stats header, `run.go`, dispatch + `--tui`.
 3. The remaining API views — CVEs, Newly Vulnerable, Packages tree, Access, Upstream.
 4. SSE live stream + offline file-tail fallback + reconnect/help/no-TTY handling.
+
+---
+
+## Post-spec addendum (2026-06-03)
+
+Fixes and polish made after the TUI shipped, recorded here so the spec tracks the code.
+
+### Live feed: keep the SSE stream connected past ~10s (`b15701e`)
+
+**Symptom.** The Live feed dropped and showed "reconnecting…" every ~10 seconds, with a ~3s gap
+during which events were lost (no history replay).
+
+**Root cause.** `tui.Client` ran the long-lived SSE stream through the **same `http.Client`** used
+for one-shot JSON fetchers, which has `Timeout: 10s`. `http.Client.Timeout` caps the *entire*
+exchange including **response-body reads**, so it force-closed the streaming body every ~10s —
+*before* the server's 15s heartbeat — triggering the reconnect.
+
+**Fix.** Give `Stream()` its own `http.Client` with **no `Timeout`** (lifetime controlled by the
+request `context`); keep the 10s timeout on the shared client for `getJSON`. Both share the same
+cookie `Jar`, so the session cookie from `Login()` still applies to the stream. The
+no-auto-redirect `CheckRedirect` (302→/login surfaces as a clean "unauthorized" instead of an
+HTML-decode error) was factored to apply to both clients.
+
+**Regression tests** (`client_test.go`): assert the stream client has zero `Timeout` while the
+JSON client keeps 10s, that both share one `Jar`, and an end-to-end `Stream()` delivers an event
+over the dedicated client.
+
+### Other post-spec polish
+
+- **Default to `127.0.0.1:7888`, skip dead-PID runtime ports, clean `runtime.json` on exit**
+  (`a044706`) — robust discovery when a stale runtime file points at a dead instance.
+- **Auth-expiry detection + `trim()` guard on tiny terminals** (`63c8faa`) — the no-redirect
+  client (above) lets the model detect an expired session cleanly; guards prevent a panic on
+  very small terminals.
+- **Collapse package versions by default, expandable with ↑↓/enter** (`ea8bb3f`) — the Packages
+  tree opens collapsed to stay readable, expandable on demand.
