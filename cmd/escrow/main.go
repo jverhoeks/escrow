@@ -369,11 +369,14 @@ func main() {
 			"server":     fmt.Sprintf("%s:%d:%s:%s", c.Server.Host, c.Server.Port, c.Server.TLSCertFile, c.Server.TLSKeyFile),
 			"storage":    fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
 			"ecosystems": fmt.Sprintf("%v", c.Ecosystems),
-			"secret":     c.Dashboard.Secret,
 			"paths":      fmt.Sprintf("%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath),
 		}
 	}
 	startupSnapshot := restartSnapshot(cfg)
+
+	// dash is declared here (before reloadFn) so the reload closure can call
+	// UpdateCredentials. It is assigned below after dashboard.New(...) is called.
+	var dash *dashboard.Dashboard
 
 	reloadFn := func() (dashboard.ReloadResult, error) {
 		newCfg, err := config.Load(*cfgPath)
@@ -422,6 +425,10 @@ func main() {
 		} else if newCfg.Alerts.WebhookURL != "" {
 			// Started with no webhook; one can't be created live — needs a restart.
 			restart = append(restart, "alerts")
+		}
+		if dash != nil {
+			dash.UpdateCredentials(newCfg.Dashboard.Username, newCfg.Dashboard.Password, newCfg.Dashboard.Secret)
+			reloaded = append(reloaded, "dashboard_credentials")
 		}
 		log.Info().Strs("reloaded", reloaded).Strs("restart_required", restart).Msg("config reloaded")
 		return dashboard.ReloadResult{Reloaded: reloaded, RestartRequired: restart}, nil
@@ -522,7 +529,7 @@ func main() {
 	cireport.New(evLog).Mount(r)
 
 	if cfg.Dashboard.Enabled {
-		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
+		dash = dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
 			srv.AccessRing(), upstreamLog, dlStore, scanner, *cfgPath, reloadFn)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
