@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -18,8 +19,9 @@ import (
 )
 
 type S3Cache struct {
-	client *s3.Client
-	bucket string
+	client      *s3.Client
+	bucket      string
+	staleMaxAge atomic.Int64 // stale-on-error grace window (ns); 0 = disabled.
 }
 
 func NewS3(bucket, region, endpoint string) (*S3Cache, error) {
@@ -73,6 +75,38 @@ func (s *S3Cache) GetMeta(ctx context.Context, key string) ([]byte, error) {
 		return nil, nil
 	}
 	return entry.Data, nil
+}
+
+// SetStaleMaxAge configures the stale-on-error grace window. Zero disables it.
+func (s *S3Cache) SetStaleMaxAge(d time.Duration) {
+	s.staleMaxAge.Store(int64(d))
+}
+
+// GetMetaStale returns a recently-expired meta entry within the grace window.
+// S3 retains the object after expiry (GetMeta does not delete), so this reads
+// the retained object and enforces the grace window.
+func (s *S3Cache) GetMetaStale(ctx context.Context, key string) ([]byte, time.Time, error) {
+	grace := time.Duration(s.staleMaxAge.Load())
+	if grace == 0 {
+		return nil, time.Time{}, nil
+	}
+	k := s.metaKey(key)
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: &s.bucket, Key: &k})
+	if err != nil {
+		if isNotFound(err) {
+			return nil, time.Time{}, nil
+		}
+		return nil, time.Time{}, err
+	}
+	defer out.Body.Close()
+	var entry metaEntry
+	if err := json.NewDecoder(out.Body).Decode(&entry); err != nil {
+		return nil, time.Time{}, nil
+	}
+	if time.Since(entry.ExpiresAt) > grace {
+		return nil, time.Time{}, nil
+	}
+	return entry.Data, entry.ExpiresAt, nil
 }
 
 func (s *S3Cache) SetMeta(ctx context.Context, key string, data []byte, ttl time.Duration) error {

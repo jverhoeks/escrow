@@ -15,6 +15,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
+	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
 
@@ -166,6 +167,9 @@ func (h *Handler) servePackage(w http.ResponseWriter, r *http.Request) {
 		return data, nil
 	})
 	if err != nil {
+		if staleserve.Serve(w, r, h.cache, cacheKey, "application/json", "composer", "manifest") {
+			return
+		}
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}

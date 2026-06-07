@@ -135,6 +135,14 @@ func main() {
 		}
 		logEvt.Msg("disk cache initialised")
 	}
+	// Configure the opt-in stale-on-error metadata fallback. Zero (the default)
+	// leaves cache behavior byte-for-byte unchanged (including eager
+	// delete-on-expiry), preserving escrow's fail-closed posture.
+	c.SetStaleMaxAge(time.Duration(cfg.Storage.StaleOnErrorMaxAgeM) * time.Minute)
+	if cfg.Storage.StaleOnErrorMaxAgeM > 0 {
+		log.Warn().Int("max_age_m", cfg.Storage.StaleOnErrorMaxAgeM).
+			Msg("stale-on-error enabled: expired metadata may be served when upstream is unreachable, which can briefly re-expose a manifest-removed version")
+	}
 	defer c.Close()
 
 	if *clearCache {
