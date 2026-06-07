@@ -7,3 +7,6 @@ escrow-cache/
 /escrow-cli-darwin-*
 /escrow-cli-linux-*
 .superpowers/
+
+# Go test TMPDIR (set via TMPDIR=.gotmp for -race) — never commit build/test cache
+.gotmp/
