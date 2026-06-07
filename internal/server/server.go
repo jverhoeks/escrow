@@ -10,9 +10,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/rs/zerolog"
 	"github.com/jverhoeks/escrow/internal/accesslog"
 	"github.com/jverhoeks/escrow/internal/metrics"
+	"github.com/rs/zerolog"
 )
 
 func ecoFromPath(p string) string {
@@ -52,6 +52,7 @@ type Options struct {
 	TLSCertFile              string
 	TLSKeyFile               string
 	ProxyRateLimitPerMin     int
+	MaxRequestBodyMB         int    // cap on request (upload) body size in MB; 0 = unlimited
 	AccessLogPath            string // Apache combined format log file; empty = disabled
 	AccessLogMaxDays         int    // rotated files older than this are deleted; 0 → 30
 	// UpstreamURLs maps ecosystem name → base URL for upstream health probes.
@@ -95,6 +96,13 @@ func New(opts Options, log zerolog.Logger) *Server {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(responseClassMiddleware)
+
+	// Cap request (upload) body size on all proxy traffic. This limits inbound
+	// uploads only — it does NOT affect large GET response downloads (Maven JARs,
+	// wheels). The dashboard applies its own stricter 64KB limit on top.
+	if opts.MaxRequestBodyMB > 0 {
+		r.Use(maxRequestBodyMiddleware(opts.MaxRequestBodyMB))
+	}
 
 	ring := accesslog.New(2000)
 	s := &Server{router: r, log: log, certFile: opts.TLSCertFile, keyFile: opts.TLSKeyFile, accessRing: ring}
@@ -191,6 +199,22 @@ const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
 	`<rect width="32" height="32" rx="7" fill="url(#g)"/>` +
 	`<text x="16" y="22" font-family="-apple-system,Segoe UI,sans-serif" font-size="20" ` +
 	`font-weight="700" fill="#fff" text-anchor="middle">E</text></svg>`
+
+// maxRequestBodyMiddleware caps the size of incoming request bodies (uploads)
+// at limitMB megabytes using http.MaxBytesReader. When a handler reads past the
+// limit, the read returns a *http.MaxBytesError; it's the handler's job to
+// translate that into a 413. This does not constrain response (download) sizes.
+func maxRequestBodyMiddleware(limitMB int) func(http.Handler) http.Handler {
+	limit := int64(limitMB) * 1024 * 1024
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, limit)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 func faviconHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "image/svg+xml")
