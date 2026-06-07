@@ -90,11 +90,18 @@ type PolicyConfig struct {
 	Popularity *PopularityPolicyConfig `json:"popularity" toml:"popularity"`
 	PyPI       *PyPIPolicyConfig       `json:"pypi" toml:"pypi"`
 
-	// StrictSignals controls fail-open vs fail-closed behavior for transient
-	// signal failures (network errors, panics, parse failures the signal
-	// itself didn't handle). Valid values: "allow" (default — fail open;
-	// transient errors don't block), "warn" (log + emit warn decision), or
-	// "block" (fail closed; refuse to install if a signal couldn't run).
+	// StrictSignals controls fail-open vs fail-closed behavior when a trust
+	// signal couldn't actually run — i.e. it reports SignalError. Signals emit
+	// SignalError on transient failures (network/timeout/HTTP 5xx/parse errors,
+	// or an unknown publish time), and the engine also maps any signal panic to
+	// SignalError. Not-applicable cases (unsupported ecosystem, no baseline yet)
+	// report SignalSkip and are unaffected by this setting — they always allow.
+	//
+	// Valid values:
+	//   - "allow" (default): fail open. SignalError is treated as allow, so an
+	//     upstream outage never blocks an install. Default users see no change.
+	//   - "warn": emit a warn decision when a signal errors (logged, not blocked).
+	//   - "block": fail closed. Refuse to install if any signal errored.
 	StrictSignals string `json:"strict_signals" toml:"strict_signals"`
 }
 

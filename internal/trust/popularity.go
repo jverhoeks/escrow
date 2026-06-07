@@ -42,7 +42,7 @@ func (s *PopularitySignal) Check(ctx context.Context, pkg Package) (SignalReport
 		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "unsupported ecosystem"}, nil
 	}
 	if fetchErr != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not fetch download stats"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch download stats"}, nil
 	}
 
 	baselineKey := fmt.Sprintf("pop/%s/%s/baseline", pkg.Ecosystem, pkg.Name)

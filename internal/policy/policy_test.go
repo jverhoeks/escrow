@@ -1,10 +1,14 @@
 package policy_test
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -101,6 +105,47 @@ func TestPolicy_StrictSignals_Warn(t *testing.T) {
 	result := makeResult(trust.SignalReport{Signal: "publisher", Result: trust.SignalError, Reason: "5xx"})
 	d := eng.Evaluate(result)
 	assert.Equal(t, policy.ActionWarn, d.Action)
+}
+
+// TestStrictSignals_OSVTransientFailure_EndToEnd is the real regression guard
+// for issue #12: it runs the actual OSV signal against an upstream returning 500
+// (a transient failure), feeds the resulting report through the policy engine,
+// and asserts the fail-closed / fail-open behavior end-to-end.
+//
+// Before the fix the OSV signal returned SignalSkip on a 500, so strict_signals
+// never fired and the BLOCK assertion failed (silently failed open). The default
+// (unset/"allow") assertion is a behavior pin — it passes before and after, which
+// is the point: default users see no change.
+func TestStrictSignals_OSVTransientFailure_EndToEnd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	osv := trust.NewOSVSignal("MEDIUM", srv.Client(), cache.NewMemory(), srv.URL)
+	rep, err := osv.Check(context.Background(), trust.Package{
+		Ecosystem: trust.EcosystemNPM, Name: "x", Version: "1.0.0",
+	})
+	require.NoError(t, err)
+	require.Equal(t, trust.SignalError, rep.Result,
+		"OSV transient (500) failure must surface as SignalError")
+
+	result := trust.TrustResult{
+		Package: trust.Package{Ecosystem: trust.EcosystemNPM, Name: "x", Version: "1.0.0"},
+		Reports: []trust.SignalReport{rep},
+	}
+
+	// strict_signals=block → fail closed (this is what was broken).
+	blocked := policy.New(&config.PolicyConfig{StrictSignals: "block"}).Evaluate(result)
+	assert.Equal(t, policy.ActionBlock, blocked.Action,
+		"strict_signals=block must fail closed when a signal errors")
+	assert.Equal(t, "osv", blocked.Signal)
+
+	// strict_signals unset (default "allow") → fail open. Behavior pin: default
+	// users are unaffected; an OSV outage still allows the install.
+	allowed := policy.New(&config.PolicyConfig{}).Evaluate(result)
+	assert.Equal(t, policy.ActionAllow, allowed.Action,
+		"default strict_signals must preserve fail-open behavior (regression guard)")
 }
 
 func TestEngine_SetConfig_AppliesLive(t *testing.T) {

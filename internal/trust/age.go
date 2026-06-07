@@ -21,9 +21,18 @@ func NewAgeSignal(minDays int, nowFn func() time.Time) *AgeSignal {
 func (s *AgeSignal) Name() string { return "age" }
 
 func (s *AgeSignal) Check(_ context.Context, pkg Package) (SignalReport, error) {
-	// When PublishedAt is zero (unknown publish time), Sub returns ~738,000 days
-	// (now minus year 1), which is always >= minDays → package passes (fail-open).
-	// This is intentional: an upstream API outage should not block all installs.
+	// A zero PublishedAt means the publish time is unknown (e.g. upstream metadata
+	// fetch failed), so the signal can't actually run. Surface SignalError and let
+	// the policy layer's strict_signals knob decide fail-open vs fail-closed —
+	// don't silently pass via the huge computed age, which always failed open even
+	// under strict_signals=block.
+	if pkg.PublishedAt.IsZero() {
+		return SignalReport{
+			Signal: s.Name(),
+			Result: SignalError,
+			Reason: "publish time unknown",
+		}, nil
+	}
 	ageDays := int(s.now().Sub(pkg.PublishedAt).Hours() / 24)
 	if ageDays < s.minDays {
 		return SignalReport{
