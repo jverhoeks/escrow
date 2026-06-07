@@ -470,16 +470,12 @@ func main() {
 		return dashboard.ReloadResult{Reloaded: reloaded, RestartRequired: restart}, nil
 	}
 
-	cacheDir := ""
-	if cfg.Storage.Backend == "disk" {
-		cacheDir = config.ExpandPath(cfg.Storage.Disk.Path)
-	}
 	srv := server.New(server.Options{
 		Version:                  version,
 		Host:                     cfg.Server.Host,
 		Port:                     cfg.Server.Port,
 		StorageBackend:           cfg.Storage.Backend,
-		CacheDir:                 cacheDir,
+		CacheHealth:              c.Healthy,
 		WriteTimeoutSeconds:      cfg.Server.WriteTimeoutSeconds,
 		ReadHeaderTimeoutSeconds: cfg.Server.ReadHeaderTimeoutSeconds,
 		IdleTimeoutSeconds:       cfg.Server.IdleTimeoutSeconds,

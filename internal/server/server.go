@@ -42,7 +42,10 @@ type Options struct {
 	Host                     string
 	Port                     int
 	StorageBackend           string
-	CacheDir                 string // disk cache root for health probe writability check; empty for non-disk
+	// CacheHealth probes the active cache backend for /healthz (nil error =
+	// healthy). Set from the cache's Healthy method. nil is treated as
+	// always-healthy by HealthHandler.
+	CacheHealth              func(context.Context) error
 	WriteTimeoutSeconds      int
 	ReadHeaderTimeoutSeconds int
 	IdleTimeoutSeconds       int
@@ -66,9 +69,32 @@ type Server struct {
 	accessRing *accesslog.Log // always present
 }
 
+// responseClassMiddleware counts every response by HTTP status class
+// (2xx/3xx/4xx/5xx) into escrow_responses_total, feeding the error-rate signal
+// (#19). It wraps the ResponseWriter to capture the status; chi's wrapper
+// reports 0 when WriteHeader is never called, which we map to 200 (the implicit
+// default). Registered right after Recoverer so it sits outside the rate
+// limiter and counts 429s too.
+//
+// Note: a panic that Recoverer turns into a 500 unwinds past this middleware, so
+// such 500s are not counted here — explicit error responses (the common case)
+// are. Saturation is covered separately by the default Go/process collectors.
+func responseClassMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		ww := middleware.NewWrapResponseWriter(w, req.ProtoMajor)
+		next.ServeHTTP(ww, req)
+		code := ww.Status()
+		if code == 0 {
+			code = http.StatusOK
+		}
+		metrics.ResponsesTotal.WithLabelValues(fmt.Sprintf("%dxx", code/100)).Inc()
+	})
+}
+
 func New(opts Options, log zerolog.Logger) *Server {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
+	r.Use(responseClassMiddleware)
 
 	ring := accesslog.New(2000)
 	s := &Server{router: r, log: log, certFile: opts.TLSCertFile, keyFile: opts.TLSKeyFile, accessRing: ring}
@@ -122,7 +148,7 @@ func New(opts Options, log zerolog.Logger) *Server {
 		r.Use(s.rl.middleware())
 		log.Info().Int("limit_per_min", opts.ProxyRateLimitPerMin).Msg("proxy rate limiting enabled")
 	}
-	r.Get("/healthz", metrics.HealthHandler(opts.Version, opts.StorageBackend, opts.UpstreamURLs, opts.CacheDir))
+	r.Get("/healthz", metrics.HealthHandler(opts.Version, opts.StorageBackend, opts.UpstreamURLs, opts.CacheHealth))
 	r.Handle("/metrics", metrics.MetricsHandler())
 	// Serve a favicon directly. The npm proxy is mounted at root (/{package}),
 	// so without this a browser's /favicon.ico request is treated as a package
