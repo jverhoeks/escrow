@@ -805,6 +805,13 @@ func writeCargoConfig(home, base string) error {
 	return writeCargoConfigOpts(home, base, false)
 }
 
+// cargoRegistryURL builds the escrow cargo registry URL. The `sparse+` prefix is
+// mandatory: without it cargo uses the legacy git-index protocol, which the
+// escrow server rejects (sparse-only), failing every dependency fetch.
+func cargoRegistryURL(base string) string {
+	return "sparse+" + base + "/cargo/"
+}
+
 // writeCargoConfigWithGitCLI writes the escrow cargo config AND sets
 // [net] git-fetch-with-cli = true.
 //
@@ -834,7 +841,7 @@ func writeCargoConfigOpts(home, base string, gitFetchWithCLI bool) error {
 		return err
 	}
 	existing, _ := os.ReadFile(cfgPath)
-	merged, err := mergeCargoConfig(existing, base+"/cargo/", gitFetchWithCLI)
+	merged, err := mergeCargoConfig(existing, cargoRegistryURL(base), gitFetchWithCLI)
 	if err != nil {
 		return err
 	}
@@ -1113,7 +1120,7 @@ func writeCargoConfigLocal(dir, base string) error {
 	path := filepath.Join(cargoDir, "config.toml")
 	backupFile(path) //nolint:errcheck
 	existing, _ := os.ReadFile(path)
-	merged, err := mergeCargoConfig(existing, base+"/cargo/", false)
+	merged, err := mergeCargoConfig(existing, cargoRegistryURL(base), false)
 	if err != nil {
 		return err
 	}

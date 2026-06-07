@@ -10,9 +10,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/rs/zerolog"
 	"github.com/jverhoeks/escrow/internal/accesslog"
 	"github.com/jverhoeks/escrow/internal/metrics"
+	"github.com/rs/zerolog"
 )
 
 func ecoFromPath(p string) string {
@@ -42,13 +42,17 @@ type Options struct {
 	Host                     string
 	Port                     int
 	StorageBackend           string
-	CacheDir                 string // disk cache root for health probe writability check; empty for non-disk
+	// CacheHealth probes the active cache backend for /healthz (nil error =
+	// healthy). Set from the cache's Healthy method. nil is treated as
+	// always-healthy by HealthHandler.
+	CacheHealth              func(context.Context) error
 	WriteTimeoutSeconds      int
 	ReadHeaderTimeoutSeconds int
 	IdleTimeoutSeconds       int
 	TLSCertFile              string
 	TLSKeyFile               string
 	ProxyRateLimitPerMin     int
+	MaxRequestBodyMB         int    // cap on request (upload) body size in MB; 0 = unlimited
 	AccessLogPath            string // Apache combined format log file; empty = disabled
 	AccessLogMaxDays         int    // rotated files older than this are deleted; 0 → 30
 	// UpstreamURLs maps ecosystem name → base URL for upstream health probes.
@@ -66,9 +70,39 @@ type Server struct {
 	accessRing *accesslog.Log // always present
 }
 
+// responseClassMiddleware counts every response by HTTP status class
+// (2xx/3xx/4xx/5xx) into escrow_responses_total, feeding the error-rate signal
+// (#19). It wraps the ResponseWriter to capture the status; chi's wrapper
+// reports 0 when WriteHeader is never called, which we map to 200 (the implicit
+// default). Registered right after Recoverer so it sits outside the rate
+// limiter and counts 429s too.
+//
+// Note: a panic that Recoverer turns into a 500 unwinds past this middleware, so
+// such 500s are not counted here — explicit error responses (the common case)
+// are. Saturation is covered separately by the default Go/process collectors.
+func responseClassMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		ww := middleware.NewWrapResponseWriter(w, req.ProtoMajor)
+		next.ServeHTTP(ww, req)
+		code := ww.Status()
+		if code == 0 {
+			code = http.StatusOK
+		}
+		metrics.ResponsesTotal.WithLabelValues(fmt.Sprintf("%dxx", code/100)).Inc()
+	})
+}
+
 func New(opts Options, log zerolog.Logger) *Server {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
+	r.Use(responseClassMiddleware)
+
+	// Cap request (upload) body size on all proxy traffic. This limits inbound
+	// uploads only — it does NOT affect large GET response downloads (Maven JARs,
+	// wheels). The dashboard applies its own stricter 64KB limit on top.
+	if opts.MaxRequestBodyMB > 0 {
+		r.Use(maxRequestBodyMiddleware(opts.MaxRequestBodyMB))
+	}
 
 	ring := accesslog.New(2000)
 	s := &Server{router: r, log: log, certFile: opts.TLSCertFile, keyFile: opts.TLSKeyFile, accessRing: ring}
@@ -122,7 +156,7 @@ func New(opts Options, log zerolog.Logger) *Server {
 		r.Use(s.rl.middleware())
 		log.Info().Int("limit_per_min", opts.ProxyRateLimitPerMin).Msg("proxy rate limiting enabled")
 	}
-	r.Get("/healthz", metrics.HealthHandler(opts.Version, opts.StorageBackend, opts.UpstreamURLs, opts.CacheDir))
+	r.Get("/healthz", metrics.HealthHandler(opts.Version, opts.StorageBackend, opts.UpstreamURLs, opts.CacheHealth))
 	r.Handle("/metrics", metrics.MetricsHandler())
 	// Serve a favicon directly. The npm proxy is mounted at root (/{package}),
 	// so without this a browser's /favicon.ico request is treated as a package
@@ -165,6 +199,22 @@ const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
 	`<rect width="32" height="32" rx="7" fill="url(#g)"/>` +
 	`<text x="16" y="22" font-family="-apple-system,Segoe UI,sans-serif" font-size="20" ` +
 	`font-weight="700" fill="#fff" text-anchor="middle">E</text></svg>`
+
+// maxRequestBodyMiddleware caps the size of incoming request bodies (uploads)
+// at limitMB megabytes using http.MaxBytesReader. When a handler reads past the
+// limit, the read returns a *http.MaxBytesError; it's the handler's job to
+// translate that into a 413. This does not constrain response (download) sizes.
+func maxRequestBodyMiddleware(limitMB int) func(http.Handler) http.Handler {
+	limit := int64(limitMB) * 1024 * 1024
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, limit)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 func faviconHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "image/svg+xml")

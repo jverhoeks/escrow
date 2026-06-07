@@ -97,6 +97,8 @@ func main() {
 		runReload(os.Args[2:])
 	case "live":
 		runLive(os.Args[2:])
+	case "docker":
+		runDocker(os.Args[2:])
 	case "tui":
 		runTUI(os.Args[2:])
 	case "status":

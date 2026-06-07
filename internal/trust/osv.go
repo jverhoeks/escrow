@@ -100,7 +100,7 @@ func (s *OSVSignal) query(ctx context.Context, pkg Package, cacheKey string) (Si
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/v1/query", bytes.NewReader(body))
 	if err != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "OSV request build failed"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "OSV request build failed"}, nil
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -108,16 +108,16 @@ func (s *OSVSignal) query(ctx context.Context, pkg Package, cacheKey string) (Si
 	resp, err := s.client.Do(req)
 	metrics.OSVQueryDuration.Observe(time.Since(t0).Seconds())
 	if err != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "OSV query failed"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "OSV query failed"}, nil
 	}
 	defer resp.Body.Close() // must come before status check to avoid body leak on non-200
 	if resp.StatusCode != http.StatusOK {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "OSV query failed"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "OSV query failed"}, nil
 	}
 
 	var osvResp osvResponse
 	if err := json.NewDecoder(resp.Body).Decode(&osvResp); err != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "failed to decode OSV response"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "failed to decode OSV response"}, nil
 	}
 
 	encoded, _ := json.Marshal(osvResp)

@@ -1,9 +1,14 @@
 # Example: use escrow as a supply-chain proxy in your CI pipeline.
 #
-# Copy this to YOUR repo's .github/workflows/ and adjust to your stack.
+# This file lives in examples/ on purpose — it is NOT run by this repo's CI.
+# Copy it to YOUR repo's .github/workflows/ and adjust to your stack.
 # The escrow package cache is stored in GitHub Actions cache and shared
 # across runs — cold miss fetches from upstream and warms the cache,
 # subsequent runs are served entirely from cache.
+#
+# Hardening tip: in your own repo, pin every `uses:` to a full commit SHA
+# (e.g. actions/checkout@<sha> # v4) and add `permissions: { contents: read }`
+# to limit blast radius if an action is ever compromised.
 
 name: CI with escrow proxy
 
