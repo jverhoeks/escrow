@@ -11,9 +11,12 @@ import (
 )
 
 // TestAgeSignal_ZeroPublishedAt verifies that a package with unknown publish time
-// (zero time.Time) is treated as ancient and passes the age gate.
-// This is intentional fail-open behavior: an API outage that prevents us from
-// knowing the publish date should not block all installs.
+// (zero time.Time) surfaces as SignalError rather than silently passing. A zero
+// publish time means the signal could not run (we don't know how old the package
+// is), so the policy layer's strict_signals knob must decide fail-open vs
+// fail-closed — not the age gate. Previously this returned SignalPass (the huge
+// computed age cleared minDays), which silently failed open even under
+// strict_signals=block.
 func TestAgeSignal_ZeroPublishedAt(t *testing.T) {
 	sig := trust.NewAgeSignal(7, nil)
 	pkg := trust.Package{
@@ -24,8 +27,8 @@ func TestAgeSignal_ZeroPublishedAt(t *testing.T) {
 	}
 	report, err := sig.Check(context.Background(), pkg)
 	require.NoError(t, err)
-	assert.Equal(t, trust.SignalPass, report.Result,
-		"zero publish time should be treated as ancient and pass the age gate (fail-open)")
+	assert.Equal(t, trust.SignalError, report.Result,
+		"zero publish time should surface as SignalError so strict_signals can decide")
 }
 
 // TestAgeSignal_Boundary verifies exact boundary: package published exactly min_days ago passes.

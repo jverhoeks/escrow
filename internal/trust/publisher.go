@@ -66,25 +66,25 @@ func (s *PublisherSignal) checkNPM(ctx context.Context, pkg Package) (SignalRepo
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		fmt.Sprintf("%s/-/user/org.couchdb.user/%s", s.npmBaseURL, pkg.Author), nil)
 	if err != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not fetch publisher info"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch publisher info"}, nil
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not fetch publisher info"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch publisher info"}, nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not fetch publisher info"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch publisher info"}, nil
 	}
 	var user struct {
 		Created string `json:"created"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil || user.Created == "" {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not parse publisher info"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not parse publisher info"}, nil
 	}
 	created, err := time.Parse(time.RFC3339, user.Created)
 	if err != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not parse created date"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not parse created date"}, nil
 	}
 	ageDays := int(time.Since(created).Hours() / 24)
 	if ageDays < s.maxAccountAgeDays {
@@ -100,26 +100,31 @@ func (s *PublisherSignal) checkNPM(ctx context.Context, pkg Package) (SignalRepo
 	pkgReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		fmt.Sprintf("%s/%s", s.npmBaseURL, pkg.Name), nil)
 	if err != nil {
-		// Cannot verify first-ever release (invalid URL — unusual package name); skip signal.
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not build package request"}, nil
+		// Cannot verify first-ever release (invalid URL — unusual package name).
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not build package request"}, nil
 	}
 	pkgResp, err := s.client.Do(pkgReq)
-	if err == nil {
-		defer pkgResp.Body.Close() // close regardless of status to prevent body leak
-		if pkgResp.StatusCode == http.StatusOK {
-			var manifest struct {
-				Versions map[string]any `json:"versions"`
-			}
-			if json.NewDecoder(pkgResp.Body).Decode(&manifest) == nil && len(manifest.Versions) == 1 {
-				report := SignalReport{
-					Signal: s.Name(),
-					Result: SignalWarn,
-					Reason: "first-ever release from this account",
-				}
-				s.cacheReport(ctx, cacheKey, report)
-				return report, nil
-			}
+	if err != nil {
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch package manifest"}, nil
+	}
+	defer pkgResp.Body.Close() // close regardless of status to prevent body leak
+	if pkgResp.StatusCode != http.StatusOK {
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch package manifest"}, nil
+	}
+	var manifest struct {
+		Versions map[string]any `json:"versions"`
+	}
+	if err := json.NewDecoder(pkgResp.Body).Decode(&manifest); err != nil {
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not parse package manifest"}, nil
+	}
+	if len(manifest.Versions) == 1 {
+		report := SignalReport{
+			Signal: s.Name(),
+			Result: SignalWarn,
+			Reason: "first-ever release from this account",
 		}
+		s.cacheReport(ctx, cacheKey, report)
+		return report, nil
 	}
 	report := SignalReport{Signal: s.Name(), Result: SignalPass, Reason: "established publisher"}
 	s.cacheReport(ctx, cacheKey, report)
@@ -140,21 +145,21 @@ func (s *PublisherSignal) checkPyPI(ctx context.Context, pkg Package) (SignalRep
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		fmt.Sprintf("%s/pypi/%s/json", s.pypiBaseURL, pkg.Name), nil)
 	if err != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not fetch PyPI metadata"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch PyPI metadata"}, nil
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not fetch PyPI metadata"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch PyPI metadata"}, nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not fetch PyPI metadata"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not fetch PyPI metadata"}, nil
 	}
 	var meta struct {
 		Releases map[string]any `json:"releases"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
-		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "could not parse PyPI metadata"}, nil
+		return SignalReport{Signal: s.Name(), Result: SignalError, Reason: "could not parse PyPI metadata"}, nil
 	}
 	if len(meta.Releases) == 1 {
 		report := SignalReport{Signal: s.Name(), Result: SignalWarn, Reason: "first-ever release on PyPI"}
