@@ -115,9 +115,11 @@ This is the only risky I/O, written and tested once.
      newest-first on load. Writing the in-memory slice as-is would double-reverse and the feed
      would come back backwards.
   2. `l.file.Close()`.
-  3. `n, err := logfile.AtomicRewrite(path, lines)`. On error: log a warning, leave `l.file = nil`
-     (in-memory log keeps working; persistence silently disabled until restart). On success:
-     reopen `path` `O_APPEND|O_WRONLY|O_CREATE` `0o600`, set `l.file`, set `l.curBytes = n`.
+  3. `n, err := logfile.AtomicRewrite(path, lines)`. On error: leave `l.file = nil` — persistence
+     is silently disabled until restart; the in-memory log keeps working. (These are leaf packages
+     with no logger and `Record` has no error return, so failure is silent — it's an extremely
+     unlikely same-dir rename.) On success: reopen `path` `O_APPEND|O_WRONLY|O_CREATE` `0o600`, set
+     `l.file`, set `l.curBytes = n`.
 - Sizing rationale: 8 MiB ≈ 55k events at ~150 B each; each compaction shrinks to the last 5000
   (~750 KB), so rewrites are infrequent (every ~50k events).
 
@@ -162,7 +164,8 @@ compact — currently neither log stores it.
 ## Error handling
 
 Persistence stays best-effort and off the request path (existing posture):
-- Compaction failure → `log.Warn`, in-memory log keeps serving; persistence disabled until restart.
+- Compaction failure → silent (leaf packages have no logger; `Record` has no error return),
+  in-memory log keeps serving; file persistence disabled until restart.
 - A failed *explicit/default-resolved* path open is `log.Fatal` (same as the event log today) —
   a configured-but-unwritable path is an operator error worth failing loudly on.
 - Frontend refresher is purely cosmetic; a parse failure on a bad `dataset.ts` falls back to the
