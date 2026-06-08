@@ -189,11 +189,13 @@ func main() {
 	// Resolve the effective egress-log path so the egress live view survives
 	// restarts by default on the disk backend (mirrors the event log below). An
 	// explicit egress_log_path always wins; memory/s3 backends stay in-memory.
-	var egressLogPath string
+	var egressLogPath, egressLogMsg string
 	if cfg.EgressLogPath != "" {
 		egressLogPath = config.ExpandPath(cfg.EgressLogPath)
+		egressLogMsg = "egress log persistence enabled"
 	} else if cfg.Storage.Backend == "disk" {
 		egressLogPath = filepath.Join(config.ExpandPath(cfg.Storage.Disk.Path), "escrow-egress.jsonl")
+		egressLogMsg = "egress log persistence enabled (default path)"
 	}
 
 	var egressLog *egresslog.Log
@@ -203,7 +205,7 @@ func main() {
 		if err != nil {
 			log.Fatal().Err(err).Str("path", egressLogPath).Msg("failed to open egress log file")
 		}
-		log.Info().Str("path", egressLogPath).Msg("egress log persistence enabled (default path)")
+		log.Info().Str("path", egressLogPath).Msg(egressLogMsg)
 	} else {
 		egressLog = egresslog.New(5000)
 	}
