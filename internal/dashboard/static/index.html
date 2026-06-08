@@ -1436,6 +1436,30 @@ function fmtTime(ts) {
   return new Date(ts).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
 }
 
+function fmtRelative(ts) {
+  const then = new Date(ts).getTime();
+  if (isNaN(then)) return fmtTime(ts);
+  const s = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (s < 5)   return 'just now';
+  if (s < 60)  return s + 's ago';
+  const m = Math.floor(s / 60);
+  if (m < 60)  return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24)  return h + 'h ago';
+  const d = Math.floor(h / 24);
+  if (d < 7)   return d + 'd ago';
+  return new Date(ts).toLocaleDateString('en-GB', {day: '2-digit', month: 'short'});
+}
+
+// refreshRelativeTimes rewrites every .feed-time cell from its stored ISO ts so
+// "5m ago" keeps advancing without a reload.
+function refreshRelativeTimes() {
+  document.querySelectorAll('.feed-time[data-ts]').forEach(el => {
+    el.textContent = fmtRelative(el.dataset.ts);
+  });
+}
+setInterval(refreshRelativeTimes, 30000);
+
 // classifyEvent maps an event to its activity class for the feed reason column.
 function classifyEvent(e) {
   if (e.action === 'block') return 'blocked';
@@ -1457,7 +1481,9 @@ function makeRow(e) {
 
   const ts = document.createElement('div');
   ts.className = 'feed-time';
-  ts.textContent = fmtTime(e.timestamp);
+  ts.textContent = fmtRelative(e.timestamp);
+  ts.title = fmtTime(e.timestamp);
+  ts.dataset.ts = e.timestamp;
 
   const eco = document.createElement('div');
   eco.className = 'eco-badge ' + (e.ecosystem || '');
@@ -2495,7 +2521,12 @@ function egressRow(e) {
     d.textContent = txt;
     return d;
   };
-  const timeCell = cell(e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—');
+  const timeCell = cell(e.timestamp ? fmtRelative(e.timestamp) : '—');
+  if (e.timestamp) {
+    timeCell.classList.add('feed-time');
+    timeCell.title = fmtTime(e.timestamp);
+    timeCell.dataset.ts = e.timestamp;
+  }
   timeCell.style.color = 'var(--text-tertiary)';
   timeCell.style.fontSize = '12px';
   const actionCell = cell(badge + ' ' + (e.action || ''));
