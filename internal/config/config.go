@@ -75,6 +75,12 @@ type StorageConfig struct {
 	Backend string     `json:"backend" toml:"backend"`
 	Disk    DiskConfig `json:"disk" toml:"disk"`
 	S3      S3Config   `json:"s3" toml:"s3"`
+
+	// StaleOnErrorMaxAgeM is the number of minutes to serve expired metadata
+	// when upstream is unreachable; 0 = disabled. WARNING: serving stale
+	// manifests can briefly re-expose a version escrow blocked by
+	// manifest-removal.
+	StaleOnErrorMaxAgeM int `json:"stale_on_error_max_age_m" toml:"stale_on_error_max_age_m"`
 }
 
 type DiskConfig struct {
@@ -351,6 +357,9 @@ func (c Config) Validate() []error {
 	var errs []error
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		errs = append(errs, fmt.Errorf("server.port %d is out of range 1–65535", c.Server.Port))
+	}
+	if c.Storage.StaleOnErrorMaxAgeM < 0 {
+		errs = append(errs, fmt.Errorf("storage.stale_on_error_max_age_m %d is negative; use 0 to disable", c.Storage.StaleOnErrorMaxAgeM))
 	}
 	if c.Server.MaxRequestBodyMB != nil && *c.Server.MaxRequestBodyMB < 0 {
 		errs = append(errs, fmt.Errorf("server.max_request_body_mb %d is negative (use 0 for unlimited)", *c.Server.MaxRequestBodyMB))

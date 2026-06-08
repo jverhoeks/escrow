@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,9 +16,10 @@ type memEntry struct {
 }
 
 type Memory struct {
-	mu      sync.RWMutex
-	meta    map[string]memEntry
-	tempDir string
+	mu          sync.RWMutex
+	meta        map[string]memEntry
+	tempDir     string
+	staleMaxAge atomic.Int64 // stale-on-error grace window (ns); 0 = disabled.
 }
 
 func NewMemory() *Memory {
@@ -46,6 +48,33 @@ func (m *Memory) SetMeta(_ context.Context, key string, data []byte, ttl time.Du
 	copy(cp, data)
 	m.meta[key] = memEntry{data: cp, expiresAt: time.Now().Add(ttl)}
 	return nil
+}
+
+// SetStaleMaxAge configures the stale-on-error grace window. Zero disables it.
+func (m *Memory) SetStaleMaxAge(d time.Duration) {
+	m.staleMaxAge.Store(int64(d))
+}
+
+// GetMetaStale returns a recently-expired meta entry within the grace window.
+// The memory backend retains expired bytes (no eager delete), so this reads the
+// retained entry and enforces the grace window.
+func (m *Memory) GetMetaStale(_ context.Context, key string) ([]byte, time.Time, error) {
+	grace := time.Duration(m.staleMaxAge.Load())
+	if grace == 0 {
+		return nil, time.Time{}, nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.meta[key]
+	if !ok {
+		return nil, time.Time{}, nil
+	}
+	if time.Since(e.expiresAt) > grace {
+		return nil, time.Time{}, nil
+	}
+	out := make([]byte, len(e.data))
+	copy(out, e.data)
+	return out, e.expiresAt, nil
 }
 
 func (m *Memory) GetBlob(_ context.Context, key string) (io.ReadCloser, error) {

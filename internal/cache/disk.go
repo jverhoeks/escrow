@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jellydator/ttlcache/v3"
@@ -22,10 +23,11 @@ import (
 const metaCacheCapacity = 2000
 
 type Disk struct {
-	root     string
-	maxBytes int64
-	mem      *ttlcache.Cache[string, []byte] // in-memory write-through meta layer
-	done     chan struct{}
+	root        string
+	maxBytes    int64
+	mem         *ttlcache.Cache[string, []byte] // in-memory write-through meta layer
+	done        chan struct{}
+	staleMaxAge atomic.Int64 // stale-on-error grace window (ns); 0 = disabled. Read by the sweep goroutine, so atomic.
 }
 
 type metaEntry struct {
@@ -85,6 +87,10 @@ func (d *Disk) purge() {
 }
 
 func (d *Disk) sweepExpiredMeta() {
+	// When stale-on-error is enabled, retain expired entries until they fall
+	// outside the grace window so GetMetaStale can still serve them. When
+	// disabled (grace == 0) this is exactly the original now > ExpiresAt sweep.
+	grace := time.Duration(d.staleMaxAge.Load())
 	metaDir := filepath.Join(d.root, "meta")
 	filepath.WalkDir(metaDir, func(p string, e os.DirEntry, err error) error { //nolint:errcheck
 		if err != nil || e.IsDir() || !strings.HasSuffix(p, ".json") {
@@ -95,7 +101,7 @@ func (d *Disk) sweepExpiredMeta() {
 			return nil
 		}
 		var entry metaEntry
-		if json.Unmarshal(data, &entry) != nil || time.Now().After(entry.ExpiresAt) {
+		if json.Unmarshal(data, &entry) != nil || time.Now().After(entry.ExpiresAt.Add(grace)) {
 			os.Remove(p)
 		}
 		return nil
@@ -197,11 +203,46 @@ func (d *Disk) GetMeta(_ context.Context, key string) ([]byte, error) {
 	}
 	remaining := time.Until(entry.ExpiresAt)
 	if remaining <= 0 {
-		os.Remove(d.metaPath(key))
+		// Default (stale-on-error disabled): eager-delete the expired file,
+		// preserving escrow's fail-closed posture. When enabled, leave the file
+		// on disk so GetMetaStale can serve it within the grace window.
+		if d.staleMaxAge.Load() == 0 {
+			os.Remove(d.metaPath(key))
+		}
 		return nil, nil
 	}
 	d.mem.Set(key, entry.Data, remaining)
 	return entry.Data, nil
+}
+
+// SetStaleMaxAge configures the stale-on-error grace window. Zero disables it.
+func (d *Disk) SetStaleMaxAge(dur time.Duration) {
+	d.staleMaxAge.Store(int64(dur))
+}
+
+// GetMetaStale returns a recently-expired meta entry within the grace window.
+// It reads the file directly (the in-memory ttlcache layer has already evicted
+// expired entries) and never repopulates the in-memory cache.
+func (d *Disk) GetMetaStale(_ context.Context, key string) ([]byte, time.Time, error) {
+	grace := time.Duration(d.staleMaxAge.Load())
+	if grace == 0 {
+		return nil, time.Time{}, nil
+	}
+	raw, err := os.ReadFile(d.metaPath(key))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, time.Time{}, nil
+	}
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	var entry metaEntry
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		return nil, time.Time{}, nil
+	}
+	if time.Since(entry.ExpiresAt) > grace {
+		return nil, time.Time{}, nil
+	}
+	return entry.Data, entry.ExpiresAt, nil
 }
 
 func (d *Disk) SetMeta(_ context.Context, key string, data []byte, ttl time.Duration) (err error) {

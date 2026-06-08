@@ -27,6 +27,11 @@ var (
 		Help: "Cache hits by ecosystem and type",
 	}, []string{"ecosystem", "cache_type"})
 
+	CacheStaleServedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "escrow_cache_stale_served_total",
+		Help: "Expired metadata served stale on upstream error, by ecosystem and kind",
+	}, []string{"ecosystem", "kind"})
+
 	OSVQueryDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:    "escrow_osv_query_duration_seconds",
 		Help:    "OSV API query latency",
