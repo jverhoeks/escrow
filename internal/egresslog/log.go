@@ -103,6 +103,9 @@ func NewWithPath(cap int, path string) (*Log, error) {
 		return nil, err
 	}
 	l.file = f
+	// A failed Stat leaves curBytes at 0, which only makes compaction trigger
+	// LATER (after maxBytes more writes); the file stays consistent — the safe
+	// direction.
 	if fi, serr := f.Stat(); serr == nil {
 		l.curBytes = fi.Size()
 	}
@@ -123,6 +126,10 @@ func (l *Log) Record(e Event) {
 			if n, werr := l.file.Write(append(b, '\n')); werr == nil {
 				l.curBytes += int64(n)
 				if l.maxBytes > 0 && l.curBytes > l.maxBytes {
+					// compactLocked holds the write lock across the fsync+rename
+					// inside logfile.AtomicRewrite. Acceptable because it's rare —
+					// only every ~maxBytes (DefaultMaxBytes ≈ 8 MiB) of writes. Do
+					// NOT silently lower the cap or this lock-hold becomes hot.
 					l.compactLocked() // guarded: sets file=nil on failure, no retry storm
 				}
 			}
