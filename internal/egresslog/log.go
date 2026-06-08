@@ -8,10 +8,14 @@ package egresslog
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/jverhoeks/escrow/internal/logfile"
 )
 
 const maxSubscribers = 100
@@ -55,6 +59,9 @@ type Log struct {
 	subscribers map[int]chan Event
 	nextID      int
 	file        *os.File
+	path        string // retained for size-cap compaction
+	curBytes    int64  // bytes written to file since last compaction
+	maxBytes    int64  // compact when curBytes exceeds this (0 = never)
 }
 
 func New(cap int) *Log {
@@ -66,6 +73,8 @@ func New(cap int) *Log {
 
 func NewWithPath(cap int, path string) (*Log, error) {
 	l := New(cap)
+	l.path = path
+	l.maxBytes = logfile.DefaultMaxBytes
 	if data, err := os.Open(path); err == nil {
 		sc := bufio.NewScanner(data)
 		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -84,11 +93,19 @@ func NewWithPath(cap int, path string) (*Log, error) {
 			l.events = append(l.events, loaded[i])
 		}
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("create egress log directory: %w", err)
+		}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}
 	l.file = f
+	if fi, serr := f.Stat(); serr == nil {
+		l.curBytes = fi.Size()
+	}
 	return l, nil
 }
 
@@ -103,7 +120,12 @@ func (l *Log) Record(e Event) {
 	}
 	if l.file != nil {
 		if b, err := json.Marshal(e); err == nil {
-			l.file.Write(append(b, '\n'))
+			if n, werr := l.file.Write(append(b, '\n')); werr == nil {
+				l.curBytes += int64(n)
+				if l.maxBytes > 0 && l.curBytes > l.maxBytes {
+					l.compactLocked() // guarded: sets file=nil on failure, no retry storm
+				}
+			}
 		}
 	}
 	subs := make([]chan Event, 0, len(l.subscribers))
@@ -117,6 +139,35 @@ func (l *Log) Record(e Event) {
 		default:
 		}
 	}
+}
+
+// compactLocked rewrites the file to hold only the in-memory capped events,
+// oldest-first, bounding on-disk growth. The caller MUST hold l.mu. The file is
+// oldest-first (append order) and NewWithPath reverses it back to newest-first
+// on load, so we must emit l.events (newest-first) in REVERSE. On any error this
+// disables file persistence (l.file = nil) until restart; the in-memory log is
+// unaffected (these leaf packages carry no logger and Record returns no error).
+func (l *Log) compactLocked() {
+	lines := make([][]byte, 0, len(l.events))
+	for i := len(l.events) - 1; i >= 0; i-- {
+		if b, err := json.Marshal(l.events[i]); err == nil {
+			lines = append(lines, b)
+		}
+	}
+	if l.file != nil {
+		_ = l.file.Close()
+		l.file = nil
+	}
+	n, err := logfile.AtomicRewrite(l.path, lines)
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	l.file = f
+	l.curBytes = n
 }
 
 // AddBytes adds n to the aggregate byte counter (called at connection close).
