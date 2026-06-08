@@ -112,8 +112,9 @@ func main() {
 	switch cfg.Storage.Backend {
 	case "memory":
 		c = cache.NewMemory()
+		log.Warn().Msg("memory cache backend is UNBOUNDED — the metadata map never evicts and grows with traffic; use it only for development/testing, never for a shared/long-running instance (use disk or s3)")
 	case "s3":
-		c, err = cache.NewS3(cfg.Storage.S3.Bucket, cfg.Storage.S3.Region, cfg.Storage.S3.Endpoint)
+		c, err = cache.NewS3(cfg.Storage.S3.Bucket, cfg.Storage.S3.Region, cfg.Storage.S3.Endpoint, config.ExpandPath(cfg.Storage.S3.TempDir))
 		if err != nil {
 			log.Fatal().Err(err).Msg("failed to init S3 cache")
 		}

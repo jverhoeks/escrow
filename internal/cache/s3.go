@@ -22,12 +22,13 @@ import (
 )
 
 type S3Cache struct {
-	client      *s3.Client
-	bucket      string
+	client  *s3.Client
+	bucket  string
+	tempDir string // where SetBlob buffers uploads; "" = OS default
 	staleMaxAge atomic.Int64 // stale-on-error grace window (ns); 0 = disabled.
 }
 
-func NewS3(bucket, region, endpoint string) (*S3Cache, error) {
+func NewS3(bucket, region, endpoint, tempDir string) (*S3Cache, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(region),
 	}
@@ -44,7 +45,7 @@ func NewS3(bucket, region, endpoint string) (*S3Cache, error) {
 		})
 	}
 
-	return &S3Cache{client: s3.NewFromConfig(cfg, clientOpts...), bucket: bucket}, nil
+	return &S3Cache{client: s3.NewFromConfig(cfg, clientOpts...), bucket: bucket, tempDir: tempDir}, nil
 }
 
 func (s *S3Cache) metaKey(key string) string {
@@ -153,7 +154,8 @@ func (s *S3Cache) SetBlob(ctx context.Context, key string, r io.Reader) (err err
 	}()
 	// Write to a temp file first so we know the content length for the S3 PutObject call.
 	// This avoids buffering the entire blob in RAM (important for large archives).
-	tmp, err := os.CreateTemp("", "escrow-s3-*")
+	// tempDir is configurable so ops can keep large uploads off a small /tmp tmpfs.
+	tmp, err := os.CreateTemp(s.tempDir, "escrow-s3-*")
 	if err != nil {
 		return err
 	}

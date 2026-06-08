@@ -94,6 +94,11 @@ type S3Config struct {
 	Bucket   string `json:"bucket" toml:"bucket"`
 	Region   string `json:"region" toml:"region"`
 	Endpoint string `json:"endpoint" toml:"endpoint"`
+	// TempDir is where SetBlob buffers an upload before PutObject (it needs a
+	// seekable body with a known length). Empty = OS default ($TMPDIR or /tmp).
+	// Point this at a sized volume if /tmp is small/tmpfs — large archives can
+	// otherwise fill it.
+	TempDir string `json:"temp_dir" toml:"temp_dir"`
 }
 
 type PolicyConfig struct {
