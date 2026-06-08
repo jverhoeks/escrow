@@ -61,7 +61,13 @@ type Log struct {
 	file        *os.File
 	path        string // retained for size-cap compaction
 	curBytes    int64  // bytes written to file since last compaction
-	maxBytes    int64  // compact when curBytes exceeds this (0 = never)
+	// INVARIANT: cap × avg-event-size must stay comfortably below maxBytes.
+	// Otherwise post-compaction curBytes (the retained-window size) stays above
+	// maxBytes and the next Record re-triggers a full marshal+fsync+rename under
+	// the write lock on every event (a stall). At cap=5000 / maxBytes=8 MiB that
+	// leaves ~1.6 KB/event; Event is small fixed-width fields, so well safe.
+	// Re-check before lowering maxBytes or raising cap.
+	maxBytes int64 // compact when curBytes exceeds this (0 = never)
 }
 
 func New(cap int) *Log {

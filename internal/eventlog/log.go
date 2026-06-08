@@ -66,7 +66,13 @@ type Log struct {
 	file        *os.File // append-only JSONL; nil = in-memory only
 	path        string   // retained for size-cap compaction
 	curBytes    int64    // bytes written to file since last compaction
-	maxBytes    int64    // compact when curBytes exceeds this (0 = never)
+	// INVARIANT: cap × avg-event-size must stay comfortably below maxBytes.
+	// Otherwise post-compaction curBytes (the retained-window size) stays above
+	// maxBytes and the next Record re-triggers a full marshal+fsync+rename under
+	// the write lock on every event (a stall). At cap=5000 / maxBytes=8 MiB that
+	// leaves ~1.6 KB/event; PackageEvent (incl. its Vulns list) stays well under
+	// this in practice. Re-check before lowering maxBytes or raising cap.
+	maxBytes int64 // compact when curBytes exceeds this (0 = never)
 }
 
 // New creates an in-memory event log with the given capacity.
