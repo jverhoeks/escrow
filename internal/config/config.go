@@ -461,6 +461,9 @@ func (c Config) Warnings() []string {
 	if c.EventLogPath != "" && (c.EventLogPath == c.AllowlistPath || c.EventLogPath == c.BlocklistPath) {
 		w = append(w, "eventlog_path is the same as allowlist_path or blocklist_path — JSONL appends will corrupt the list file")
 	}
+	if c.EgressLogPath != "" && (c.EgressLogPath == c.AllowlistPath || c.EgressLogPath == c.BlocklistPath) {
+		w = append(w, "egress_log_path is the same as allowlist_path or blocklist_path — JSONL appends will corrupt the list file")
+	}
 	if c.Dashboard.Enabled && c.Dashboard.Secret == "" {
 		w = append(w, "dashboard.secret is empty — session cookies are signed with an empty key, making them forgeable. Set a random secret in escrow.toml.")
 	}

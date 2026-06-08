@@ -89,4 +89,18 @@ func TestWarnings_MemoryBackendUnsuitable(t *testing.T) {
 	assert.True(t, found, "should warn that memory backend is unsuitable for production")
 }
 
+func TestWarnings_EgressLogPathCollision(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AllowlistPath = "/tmp/escrow/allow.json"
+	cfg.EgressLogPath = "/tmp/escrow/allow.json" // same as allowlist
+	warnings := cfg.Warnings()
+	found := false
+	for _, w := range warnings {
+		if contains(w, "egress_log_path") && contains(w, "corrupt") {
+			found = true
+		}
+	}
+	assert.True(t, found, "should warn when egress_log_path collides with a list file")
+}
+
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
