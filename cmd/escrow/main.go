@@ -186,13 +186,24 @@ func main() {
 	// CDNs (which differ from the metadata host) are also classified.
 	upstreamLog := upstreamlog.New(5000)
 
-	var egressLog *egresslog.Log
+	// Resolve the effective egress-log path so the egress live view survives
+	// restarts by default on the disk backend (mirrors the event log below). An
+	// explicit egress_log_path always wins; memory/s3 backends stay in-memory.
+	var egressLogPath string
 	if cfg.EgressLogPath != "" {
+		egressLogPath = config.ExpandPath(cfg.EgressLogPath)
+	} else if cfg.Storage.Backend == "disk" {
+		egressLogPath = filepath.Join(config.ExpandPath(cfg.Storage.Disk.Path), "escrow-egress.jsonl")
+	}
+
+	var egressLog *egresslog.Log
+	if egressLogPath != "" {
 		var err error
-		egressLog, err = egresslog.NewWithPath(5000, config.ExpandPath(cfg.EgressLogPath))
+		egressLog, err = egresslog.NewWithPath(5000, egressLogPath)
 		if err != nil {
-			log.Fatal().Err(err).Msg("egress log")
+			log.Fatal().Err(err).Str("path", egressLogPath).Msg("failed to open egress log file")
 		}
+		log.Info().Str("path", egressLogPath).Msg("egress log persistence enabled (default path)")
 	} else {
 		egressLog = egresslog.New(5000)
 	}
