@@ -18,6 +18,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dlstats"
+	"github.com/jverhoeks/escrow/internal/egresslog"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/rescan"
 	"github.com/jverhoeks/escrow/internal/upstreamlog"
@@ -39,6 +40,7 @@ type Dashboard struct {
 
 	accessRing  *accesslog.Log   // may be nil
 	upstreamLog *upstreamlog.Log // may be nil
+	egressLog   *egresslog.Log   // may be nil
 
 	dl      *dlstats.Store  // may be nil
 	scanner *rescan.Scanner // may be nil
@@ -47,7 +49,7 @@ type Dashboard struct {
 	reload     ReloadFunc // may be nil
 }
 
-func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache, accessRing *accesslog.Log, upstreamLog *upstreamlog.Log, dl *dlstats.Store, scanner *rescan.Scanner, configPath string, reload ReloadFunc) *Dashboard {
+func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, allowList *allow.List, blockList *block.List, c cache.Cache, accessRing *accesslog.Log, upstreamLog *upstreamlog.Log, egressLog *egresslog.Log, dl *dlstats.Store, scanner *rescan.Scanner, configPath string, reload ReloadFunc) *Dashboard {
 	return &Dashboard{
 		cfg:          cfg,
 		auth:         NewAuth(cfg.Username, cfg.Password, cfg.Secret),
@@ -59,6 +61,7 @@ func New(cfg config.DashboardConfig, log *eventlog.Log, logger zerolog.Logger, a
 		cache:        c,
 		accessRing:   accessRing,
 		upstreamLog:  upstreamLog,
+		egressLog:    egressLog,
 		dl:           dl,
 		scanner:      scanner,
 		configPath:   configPath,
@@ -119,6 +122,9 @@ func (d *Dashboard) Mount(r chi.Router) {
 	protected.Get("/api/stats", d.handleStats)
 	protected.Get("/api/stats/timeseries", d.handleTimeseries)
 	protected.Get("/api/upstreamlog", d.handleUpstreamLog)
+	protected.Get("/api/egresslog", d.handleEgressLog)
+	protected.Get("/api/egress/stream", d.handleEgressStream)
+	protected.Get("/api/egress/stats/timeseries", d.handleEgressTimeseries)
 	protected.Get("/api/accesslog", d.handleAccessLog)
 	protected.Get("/api/cves", d.handleCVEs)
 	protected.Get("/api/rescan/status", d.handleRescanStatus)

@@ -166,6 +166,15 @@ func TestLoad_EgressProxyAbsentIsNil(t *testing.T) {
 	assert.Nil(t, cfg.EgressProxy, "absent section => nil => disabled")
 }
 
+func TestLoad_EgressLogPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "escrow.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`egress_log_path = "/tmp/egress.jsonl"`), 0o600))
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/egress.jsonl", cfg.EgressLogPath)
+}
+
 func TestValidate_EgressProxyPolicy(t *testing.T) {
 	enabled := true
 	base := func(policy string) config.Config {

@@ -28,7 +28,6 @@ const (
 	KindScanned    = "scanned"
 	KindDownloaded = "downloaded"
 	KindRescan     = "rescan"
-	KindEgress     = "egress"
 )
 
 type PackageEvent struct {

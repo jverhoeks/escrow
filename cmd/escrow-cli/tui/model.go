@@ -4,7 +4,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-var tabNames = []string{"Live", "CVEs", "Newly Vuln", "Packages", "Access", "Upstream"}
+var tabNames = []string{"Live", "CVEs", "Newly Vuln", "Packages", "Access", "Upstream", "Egress"}
 var ecoCycle = []string{"", "npm", "pypi", "cargo", "go", "composer", "nuget", "maven"}
 var activityCycle = []string{"all", "downloaded", "scanned", "blocked"}
 
@@ -19,6 +19,7 @@ type newVulnMsg struct{ rows []NewVuln }
 type treeMsg struct{ tree []TreeEco }
 type accessMsg struct{ rows []AccessEntry }
 type upstreamMsg struct{ rows []UpstreamEntry }
+type egressMsg struct{ rows []EgressEntry }
 
 // Model is the Bubble Tea state for the TUI.
 type Model struct {
@@ -38,6 +39,7 @@ type Model struct {
 	tree      []TreeEco
 	access    []AccessEntry
 	upstream  []UpstreamEntry
+	egress    []EgressEntry
 	scroll    int             // per-tab scroll offset (reset on tab switch)
 	pkgCursor int             // selected package on the Packages tab
 	pkgOpen   map[string]bool // expanded packages on the Packages tab (key: eco\x00name)
@@ -104,8 +106,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scroll--
 			}
 		}
-		// number keys 1-6 jump to a tab
-		if s := msg.String(); len(s) == 1 && s[0] >= '1' && s[0] <= '6' {
+		// number keys 1-7 jump to a tab
+		if s := msg.String(); len(s) == 1 && s[0] >= '1' && s[0] <= '7' {
 			m.tab = int(s[0] - '1')
 			m.scroll, m.pkgCursor = 0, 0
 			return m, m.loadTab()
@@ -139,6 +141,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.access = msg.rows
 	case upstreamMsg:
 		m.upstream = msg.rows
+	case egressMsg:
+		m.egress = msg.rows
 	case errMsg:
 		m.status = "error: " + msg.err.Error()
 	}
@@ -208,6 +212,14 @@ func (m Model) loadTab() tea.Cmd {
 				return errMsg{err}
 			}
 			return upstreamMsg{u}
+		}
+	case 6:
+		return func() tea.Msg {
+			e, err := c.EgressLog(200)
+			if err != nil {
+				return errMsg{err}
+			}
+			return egressMsg{e}
 		}
 	}
 	return nil

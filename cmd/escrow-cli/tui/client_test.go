@@ -97,6 +97,28 @@ func TestClient_StreamClientHasNoTimeout(t *testing.T) {
 }
 
 // Stream() should deliver events end-to-end over the dedicated stream client.
+func TestClient_EgressLog(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dashboard/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "escrow_session", Value: "ok", Path: "/"})
+		w.WriteHeader(http.StatusFound)
+	})
+	mux.HandleFunc("/dashboard/api/egresslog", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `[{"timestamp":"2026-06-05T10:00:00Z","host":"a.com","ip":"1.2.3.4","verb":"CONNECT","action":"allow","reason":"tunnel"}]`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c, err := NewClient(srv.URL, "/dashboard", "root", "escrow")
+	require.NoError(t, err)
+	require.NoError(t, c.Login())
+	rows, err := c.EgressLog(50)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "a.com", rows[0].Host)
+	require.Equal(t, "allow", rows[0].Action)
+	require.Equal(t, "CONNECT", rows[0].Verb)
+}
+
 func TestClient_StreamDeliversEvents(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/dashboard/login", func(w http.ResponseWriter, r *http.Request) {

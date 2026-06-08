@@ -16,6 +16,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
+	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
 	"github.com/jverhoeks/escrow/internal/upstream"
 )
@@ -141,6 +142,9 @@ func (h *Handler) serveRegistration(w http.ResponseWriter, r *http.Request) {
 		return filtered, nil
 	})
 	if err != nil {
+		if staleserve.Serve(w, r, h.cache, cacheKey, "application/json", "nuget", "registration") {
+			return
+		}
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
@@ -172,6 +176,9 @@ func (h *Handler) serveVersionList(w http.ResponseWriter, r *http.Request) {
 		if err != nil || resp.StatusCode != http.StatusOK {
 			if resp != nil {
 				resp.Body.Close()
+			}
+			if staleserve.Serve(w, r, h.cache, cacheKey, "application/json", "nuget", "versions") {
+				return
 			}
 			http.Error(w, "upstream error", http.StatusBadGateway)
 			return

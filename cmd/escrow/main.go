@@ -24,6 +24,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dashboard"
 	"github.com/jverhoeks/escrow/internal/dlstats"
+	"github.com/jverhoeks/escrow/internal/egresslog"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/handler/cargo"
 	"github.com/jverhoeks/escrow/internal/handler/composer"
@@ -138,6 +139,14 @@ func main() {
 		}
 		logEvt.Msg("disk cache initialised")
 	}
+	// Configure the opt-in stale-on-error metadata fallback. Zero (the default)
+	// leaves cache behavior byte-for-byte unchanged (including eager
+	// delete-on-expiry), preserving escrow's fail-closed posture.
+	c.SetStaleMaxAge(time.Duration(cfg.Storage.StaleOnErrorMaxAgeM) * time.Minute)
+	if cfg.Storage.StaleOnErrorMaxAgeM > 0 {
+		log.Warn().Int("max_age_m", cfg.Storage.StaleOnErrorMaxAgeM).
+			Msg("stale-on-error enabled: expired metadata may be served when upstream is unreachable, which can briefly re-expose a manifest-removed version")
+	}
 	defer c.Close()
 
 	if *clearCache {
@@ -176,6 +185,19 @@ func main() {
 	// Derived from configured upstreams, plus well-known defaults so artifact
 	// CDNs (which differ from the metadata host) are also classified.
 	upstreamLog := upstreamlog.New(5000)
+
+	var egressLog *egresslog.Log
+	if cfg.EgressLogPath != "" {
+		var err error
+		egressLog, err = egresslog.NewWithPath(5000, config.ExpandPath(cfg.EgressLogPath))
+		if err != nil {
+			log.Fatal().Err(err).Msg("egress log")
+		}
+	} else {
+		egressLog = egresslog.New(5000)
+	}
+	defer egressLog.Close()
+
 	hostEco := map[string]string{
 		"registry.npmjs.org":     "npm",
 		"pypi.org":               "pypi",
@@ -380,7 +402,7 @@ func main() {
 			log.Warn().Str("host", cfg.Server.Host).
 				Msg("egress proxy is reachable off-host with policy=forward — this is an OPEN RELAY; set egress_proxy.policy=\"whitelist\" or firewall the egress port")
 		}
-		eproxy := egress.New(fmt.Sprintf("%s:%d", cfg.Server.Host, port), pol, evLog, ep.RateLimitPerMin)
+		eproxy := egress.New(fmt.Sprintf("%s:%d", cfg.Server.Host, port), pol, egressLog, ep.RateLimitPerMin)
 		go func() {
 			log.Info().Int("port", port).Str("policy", ep.Policy).Msg("egress proxy listening")
 			if err := eproxy.Serve(rootCtx); err != nil {
@@ -413,7 +435,7 @@ func main() {
 			"storage":     fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
 			"ecosystems":  fmt.Sprintf("%v", c.Ecosystems),
 			"secret":      c.Dashboard.Secret,
-			"paths":       fmt.Sprintf("%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath),
+			"paths":       fmt.Sprintf("%s:%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath, c.EgressLogPath),
 			"egress_proxy": egressFingerprint(c.EgressProxy),
 		}
 	}
@@ -572,7 +594,7 @@ func main() {
 
 	if cfg.Dashboard.Enabled {
 		dash = dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
-			srv.AccessRing(), upstreamLog, dlStore, scanner, *cfgPath, reloadFn)
+			srv.AccessRing(), upstreamLog, egressLog, dlStore, scanner, *cfgPath, reloadFn)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
 	}
