@@ -9,7 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/egresslog"
+	"github.com/jverhoeks/escrow/internal/metrics"
 )
 
 // Proxy is a forward proxy gated by a host/IP Policy. It tunnels CONNECT
@@ -17,7 +18,7 @@ import (
 type Proxy struct {
 	addr      string
 	policy    *Policy
-	evlog     *eventlog.Log // may be nil
+	egress    *egresslog.Log // may be nil
 	transport *http.Transport
 	srv       *http.Server
 	limiter   *rateLimiter // nil = rate limiting disabled
@@ -25,8 +26,8 @@ type Proxy struct {
 
 // New builds a Proxy bound to addr (host:port). When rateLimitPerMin > 0 a
 // per-IP sliding-window limiter is attached; 0 disables rate limiting.
-func New(addr string, policy *Policy, evlog *eventlog.Log, rateLimitPerMin int) *Proxy {
-	p := &Proxy{addr: addr, policy: policy, evlog: evlog}
+func New(addr string, policy *Policy, egress *egresslog.Log, rateLimitPerMin int) *Proxy {
+	p := &Proxy{addr: addr, policy: policy, egress: egress}
 	p.transport = &http.Transport{Proxy: nil, DialContext: p.dialChecked}
 	if rateLimitPerMin > 0 {
 		p.limiter = newRateLimiter(rateLimitPerMin)
@@ -51,7 +52,7 @@ func (p *Proxy) dialChecked(ctx context.Context, network, addr string) (net.Conn
 		resolved, rerr := net.DefaultResolver.LookupIP(ctx, "ip", host)
 		if rerr != nil || len(resolved) == 0 {
 			// Ambiguous: cannot vet against CIDR rules. Deny rather than dial blind.
-			p.record(host, "block", "unresolvable")
+			p.recordEgress(egresslog.Event{Host: host, Verb: "DIAL", Action: "block", Reason: "unresolvable"})
 			return nil, fmt.Errorf("egress: cannot resolve %q: %w", host, rerr)
 		}
 		ips = resolved
@@ -59,7 +60,7 @@ func (p *Proxy) dialChecked(ctx context.Context, network, addr string) (net.Conn
 	// Deny if ANY resolved IP is blocked by policy.
 	for _, ip := range ips {
 		if d := p.policy.Check(host, ip); !d.Allow {
-			p.record(host, "block", d.Reason+" (resolved "+ip.String()+")")
+			p.recordEgress(egresslog.Event{Host: host, IP: ip.String(), Verb: "DIAL", Action: "block", Reason: d.Reason + " (resolved " + ip.String() + ")"})
 			return nil, fmt.Errorf("egress: blocked %s -> %s: %s", host, ip, d.Reason)
 		}
 	}
@@ -130,7 +131,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 	if p.limiter != nil {
 		ip := hostOnly(r.RemoteAddr)
 		if !p.limiter.allow(ip) {
-			p.record(ip, "block", "rate limited")
+			p.recordEgress(egresslog.Event{Host: hostOnly(r.Host), IP: ip, Verb: r.Method, Action: "block", Reason: "rate limited"})
 			http.Error(w, "egress rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
@@ -145,7 +146,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	host := hostOnly(r.Host)
 	if d := p.policy.Check(host, net.ParseIP(host)); !d.Allow {
-		p.record(host, "block", d.Reason)
+		p.recordEgress(egresslog.Event{Host: host, Verb: "CONNECT", Action: "block", Reason: d.Reason})
 		http.Error(w, "blocked by escrow egress policy", http.StatusForbidden)
 		return
 	}
@@ -165,20 +166,30 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		_ = upstream.Close()
 		return
 	}
-	p.record(host, "allow", "tunnel")
 	_, _ = io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n")
+	ip := ""
+	if ra, ok := upstream.RemoteAddr().(*net.TCPAddr); ok {
+		ip = ra.IP.String()
+	}
+	p.recordEgress(egresslog.Event{Host: host, IP: ip, Verb: "CONNECT", Action: "allow", Reason: "tunnel"})
 	// Each direction closes the *other* conn when it finishes so both io.Copy
 	// calls unblock on a half-close (otherwise an idle peer would wedge the
 	// teardown and leak the goroutine + both connections).
+	var up int64
 	done := make(chan struct{})
 	go func() {
-		_, _ = io.Copy(upstream, client)
+		up, _ = io.Copy(upstream, client)
 		_ = upstream.Close() // unblocks the io.Copy(client, upstream) below
 		close(done)
 	}()
-	_, _ = io.Copy(client, upstream)
+	dn, _ := io.Copy(client, upstream)
 	_ = client.Close() // unblocks the goroutine's io.Copy(upstream, client)
 	<-done
+	n := up + dn
+	if p.egress != nil {
+		p.egress.AddBytes(n)
+	}
+	metrics.EgressBytesTotal.Add(float64(n))
 }
 
 // hopByHop are headers that must not be forwarded by a proxy (RFC 7230 §6.1).
@@ -202,7 +213,7 @@ func stripHopByHop(h http.Header) {
 func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	host := r.URL.Hostname()
 	if d := p.policy.Check(host, net.ParseIP(host)); !d.Allow {
-		p.record(host, "block", d.Reason)
+		p.recordEgress(egresslog.Event{Host: host, Verb: r.Method, Action: "block", Reason: d.Reason})
 		http.Error(w, "blocked by escrow egress policy", http.StatusForbidden)
 		return
 	}
@@ -214,28 +225,25 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
-	p.record(host, "allow", "forward")
+	p.recordEgress(egresslog.Event{Host: host, Verb: r.Method, Action: "allow", Reason: "forward"})
 	for k, vv := range resp.Header {
 		for _, v := range vv {
 			w.Header().Add(k, v)
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+	n, _ := io.Copy(w, resp.Body)
+	if p.egress != nil {
+		p.egress.AddBytes(n)
+	}
+	metrics.EgressBytesTotal.Add(float64(n))
 }
 
-func (p *Proxy) record(host, action, reason string) {
-	if p.evlog == nil {
-		return
+func (p *Proxy) recordEgress(e egresslog.Event) {
+	metrics.EgressRequestsTotal.WithLabelValues(e.Action).Inc()
+	if p.egress != nil {
+		p.egress.Record(e)
 	}
-	p.evlog.Record(eventlog.PackageEvent{
-		Ecosystem: "egress",
-		Package:   host,
-		Action:    action,
-		Signal:    "egress",
-		Reason:    reason,
-		Kind:      eventlog.KindEgress,
-	})
 }
 
 func hostOnly(hostport string) string {

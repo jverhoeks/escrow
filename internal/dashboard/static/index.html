@@ -420,6 +420,10 @@
     .settings-row { display: grid; grid-template-columns: 220px 1fr; gap: 12px; align-items: center; padding: 5px 0; }
     .settings-row label { font-size: 13px; color: var(--text-secondary); }
     .settings-input { background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); padding: 5px 8px; border-radius: 4px; font-size: 13px; font-family: inherit; max-width: 360px; }
+    .subtabs { display: flex; gap: 2px; padding: 8px 24px 0; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+    .subtab { padding: 7px 16px; color: var(--text-secondary); font-size: 13px; font-weight: 500; cursor: pointer; background: none; border: none; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .subtab:hover { color: var(--text-primary); }
+    .subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
     .btn-secondary:hover {
       border-color: var(--accent);
@@ -917,6 +921,91 @@
       margin-left: 8px;
     }
 
+    /* ── Egress View ─────────────────────────────────────────────────────────── */
+
+    .egress-stat-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 16px 20px 0;
+      flex-shrink: 0;
+    }
+
+    .egress-stat-row .stat-card {
+      flex: 1;
+      min-width: 100px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .egress-columns, .egress-item { grid-template-columns: 80px 90px 70px 1fr 110px 1fr; }
+    .egress-columns {
+      display: grid; gap: 12px; padding: 8px 24px;
+      border-bottom: 1px solid var(--border); background: var(--bg-secondary);
+      font-size: 11px; font-weight: 700; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;
+    }
+    .egress-item {
+      display: grid; gap: 12px; padding: 10px 24px;
+      border-bottom: 1px solid var(--border); align-items: center;
+      font-size: 13px; transition: background 0.1s;
+    }
+    .egress-item:hover { background: var(--bg-secondary); }
+    .egress-item .mono {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .egress-top-tables {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      padding: 12px 20px 0;
+      flex-shrink: 0;
+    }
+
+    .egress-top-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .egress-top-card table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .egress-top-card thead th {
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-tertiary);
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .egress-top-card tbody td {
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--border);
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 12px;
+      color: var(--text-primary);
+    }
+
+    .egress-top-card tbody td:last-child {
+      text-align: right;
+      color: var(--text-secondary);
+      font-family: inherit;
+    }
+
+    .egress-top-card tbody tr:last-child td { border-bottom: none; }
+
     /* ── Scrollbars ──────────────────────────────────────────────────────────── */
 
     ::-webkit-scrollbar {
@@ -981,6 +1070,7 @@
         <button class="user-dropdown-item" onclick="pickMore('tree')">Package Tree</button>
         <button class="user-dropdown-item" onclick="pickMore('logs')">Access Logs</button>
         <button class="user-dropdown-item" onclick="pickMore('upstream')">Upstream</button>
+        <button class="user-dropdown-item" onclick="pickMore('egress')">Egress</button>
       </div>
     </div>
   </div>
@@ -1184,6 +1274,89 @@
   <div id="upstream-list" style="flex: 1; overflow-y: auto;"></div>
 </div>
 
+<!-- ── Egress View ──────────────────────────────────────────────────────────────── -->
+<div id="view-egress" class="panel" style="display: none;">
+  <div class="panel-header">
+    <span class="panel-header-title">Egress <span style="color: var(--text-tertiary); font-weight: 400; font-size: 12px;">(escrow → internet · proxy decisions)</span></span>
+    <div class="panel-header-actions">
+      <span class="panel-count" id="eg-count">— events</span>
+      <select id="eg-filter" onchange="loadEgressLog()" style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-primary);">
+        <option value="">All actions</option>
+        <option value="allow">Allow only</option>
+        <option value="block">Block only</option>
+      </select>
+      <button class="btn-secondary" onclick="loadEgressLog()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- Summary cards -->
+  <div class="egress-stat-row">
+    <div class="stat-card">
+      <div class="stat-label">Total</div>
+      <div class="stat-value" id="eg-total">—</div>
+      <div class="stat-footer">last 24h</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Allowed</div>
+      <div class="stat-value allowed" id="eg-allow">—</div>
+      <div class="stat-footer">last 24h</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Blocked</div>
+      <div class="stat-value blocked" id="eg-block">—</div>
+      <div class="stat-footer">last 24h</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Distinct Hosts</div>
+      <div class="stat-value" id="eg-hosts">—</div>
+      <div class="stat-footer">last 24h</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Bytes</div>
+      <div class="stat-value" id="eg-bytes" style="font-size:22px;">—</div>
+      <div class="stat-footer">proxied total</div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div style="padding: 16px 20px 0; flex-shrink: 0;">
+    <div class="chart-card">
+      <div class="graph-title">
+        <span>Egress Decisions <span class="graph-sub">· last 24h, hourly</span></span>
+        <span class="graph-total" id="eg-chart-total"></span>
+      </div>
+      <div class="chart-host" id="chart-egress"></div>
+    </div>
+  </div>
+
+  <!-- Top-host tables -->
+  <div class="egress-top-tables">
+    <div class="egress-top-card">
+      <table>
+        <thead><tr><th>Top Allowed Hosts</th><th>Count</th></tr></thead>
+        <tbody id="eg-top-allow"></tbody>
+      </table>
+    </div>
+    <div class="egress-top-card">
+      <table>
+        <thead><tr><th>Top Blocked Hosts</th><th>Count</th></tr></thead>
+        <tbody id="eg-top-block"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Live log -->
+  <div class="egress-columns" style="margin-top: 16px;">
+    <div>Time</div>
+    <div>Action</div>
+    <div>Verb</div>
+    <div>Host</div>
+    <div>IP</div>
+    <div>Reason</div>
+  </div>
+  <div id="eg-feed" style="flex: 1; overflow-y: auto;"></div>
+</div>
+
 <!-- ── Settings View ───────────────────────────────────────────────────────────── -->
 <div id="view-settings" class="panel" style="display: none;">
   <div class="panel-header">
@@ -1195,6 +1368,12 @@
     </div>
   </div>
   <div id="settings-banner" class="settings-banner" style="display:none;"></div>
+  <div id="settings-tabs" class="subtabs">
+    <button class="subtab active" data-g="general"  onclick="setSettingsTab('general')">General</button>
+    <button class="subtab"        data-g="policy"   onclick="setSettingsTab('policy')">Policy</button>
+    <button class="subtab"        data-g="egress"   onclick="setSettingsTab('egress')">Egress</button>
+    <button class="subtab"        data-g="advanced" onclick="setSettingsTab('advanced')">Advanced</button>
+  </div>
   <div id="settings-form" style="flex:1; overflow-y:auto; padding: 8px 24px 24px;"></div>
 </div>
 
@@ -1203,6 +1382,7 @@ const BASE = window.location.pathname.replace(/\/+$/, '');
 let currentEco = '';
 let currentTab = 'live';
 let es = null;
+let egressEs = null;
 let allEvents = [];
 let chartsInitialized = false;
 let chartAllowed = null;
@@ -1446,7 +1626,8 @@ function connect(eco) {
 // ── Charts ───────────────────────────────────────────────────────────────────
 
 const ECO_COLORS = {
-  npm: '#e85d5d', pypi: '#4aa3d6', cargo: '#d39330', go: '#33b5b5', composer: '#8b5cf6', nuget: '#7c93e8', maven: '#c2682b'
+  npm: '#e85d5d', pypi: '#4aa3d6', cargo: '#d39330', go: '#33b5b5', composer: '#8b5cf6', nuget: '#7c93e8', maven: '#c2682b',
+  allow: '#16a34a', block: '#dc2626'
 };
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -1463,13 +1644,14 @@ function svgEl(name, attrs) {
 
 // Render a stacked-column chart of an action's per-ecosystem hourly counts into containerId.
 // buckets: RFC3339 strings; seriesForAction: { eco: [counts per bucket] }.
-function renderStackedChart(containerId, buckets, seriesForAction) {
+// ignoreEco: if true, skip the currentEco filter (used by egress chart whose series are not ecos).
+function renderStackedChart(containerId, buckets, seriesForAction, ignoreEco) {
   const container = document.getElementById(containerId);
   if (!container) return;
   container.innerHTML = '';
 
   let ecos = Object.keys(seriesForAction || {}).sort();
-  if (currentEco) ecos = ecos.filter(e => e === currentEco);
+  if (currentEco && !ignoreEco) ecos = ecos.filter(e => e === currentEco);
   const n = buckets.length;
 
   // Column totals + global max for the y-scale.
@@ -2090,6 +2272,22 @@ async function triggerRescan() {
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
+const SETTINGS_GROUPS = {
+  server:'general', storage:'general', dashboard:'general',
+  policy:'policy', allow:'policy', block:'policy', rescan:'policy',
+  egress_proxy:'egress',
+  alerts:'advanced', cireport:'advanced', cache:'advanced'
+};
+let settingsTab = 'general';
+function settingsGroupOf(section){ return SETTINGS_GROUPS[section] || 'advanced'; }
+function setSettingsTab(g){
+  settingsTab = g;
+  document.querySelectorAll('#settings-tabs .subtab').forEach(b => b.classList.toggle('active', b.dataset.g === g));
+  document.querySelectorAll('#view-settings .settings-section').forEach(card => {
+    card.style.display = (card.dataset.group === g) ? '' : 'none';
+  });
+}
+
 let settingsCfg = {};
 // Fields that cannot be applied live — shown with a restart warning.
 const RESTART_FIELDS = ['server', 'storage', 'ecosystems'];
@@ -2128,6 +2326,7 @@ function renderSettings(cfg, meta) {
     if (val === null) return; // unset section (e.g. no [rescan]) — edit the file to add it
     if (typeof val !== 'object' || Array.isArray(val)) { scalars.push(section); return; }
     const card = settingsCard(section);
+    card.dataset.group = settingsGroupOf(section);
     renderSettingsFields(card, val, section, section);
     // Credentials: read-only "set" indicators under the dashboard section.
     if (section === 'dashboard') {
@@ -2138,9 +2337,11 @@ function renderSettings(cfg, meta) {
   });
   if (scalars.length) {
     const card = settingsCard('general');
+    card.dataset.group = 'general';
     scalars.forEach(k => settingsField(card, k, cfg[k], k));
     form.appendChild(card);
   }
+  setSettingsTab(settingsTab);
 }
 
 function roField(name, isSet) {
@@ -2255,8 +2456,115 @@ async function reloadConfig() {
   } catch (e) { showSettingsBanner(false, 'Error: ' + e); }
 }
 
+// ── Egress View ──────────────────────────────────────────────────────────────
+
+function loadEgressLog() {
+  const action = document.getElementById('eg-filter').value;
+  fetch(BASE + '/api/egresslog?n=500' + (action ? '&action=' + action : ''))
+    .then(r => r.json()).then(rows => {
+      const feed = document.getElementById('eg-feed');
+      feed.innerHTML = '';
+      (rows || []).forEach(e => feed.appendChild(egressRow(e)));
+      document.getElementById('eg-count').textContent = (rows || []).length + ' events';
+    }).catch(() => {});
+  fetch(BASE + '/api/egress/stats/timeseries?window=24h&bucket=1h')
+    .then(r => r.json()).then(s => {
+      document.getElementById('eg-total').textContent = s.total != null ? s.total : '—';
+      document.getElementById('eg-allow').textContent = s.allowed != null ? s.allowed : '—';
+      document.getElementById('eg-block').textContent = s.blocked != null ? s.blocked : '—';
+      document.getElementById('eg-hosts').textContent = s.distinct_hosts != null ? s.distinct_hosts : '—';
+      document.getElementById('eg-bytes').textContent = fmtBytes(s.bytes);
+      renderTopHosts('eg-top-allow', s.top_allowed);
+      renderTopHosts('eg-top-block', s.top_blocked);
+      renderEgressChart(s.series);
+      const tot = (s.allowed || 0) + (s.blocked || 0);
+      document.getElementById('eg-chart-total').textContent = tot.toLocaleString() + ' total';
+    }).catch(() => {});
+  egressConnect();
+}
+
+function egressRow(e) {
+  const item = document.createElement('div');
+  item.className = 'egress-item';
+  const badge = e.action === 'block' ? '✕' : '✓';
+  const badgeColor = e.action === 'block' ? 'var(--status-blocked)' : 'var(--status-allowed)';
+  const cell = (txt, cls, extra) => {
+    const d = document.createElement('div');
+    if (cls) d.className = cls;
+    if (extra) Object.assign(d.style, extra);
+    d.textContent = txt;
+    return d;
+  };
+  const timeCell = cell(e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—');
+  timeCell.style.color = 'var(--text-tertiary)';
+  timeCell.style.fontSize = '12px';
+  const actionCell = cell(badge + ' ' + (e.action || ''));
+  actionCell.style.color = badgeColor;
+  actionCell.style.fontWeight = '600';
+  item.append(
+    timeCell,
+    actionCell,
+    cell(e.verb || '—'),
+    cell(e.host || '—', 'mono'),
+    cell(e.ip || '—', 'mono'),
+    cell(e.reason || '—')
+  );
+  return item;
+}
+
+function renderTopHosts(id, rows) {
+  const tbody = document.getElementById(id);
+  tbody.innerHTML = '';
+  (rows || []).forEach(h => {
+    const tr = document.createElement('tr');
+    const tdHost = document.createElement('td');
+    tdHost.textContent = h.host;
+    const tdCount = document.createElement('td');
+    tdCount.textContent = h.count;
+    tr.append(tdHost, tdCount);
+    tbody.appendChild(tr);
+  });
+  if (!(rows || []).length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 2;
+    td.style.cssText = 'color:var(--text-tertiary);font-style:italic;';
+    td.textContent = 'No data';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+
+function renderEgressChart(series) {
+  const buckets = (series || []).map(b => b.t);
+  renderStackedChart('chart-egress', buckets, {
+    allow: (series || []).map(b => b.allow),
+    block: (series || []).map(b => b.block)
+  }, true /* ignoreEco */);
+}
+
+function egressConnect() {
+  if (egressEs) { egressEs.close(); egressEs = null; }
+  egressEs = new EventSource(BASE + '/api/egress/stream');
+  egressEs.onmessage = ev => {
+    try {
+      const e = JSON.parse(ev.data);
+      const filter = document.getElementById('eg-filter').value;
+      if (filter && e.action !== filter) return;
+      const feed = document.getElementById('eg-feed');
+      feed.insertBefore(egressRow(e), feed.firstChild);
+      const countEl = document.getElementById('eg-count');
+      countEl.textContent = feed.children.length + ' events';
+    } catch (_) {}
+  };
+  egressEs.onerror = () => {
+    if (egressEs) { egressEs.close(); egressEs = null; }
+    if (currentTab === 'egress') setTimeout(egressConnect, 3000);
+  };
+}
+
 // ── Dropdown menus (user + nav "More") ───────────────────────────────────────
-const MORE_VIEWS = { newvuln: 'Newly Vulnerable', graphs: 'Analytics', tree: 'Package Tree', logs: 'Access Logs', upstream: 'Upstream' };
+const MORE_VIEWS = { newvuln: 'Newly Vulnerable', graphs: 'Analytics', tree: 'Package Tree', logs: 'Access Logs', upstream: 'Upstream', egress: 'Egress' };
 
 function toggleUserMenu(e) {
   if (e) e.stopPropagation();
@@ -2277,6 +2585,7 @@ function pickMore(view) { closeMoreMenu(); setTab(view); }
 document.addEventListener('click', () => { closeUserMenu(); closeMoreMenu(); });
 
 function setTab(tab) {
+  if (egressEs && tab !== 'egress') { egressEs.close(); egressEs = null; }
   currentTab = tab;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   const activeTab = document.getElementById('tab-' + tab);
@@ -2291,7 +2600,7 @@ function setTab(tab) {
     moreBtn.innerHTML = 'More <span class="user-caret">▾</span>';
   }
 
-  ['live','graphs','packages','tree','cves','newvuln','logs','upstream','settings'].forEach(v => {
+  ['live','graphs','packages','tree','cves','newvuln','logs','upstream','egress','settings'].forEach(v => {
     document.getElementById('view-' + v).style.display = tab === v ? 'flex' : 'none';
   });
 
@@ -2306,6 +2615,7 @@ function setTab(tab) {
     if (!chartsInitialized) initCharts();
     updateCharts();
   }
+  if (tab === 'egress') loadEgressLog();
 }
 
 function setEco(eco) {

@@ -13,18 +13,18 @@ import (
 	"time"
 
 	"github.com/jverhoeks/escrow/internal/config"
-	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/egresslog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func startProxy(t *testing.T, cfg config.EgressProxyConfig, evlog *eventlog.Log) string {
+func startProxy(t *testing.T, cfg config.EgressProxyConfig, el *egresslog.Log) string {
 	t.Helper()
 	pol, err := NewPolicy(cfg)
 	require.NoError(t, err)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	p := New(ln.Addr().String(), pol, evlog, cfg.RateLimitPerMin)
+	p := New(ln.Addr().String(), pol, el, cfg.RateLimitPerMin)
 	go func() { _ = p.serveListener(ln) }()
 	t.Cleanup(func() { _ = ln.Close() })
 	return ln.Addr().String()
@@ -35,27 +35,25 @@ func proxyClient(addr string) *http.Client {
 	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(u)}, Timeout: 5 * time.Second}
 }
 
-func TestProxy_ForwardsHTTPAndRecordsEvent(t *testing.T) {
+func TestProxy_ForwardsHTTPAndRecordsEgress(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "hello")
 	}))
 	defer upstream.Close()
-
-	evlog := eventlog.New(10)
-	events, unsub := evlog.Subscribe()
+	el := egresslog.New(10)
+	sub, unsub := el.Subscribe()
 	defer unsub()
-
-	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward"}, evlog)
+	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward"}, el)
 	resp, err := proxyClient(addr).Get(upstream.URL)
 	require.NoError(t, err)
-	body, _ := io.ReadAll(resp.Body)
+	_, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	assert.Equal(t, "hello", string(body))
-
 	select {
-	case e := <-events:
-		assert.Equal(t, eventlog.KindEgress, e.Kind)
+	case e := <-sub:
 		assert.Equal(t, "allow", e.Action)
+		assert.Equal(t, mustHost(t, upstream.URL), e.Host)
+		assert.Equal(t, "GET", e.Verb)
+		assert.False(t, e.Timestamp.IsZero())
 	case <-time.After(2 * time.Second):
 		t.Fatal("no egress event recorded")
 	}
@@ -68,7 +66,7 @@ func TestProxy_BlocksHTTP(t *testing.T) {
 	defer upstream.Close()
 	host := mustHost(t, upstream.URL)
 
-	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", BlockHosts: []string{host}}, eventlog.New(10))
+	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", BlockHosts: []string{host}}, egresslog.New(10))
 	resp, err := proxyClient(addr).Get(upstream.URL)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -88,7 +86,7 @@ func TestProxy_ConnectTunnelAllowed(t *testing.T) {
 		_, _ = io.Copy(c, c) // echo
 	}()
 
-	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward"}, eventlog.New(10))
+	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward"}, egresslog.New(10))
 	conn, err := net.Dial("tcp", addr)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -122,7 +120,7 @@ func TestProxy_RateLimit(t *testing.T) {
 	defer upstream.Close()
 
 	t.Run("over limit -> 429", func(t *testing.T) {
-		addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", RateLimitPerMin: 2}, eventlog.New(10))
+		addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", RateLimitPerMin: 2}, egresslog.New(10))
 		client := proxyClient(addr)
 		// All three requests share the 127.0.0.1 bucket.
 		for i := 1; i <= 3; i++ {
@@ -139,7 +137,7 @@ func TestProxy_RateLimit(t *testing.T) {
 	})
 
 	t.Run("disabled -> no throttling", func(t *testing.T) {
-		addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", RateLimitPerMin: 0}, eventlog.New(10))
+		addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", RateLimitPerMin: 0}, egresslog.New(10))
 		client := proxyClient(addr)
 		for i := 1; i <= 5; i++ {
 			resp, err := client.Get(upstream.URL)
@@ -177,7 +175,7 @@ func TestProxy_BlocksHostnameResolvingToBlockedCIDR(t *testing.T) {
 	defer upstream.Close()
 	port := mustPort(t, upstream.URL)
 
-	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", BlockCIDRs: []string{"127.0.0.0/8"}}, eventlog.New(10))
+	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward", BlockCIDRs: []string{"127.0.0.0/8"}}, egresslog.New(10))
 	resp, err := proxyClient(addr).Get("http://localhost:" + port + "/")
 	require.NoError(t, err) // the proxy responds (it doesn't crash)
 	defer resp.Body.Close()
@@ -203,7 +201,7 @@ func TestProxy_ServeReturnsNilOnCtxCancel(t *testing.T) {
 	pol, err := NewPolicy(config.EgressProxyConfig{Policy: "forward"})
 	require.NoError(t, err)
 	addr := freePort(t)
-	p := New(addr, pol, eventlog.New(10), 0)
+	p := New(addr, pol, egresslog.New(10), 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
@@ -238,7 +236,7 @@ func TestProxy_StripHopByHop(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward"}, eventlog.New(10))
+	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward"}, egresslog.New(10))
 	req, err := http.NewRequest(http.MethodGet, upstream.URL, nil)
 	require.NoError(t, err)
 	req.Header.Set("Proxy-Authorization", "secret")
@@ -270,7 +268,7 @@ func TestProxy_ConnectHalfCloseDoesNotHang(t *testing.T) {
 		_ = c.Close()
 	}()
 
-	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward"}, eventlog.New(10))
+	addr := startProxy(t, config.EgressProxyConfig{Policy: "forward"}, egresslog.New(10))
 	conn, err := net.Dial("tcp", addr)
 	require.NoError(t, err)
 	defer conn.Close()

@@ -182,6 +182,10 @@ allow_cidrs  = []
 The egress proxy is **off by default**, on its own listener, separate from the dashboard/mirror
 port — never an accidental open relay. Run it only on a controlled dev/CI host.
 
+For live visibility into proxy decisions, allowed/blocked host counts, bytes proxied, and
+Prometheus metrics (`escrow_egress_requests_total`, `escrow_egress_bytes_total`), see the
+[**Egress view** in the dashboard](dashboard.md#egress).
+
 > ⚠️ **Linux / CI: bind escrow where the build can reach it.** escrow defaults to `host = "127.0.0.1"`,
 > and the egress proxy + mirror bind to that host. On **Docker Desktop** (macOS/Windows) the VM
 > routes `host.docker.internal` to the host's loopback, so it works as-is. On a **Linux engine**,

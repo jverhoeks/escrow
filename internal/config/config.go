@@ -20,6 +20,7 @@ type Config struct {
 	AllowlistPath string          `json:"allowlist_path" toml:"allowlist_path"`
 	BlocklistPath string          `json:"blocklist_path" toml:"blocklist_path"`
 	EventLogPath  string          `json:"eventlog_path" toml:"eventlog_path"` // JSONL append file; empty = in-memory only
+	EgressLogPath string          `json:"egress_log_path" toml:"egress_log_path"`
 
 	DownloadStatsPath string `json:"download_stats_path" toml:"download_stats_path"` // JSON; empty = default to cache dir on disk backend, else in-memory
 

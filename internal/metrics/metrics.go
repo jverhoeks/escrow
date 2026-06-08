@@ -44,6 +44,16 @@ var (
 		Buckets: prometheus.DefBuckets,
 	}, []string{"ecosystem"})
 
+	EgressRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "escrow_egress_requests_total",
+		Help: "Egress proxy decisions by action",
+	}, []string{"action"})
+
+	EgressBytesTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "escrow_egress_bytes_total",
+		Help: "Total bytes proxied through the egress proxy (allow path)",
+	})
+
 	// CacheWriteFailuresTotal counts cache write failures, labelled by backend
 	// (disk/s3) and op (meta/blob). Incremented centrally in the cache backends
 	// so failures are metered even though the proxy handlers ignore the returned
