@@ -276,7 +276,9 @@ Incident playbook, capacity guidance, and backup/restore for the on-call who did
 - **Blobs grow unbounded by default** and never expire — this is the dominant growth. Cap it with
   `[storage.disk] max_size_gb` (FIFO purge) or use S3. Watch `du -sh <cache>/blobs`.
 - **Upstream connection pool:** escrow keeps up to **256** idle upstream connections (20 per host)
-  — ample for a handful of ecosystems; raise it if you front many distinct upstream hosts.
+  — ample for a handful of ecosystems; raise it if you front many distinct upstream hosts. Watch
+  per-ecosystem connection reuse via `escrow_upstream_conn_reused_total` — a falling reuse ratio
+  under load means an ecosystem's idle connections are being evicted (raise the pool).
 - **Request body limit:** `server.max_request_body_mb` (default **100**) caps client upload bodies;
   set `0` for unlimited.
 - **Rate limits:** `server.proxy_rate_limit_per_min` (registry lane) and
@@ -302,7 +304,9 @@ files back, start escrow; the cache re-warms from upstream on first use (nothing
 ### Monitoring & alerting
 
 - **`/metrics`** (Prometheus): wire alerts on `escrow_cache_write_failures_total` > 0, a sustained
-  5xx ratio (`escrow_responses_total{class="5xx"}`), a spike in `escrow_blocks_total`, and the
-  `escrow_proxy_request_duration_seconds` latency histogram.
+  5xx ratio (`escrow_responses_total{class="5xx"}`), a spike in `escrow_blocks_total`, the
+  `escrow_proxy_request_duration_seconds` latency histogram, and a falling upstream connection
+  **reuse ratio** (`escrow_upstream_conn_reused_total{reused="true"}` / total) per ecosystem —
+  the idle-pool starvation signal (see *Capacity & headroom*).
 - **`/healthz`**: alert on HTTP 503 (`"status":"degraded"`) and `"cache_writable": false`.
 - **Webhook alerts** (`[alerts] webhook_url`): one webhook per block, deduplicated per package/signal.
