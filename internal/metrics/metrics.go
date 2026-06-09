@@ -72,6 +72,28 @@ var (
 		Name: "escrow_responses_total",
 		Help: "HTTP responses by status class",
 	}, []string{"class"})
+
+	// UpstreamConnReused counts upstream connections by ecosystem and whether an
+	// idle keep-alive connection was reused (httptrace GotConn.Reused). The
+	// reuse ratio per ecosystem is the connection-pool health signal (#17): a
+	// falling ratio under load means that ecosystem's idle connections are being
+	// evicted from the shared transport pool — the cross-ecosystem starvation the
+	// audit warned about. Reuse ≈ 100% under normal load is healthy.
+	UpstreamConnReused = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "escrow_upstream_conn_reused_total",
+		Help: "Upstream connections by ecosystem and idle-connection reuse (reused=true|false)",
+	}, []string{"ecosystem", "reused"})
+
+	// UpstreamConnAcquireSeconds is the httptrace GetConn→GotConn latency by
+	// ecosystem: ~0 on idle reuse, dial+TLS time on a new connection. NOTE: with
+	// the transport's per-host connection count unbounded (MaxConnsPerHost=0) a
+	// request never queues for a slot, so this reflects DIAL latency, not pool
+	// saturation. It only becomes a saturation signal if MaxConnsPerHost is set.
+	UpstreamConnAcquireSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "escrow_upstream_conn_acquire_seconds",
+		Help:    "Upstream connection acquisition latency (GetConn→GotConn) by ecosystem",
+		Buckets: []float64{.0001, .0005, .001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5},
+	}, []string{"ecosystem"})
 )
 
 var startTime = time.Now()
