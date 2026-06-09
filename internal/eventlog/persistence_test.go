@@ -2,6 +2,7 @@ package eventlog_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -107,4 +108,29 @@ func TestLog_PersistenceEmptyPath(t *testing.T) {
 	l.Record(eventlog.PackageEvent{Package: "a", Action: "allow"})
 	assert.Len(t, l.Events(""), 1)
 	assert.NoError(t, l.Close()) // Close on in-memory log should be a no-op
+}
+
+// TestLog_PersistenceLoadsLinesOverDefaultScannerBuffer is a regression test:
+// a single event whose JSONL line exceeds bufio.Scanner's default 64 KiB token
+// limit (e.g. a large Vulns/Reason payload) must NOT stop the load early and
+// silently drop the newer events recorded after it. The loader uses a 1 MiB
+// scanner buffer, so both events round-trip.
+func TestLog_PersistenceLoadsLinesOverDefaultScannerBuffer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+
+	l1, err := eventlog.NewWithPath(10, path)
+	require.NoError(t, err)
+	bigReason := strings.Repeat("x", 100*1024) // ~100 KiB line, > default 64 KiB
+	l1.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "big@1", Action: "block", Reason: bigReason})
+	l1.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "newer@1", Action: "allow"})
+	require.NoError(t, l1.Close())
+
+	l2, err := eventlog.NewWithPath(10, path)
+	require.NoError(t, err)
+	defer l2.Close()
+
+	events := l2.Events("")
+	require.Len(t, events, 2, "both events must load despite the >64 KiB line")
+	assert.Equal(t, "newer@1", events[0].Package, "event recorded after the big line must survive (newest-first)")
+	assert.Equal(t, "big@1", events[1].Package)
 }

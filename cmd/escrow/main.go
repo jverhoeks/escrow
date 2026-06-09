@@ -67,7 +67,7 @@ func main() {
 	cfgPath := flag.String("config", "escrow.toml", "config file path")
 	hostFlag := flag.String("host", "", "listen host (overrides config; use 0.0.0.0 for all interfaces, default 127.0.0.1)")
 	clearCache := flag.Bool("clear-cache", false, "flush all cached metadata and blobs on startup before serving")
-	clearStats := flag.Bool("clear", false, "clear persisted event-log stats on startup")
+	clearStats := flag.Bool("clear", false, "clear persisted event-log and egress-log stats on startup")
 	// Signal overrides — each flag disables the corresponding policy check regardless of config.
 	noAge := flag.Bool("no-age", false, "disable the age gate (ignore policy.age in config)")
 	noOSV := flag.Bool("no-osv", false, "disable OSV vulnerability scan (ignore policy.osv in config)")
@@ -200,6 +200,13 @@ func main() {
 
 	var egressLog *egresslog.Log
 	if egressLogPath != "" {
+		if *clearStats {
+			if err := os.Remove(egressLogPath); err != nil && !os.IsNotExist(err) {
+				log.Warn().Err(err).Str("path", egressLogPath).Msg("failed to clear egress-log stats")
+			} else {
+				log.Info().Str("path", egressLogPath).Msg("cleared egress-log stats")
+			}
+		}
 		var err error
 		egressLog, err = egresslog.NewWithPath(5000, egressLogPath)
 		if err != nil {
