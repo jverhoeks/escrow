@@ -94,6 +94,10 @@ func NewWithPath(cap int, path string) (*Log, error) {
 	// Load existing events (newest last in file → reverse after load).
 	if data, err := os.ReadFile(path); err == nil {
 		scanner := bufio.NewScanner(strings.NewReader(string(data)))
+		// Raise the token limit (default 64 KiB) to 1 MiB so a large event line
+		// — e.g. one carrying a long Vulns list — doesn't stop the scan early and
+		// silently drop the newer events written after it. Matches egresslog's loader.
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		var loaded []PackageEvent
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
@@ -105,6 +109,11 @@ func NewWithPath(cap int, path string) (*Log, error) {
 				loaded = append(loaded, e)
 			}
 		}
+		// A residual scan error (e.g. a line exceeding even the 1 MiB buffer)
+		// truncates the load; keep the best-effort partial rather than failing
+		// startup for a best-effort observability log (this leaf package has no
+		// logger). The larger buffer makes this practically unreachable.
+		_ = scanner.Err()
 		// Keep last `cap` events; reverse so slice is newest-first.
 		if len(loaded) > cap {
 			loaded = loaded[len(loaded)-cap:]
