@@ -6,6 +6,8 @@ package upstreamlog
 import (
 	"sync"
 	"time"
+
+	"github.com/jverhoeks/escrow/internal/ringbuf"
 )
 
 // Event is a single escrow→upstream fetch.
@@ -22,28 +24,22 @@ type Event struct {
 // Log is a fixed-capacity, newest-first ring of upstream fetch events.
 type Log struct {
 	mu     sync.RWMutex
-	cap    int
-	events []Event
+	events *ringbuf.Buf[Event]
 }
 
 // New returns an upstream log holding at most cap events.
 func New(cap int) *Log {
-	if cap <= 0 {
-		cap = 1
-	}
-	return &Log{cap: cap}
+	return &Log{events: ringbuf.New[Event](cap)}
 }
 
-// Record prepends an event, trimming to capacity. Timestamp defaults to now.
+// Record appends an event (O(1)), evicting the oldest at capacity. Timestamp
+// defaults to now.
 func (l *Log) Record(e Event) {
 	if e.Timestamp.IsZero() {
 		e.Timestamp = time.Now().UTC()
 	}
 	l.mu.Lock()
-	l.events = append([]Event{e}, l.events...)
-	if len(l.events) > l.cap {
-		l.events = l.events[:l.cap]
-	}
+	l.events.Push(e)
 	l.mu.Unlock()
 }
 
@@ -51,9 +47,13 @@ func (l *Log) Record(e Event) {
 func (l *Log) Events(eco string) []Event {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	out := make([]Event, 0, len(l.events))
-	for _, e := range l.events {
-		if eco == "" || e.Ecosystem == eco {
+	all := l.events.Newest()
+	if eco == "" {
+		return all
+	}
+	out := make([]Event, 0, len(all))
+	for _, e := range all {
+		if e.Ecosystem == eco {
 			out = append(out, e)
 		}
 	}

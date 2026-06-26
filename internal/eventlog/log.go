@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jverhoeks/escrow/internal/logfile"
+	"github.com/jverhoeks/escrow/internal/ringbuf"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
 
@@ -60,7 +61,7 @@ const maxSubscribers = 100 // cap on concurrent SSE dashboard connections
 type Log struct {
 	mu          sync.RWMutex
 	cap         int
-	events      []PackageEvent
+	events      *ringbuf.Buf[PackageEvent] // newest-first, O(1) push
 	subscribers map[int]chan PackageEvent
 	nextID      int
 	file        *os.File // append-only JSONL; nil = in-memory only
@@ -77,14 +78,14 @@ type Log struct {
 
 // New creates an in-memory event log with the given capacity.
 func New(cap int) *Log {
-	return &Log{cap: cap, subscribers: make(map[int]chan PackageEvent)}
+	return &Log{cap: cap, events: ringbuf.New[PackageEvent](cap), subscribers: make(map[int]chan PackageEvent)}
 }
 
 // NewWithPath creates an event log that persists to a JSONL file.
 // Existing events are loaded from the file on startup (up to cap).
 // The file is opened for appending; new events are written as they arrive.
 func NewWithPath(cap int, path string) (*Log, error) {
-	l := &Log{cap: cap, subscribers: make(map[int]chan PackageEvent)}
+	l := &Log{cap: cap, events: ringbuf.New[PackageEvent](cap), subscribers: make(map[int]chan PackageEvent)}
 	l.path = path
 	l.maxBytes = logfile.DefaultMaxBytes
 	if path == "" {
@@ -117,14 +118,14 @@ func NewWithPath(cap int, path string) (*Log, error) {
 		// startup for a best-effort observability log (this leaf package has no
 		// logger). The larger buffer makes this practically unreachable.
 		_ = scanner.Err()
-		// Keep last `cap` events; reverse so slice is newest-first.
+		// Keep the last `cap` events. The file is oldest-first (append order), so
+		// push in that order and the ring yields newest-first.
 		if len(loaded) > cap {
 			loaded = loaded[len(loaded)-cap:]
 		}
-		for i, j := 0, len(loaded)-1; i < j; i, j = i+1, j-1 {
-			loaded[i], loaded[j] = loaded[j], loaded[i]
+		for _, e := range loaded {
+			l.events.Push(e)
 		}
-		l.events = loaded
 	}
 
 	if dir := filepath.Dir(path); dir != "." {
@@ -160,10 +161,7 @@ func (l *Log) Record(e PackageEvent) {
 		e.Timestamp = time.Now().UTC()
 	}
 	l.mu.Lock()
-	l.events = append([]PackageEvent{e}, l.events...)
-	if len(l.events) > l.cap {
-		l.events = l.events[:l.cap]
-	}
+	l.events.Push(e)
 	if l.file != nil {
 		if data, err := json.Marshal(e); err == nil {
 			if n, werr := l.file.Write(append(data, '\n')); werr == nil {
@@ -194,9 +192,10 @@ func (l *Log) Record(e PackageEvent) {
 // newest-first and NewWithPath reverses on load, so emit in REVERSE. On error,
 // file persistence is disabled until restart; the in-memory log is unaffected.
 func (l *Log) compactLocked() {
-	lines := make([][]byte, 0, len(l.events))
-	for i := len(l.events) - 1; i >= 0; i-- {
-		if b, err := json.Marshal(l.events[i]); err == nil {
+	oldest := l.events.Oldest()
+	lines := make([][]byte, 0, len(oldest))
+	for _, e := range oldest {
+		if b, err := json.Marshal(e); err == nil {
 			lines = append(lines, b)
 		}
 	}
@@ -219,8 +218,9 @@ func (l *Log) compactLocked() {
 func (l *Log) Events(eco string) []PackageEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	out := make([]PackageEvent, 0, len(l.events))
-	for _, e := range l.events {
+	all := l.events.Newest()
+	out := make([]PackageEvent, 0, len(all))
+	for _, e := range all {
 		if eco == "" || e.Ecosystem == eco {
 			out = append(out, e)
 		}
@@ -263,7 +263,7 @@ func (l *Log) Stats(window time.Duration) Stats {
 	defer l.mu.RUnlock()
 	s := Stats{}
 	counts := map[string]int{}
-	for _, e := range l.events {
+	for _, e := range l.events.Newest() {
 		if window > 0 && !e.Timestamp.After(cutoff) {
 			continue
 		}

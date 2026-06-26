@@ -7,6 +7,8 @@ package accesslog
 import (
 	"sync"
 	"time"
+
+	"github.com/jverhoeks/escrow/internal/ringbuf"
 )
 
 // Entry is a single HTTP request. The JSON tags match the shape the dashboard
@@ -25,28 +27,22 @@ type Entry struct {
 // Log is a fixed-capacity, newest-first ring of access log entries.
 type Log struct {
 	mu      sync.RWMutex
-	cap     int
-	entries []Entry
+	entries *ringbuf.Buf[Entry]
 }
 
 // New returns an access log holding at most cap entries.
 func New(cap int) *Log {
-	if cap <= 0 {
-		cap = 1
-	}
-	return &Log{cap: cap}
+	return &Log{entries: ringbuf.New[Entry](cap)}
 }
 
-// Record prepends an entry, trimming to capacity. Timestamp defaults to now.
+// Record appends an entry (O(1)), evicting the oldest at capacity. Timestamp
+// defaults to now.
 func (l *Log) Record(e Entry) {
 	if e.Timestamp.IsZero() {
 		e.Timestamp = time.Now().UTC()
 	}
 	l.mu.Lock()
-	l.entries = append([]Entry{e}, l.entries...)
-	if len(l.entries) > l.cap {
-		l.entries = l.entries[:l.cap]
-	}
+	l.entries.Push(e)
 	l.mu.Unlock()
 }
 
@@ -55,10 +51,9 @@ func (l *Log) Record(e Entry) {
 func (l *Log) Recent(n int) []Entry {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	if n <= 0 || n > len(l.entries) {
-		n = len(l.entries)
+	all := l.entries.Newest()
+	if n <= 0 || n > len(all) {
+		n = len(all)
 	}
-	out := make([]Entry, n)
-	copy(out, l.entries[:n])
-	return out
+	return all[:n]
 }

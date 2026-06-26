@@ -23,7 +23,7 @@ type Stat struct {
 // persisted to a JSON file. Writes are batched: Incr only marks the store dirty;
 // Flush writes to disk.
 type Store struct {
-	mu    sync.Mutex
+	mu    sync.RWMutex
 	m     map[string]Stat
 	path  string // "" = in-memory only
 	dirty bool
@@ -98,8 +98,8 @@ func (s *Store) evictOldestLocked() {
 
 // Get returns the stat for a version, or false if it was never downloaded.
 func (s *Store) Get(eco, name, version string) (Stat, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	st, ok := s.m[key(eco, name, version)]
 	return st, ok
 }
