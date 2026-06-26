@@ -17,6 +17,7 @@ func runFwEnable(args []string) {
 	ecosystems := fs.String("ecosystems", strings.Join(allEcosystems, ","), "comma-separated ecosystems to intercept")
 	proxyPort := fs.Int("proxy-port", 7888, "escrow proxy port")
 	proxyUser := fs.String("proxy-user", "_escrow", "OS user running the escrow proxy")
+	blockIPv6 := fs.Bool("block-ipv6", false, "block ALL IPv6 egress to :80/:443 (except the proxy user) instead of per-registry-host IPv6 blocks; closes the later-AAAA/CDN-rotation bypass but also blocks the host's general IPv6 web traffic on those ports")
 	fs.Parse(args) //nolint:errcheck
 
 	requireRoot("fw-enable")
@@ -32,14 +33,21 @@ func runFwEnable(args []string) {
 
 	switch runtime.GOOS {
 	case "darwin":
-		fwEnableDarwin(ecos, *proxyPort, *proxyUser)
+		fwEnableDarwin(ecos, *proxyPort, *proxyUser, *blockIPv6)
 	case "linux":
-		fwEnableLinux(ecos, *proxyPort, *proxyUser)
+		fwEnableLinux(ecos, *proxyPort, *proxyUser, *blockIPv6)
 	default:
 		die("fw-enable not supported on %s", runtime.GOOS)
 	}
 
 	fmt.Printf("firewall rules enabled for: %s\n", strings.Join(ecos, ", "))
+	if !*blockIPv6 {
+		fmt.Println("WARNING: IPv6 is blocked only for registry hosts that have an AAAA record right now.\n" +
+			"  A host that gains an AAAA after this point (dual-stack rollout, CDN change) can be reached\n" +
+			"  directly over IPv6, bypassing escrow. The kernel redirect also pins IPs at load time, so CDN\n" +
+			"  IP rotation is not tracked. For hostname-level enforcement at connect time, pair with the\n" +
+			"  egress proxy; for a hard IPv6 cutoff on this host, re-run with --block-ipv6.")
+	}
 }
 
 // runFwDisable is the cross-platform fw-disable entry point.
@@ -94,14 +102,14 @@ func lookupUID(username string) (string, error) {
 
 // ── macOS pf backend ──────────────────────────────────────────────────────────
 
-func fwEnableDarwin(ecos []string, port int, proxyUser string) {
+func fwEnableDarwin(ecos []string, port int, proxyUser string, blockIPv6 bool) {
 	// Resolve to numeric UID so pf doesn't do a username lookup at load time.
 	// A freshly-created OD account may not be visible to pf's getpwnam() yet.
 	uid, err := lookupUID(proxyUser)
 	if err != nil {
 		die("looking up uid for %q: %v — run 'escrow-cli setup' first", proxyUser, err)
 	}
-	rules := buildPfRules(ecos, port, uid)
+	rules := buildPfRules(ecos, port, uid, blockIPv6)
 	if err := writeAtomic(pfAnchorFile, []byte(rules), 0644); err != nil {
 		die("writing anchor file: %v", err)
 	}
@@ -143,7 +151,7 @@ func detectLinuxFw() string {
 
 // fwEnableIptables creates an ESCROW chain in the nat table and populates it.
 // Uses a dedicated chain so fw-disable can flush it without touching other rules.
-func fwEnableIptables(ecos []string, port int, proxyUser string) {
+func fwEnableIptables(ecos []string, port int, proxyUser string, blockIPv6 bool) {
 	exec.Command("iptables", "-t", "nat", "-N", "ESCROW").Run()  //nolint:errcheck
 	// ESCROW6 lives in the filter table (not nat): we block IPv6 entirely rather than
 	// redirect it, forcing dual-stack hosts to use the IPv4 redirect path through the proxy.
@@ -183,12 +191,23 @@ func fwEnableIptables(ecos []string, port int, proxyUser string) {
 		}
 	}
 
-	for _, host := range orderedHosts(ecos) {
+	if blockIPv6 {
+		// Host-independent cutoff: no `-d host` (no AAAA lookup at load), so a
+		// host that gains an AAAA later cannot bypass. Blocks the host's general
+		// IPv6 web egress on these ports too.
 		exec.Command("ip6tables", "-A", "ESCROW6",
-			"-p", "tcp", "-m", "multiport", "--dports", "80,443", "-d", host,
+			"-p", "tcp", "-m", "multiport", "--dports", "80,443",
 			"-m", "owner", "!", "--uid-owner", proxyUser,
 			"-j", "REJECT", "--reject-with", "tcp-reset",
 		).Run() //nolint:errcheck
+	} else {
+		for _, host := range orderedHosts(ecos) {
+			exec.Command("ip6tables", "-A", "ESCROW6",
+				"-p", "tcp", "-m", "multiport", "--dports", "80,443", "-d", host,
+				"-m", "owner", "!", "--uid-owner", proxyUser,
+				"-j", "REJECT", "--reject-with", "tcp-reset",
+			).Run() //nolint:errcheck
+		}
 	}
 }
 
@@ -203,12 +222,12 @@ func fwDisableIptables() {
 
 const nftRulesFile = "/etc/nftables.d/escrow.conf"
 
-func fwEnableLinux(ecos []string, port int, proxyUser string) {
+func fwEnableLinux(ecos []string, port int, proxyUser string, blockIPv6 bool) {
 	switch detectLinuxFw() {
 	case "iptables":
-		fwEnableIptables(ecos, port, proxyUser)
+		fwEnableIptables(ecos, port, proxyUser, blockIPv6)
 	case "nftables":
-		fwEnableNftables(ecos, port, proxyUser)
+		fwEnableNftables(ecos, port, proxyUser, blockIPv6)
 	default:
 		die("neither iptables nor nft found — install one to use fw-enable")
 	}
@@ -225,12 +244,12 @@ func fwDisableLinux() {
 	}
 }
 
-func fwEnableNftables(ecos []string, port int, proxyUser string) {
+func fwEnableNftables(ecos []string, port int, proxyUser string, blockIPv6 bool) {
 	uid, err := lookupUID(proxyUser)
 	if err != nil {
 		die("looking up uid for %q: %v — create the user first with: escrow-cli setup", proxyUser, err)
 	}
-	rules := buildNftRules(ecos, port, uid)
+	rules := buildNftRules(ecos, port, uid, blockIPv6)
 	if err := os.MkdirAll("/etc/nftables.d", 0755); err != nil {
 		die("creating /etc/nftables.d: %v", err)
 	}
@@ -251,7 +270,10 @@ func fwDisableNftables() {
 
 // buildNftRules generates an nftables ruleset for the given ecosystems.
 // uid is the numeric UID of the proxy user (excluded from redirect/block).
-func buildNftRules(ecos []string, port int, uid string) string {
+// When blockIPv6 is true, the ip6 chain blocks ALL IPv6 egress to :80/:443
+// (except the proxy uid) instead of per-host, closing the later-AAAA bypass at
+// the cost of the host's general IPv6 web traffic on those ports.
+func buildNftRules(ecos []string, port int, uid string, blockIPv6 bool) string {
 	hosts := orderedHosts(ecos)
 	var sb strings.Builder
 	sb.WriteString("# Escrow redirect rules — generated by escrow-cli\n\n")
@@ -281,10 +303,17 @@ func buildNftRules(ecos []string, port int, uid string) string {
 	sb.WriteString("table ip6 escrow {\n")
 	sb.WriteString("  chain output {\n")
 	sb.WriteString("    type filter hook output priority filter;\n")
-	for _, host := range hosts {
+	if blockIPv6 {
+		// Host-independent cutoff: no AAAA needed at load, so a later-acquired
+		// AAAA cannot bypass. Blocks the host's general IPv6 web egress too.
 		fmt.Fprintf(&sb,
-			"    tcp dport { 80, 443 } ip6 daddr %s meta skuid != %s reject\n",
-			host, uid)
+			"    tcp dport { 80, 443 } meta skuid != %s reject\n", uid)
+	} else {
+		for _, host := range hosts {
+			fmt.Fprintf(&sb,
+				"    tcp dport { 80, 443 } ip6 daddr %s meta skuid != %s reject\n",
+				host, uid)
+		}
 	}
 	sb.WriteString("  }\n")
 	sb.WriteString("}\n")
