@@ -52,6 +52,16 @@ is already done at listing, and no metadata fetch is added to the download hot p
 artifacts download from the Packagist/GitHub CDN, not through escrow, so this enforcement does
 not apply (see below).
 
+### Artifact integrity verification
+
+For **PyPI**, escrow verifies a downloaded wheel/sdist against the upstream-declared `sha256`
+(from the JSON API, the same digest PyPI publishes in the PEP 503 href) before caching or
+serving it: bytes are streamed to a temp file while hashing, and a mismatch is **rejected** —
+never cached, never served. This is defense-in-depth (clients run their own checks) against a
+tampered/MITM'd upstream or a corrupted cache blob. When no digest is available (a pinned/cold
+fetch or an old release) escrow serves unverified and logs it (fail open). Digest verification
+for npm (`dist.integrity`), NuGet, and Maven (`.sha1`) is not yet implemented.
+
 ### Trust pipeline
 
 ```
