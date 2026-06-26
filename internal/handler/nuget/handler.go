@@ -14,6 +14,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
@@ -208,10 +209,37 @@ func (h *Handler) serveDownload(w http.ResponseWriter, r *http.Request) {
 	filename := chi.URLParam(r, "filename")
 	cacheKey := fmt.Sprintf("nuget/pkgs/%s/%s/%s", id, version, filename)
 
+	// Enforce policy on the artifact path before serving any bytes (blocklist +
+	// OSV): a blocked or known-vulnerable version must not be downloadable even
+	// via a pinned URL or a warm cache. See internal/gate.
+	if id != "" && version != "" {
+		if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
+			trust.Package{Ecosystem: trust.EcosystemNuGet, Name: id, Version: version}).Action == policy.ActionBlock {
+			http.Error(w, "blocked by policy", http.StatusForbidden)
+			return
+		}
+	}
+
+	// Record a successful download event once per served package, on both
+	// cache-hit and cache-miss serve paths.
+	recordDownload := func() {
+		if h.evlog == nil || id == "" || version == "" {
+			return
+		}
+		h.evlog.Record(eventlog.PackageEvent{
+			Ecosystem: string(trust.EcosystemNuGet),
+			Package:   id + "@" + version,
+			Action:    "allow",
+			Kind:      eventlog.KindDownloaded,
+			Reason:    "artifact downloaded",
+		})
+	}
+
 	if blob, _ := h.cache.GetBlob(r.Context(), cacheKey); blob != nil {
 		defer blob.Close()
 		metrics.CacheHitsTotal.WithLabelValues("nuget", "blob").Inc()
 		io.Copy(w, blob)
+		recordDownload()
 		return
 	}
 
@@ -241,6 +269,7 @@ func (h *Handler) serveDownload(w http.ResponseWriter, r *http.Request) {
 	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
 	pw.CloseWithError(copyErr)
 	<-cacheDone
+	recordDownload()
 }
 
 // filterRegistration parses the NuGet registration JSON, runs the trust engine on each

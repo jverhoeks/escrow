@@ -17,6 +17,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
@@ -209,17 +210,27 @@ func (h *Handler) serveMetadataFrom(w http.ResponseWriter, r *http.Request, path
 
 // serveArtifactFrom proxies a Maven artifact from a specific upstream URL.
 func (h *Handler) serveArtifactFrom(w http.ResponseWriter, r *http.Request, path, upstream string) {
-	// Record a download event once per served binary artifact (jar/war/ear/aar
-	// only — not poms, checksums or module descriptors), on both cache-hit and
-	// cache-miss serve paths. group:artifact and version are derived from the
-	// repository path layout (.../artifactId/version/file.ext), matching the
-	// "group:artifact" + version format the listing events record.
-	recordDownload := func() {
-		if h.evlog == nil {
+	// group:artifact and version are derived from the repository path layout
+	// (.../artifactId/version/file.ext) for binary archives only (jar/war/ear/aar
+	// — not poms, checksums or module descriptors), matching the "group:artifact"
+	// + version format the listing events record.
+	name, version := mavenCoordsFromPath(path)
+
+	// Enforce policy on the artifact path before serving any bytes (blocklist +
+	// OSV): a blocked or known-vulnerable version must not be downloadable even
+	// via a pinned URL or a warm cache. See internal/gate.
+	if name != "" && version != "" {
+		if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
+			trust.Package{Ecosystem: trust.EcosystemMaven, Name: name, Version: version}).Action == policy.ActionBlock {
+			http.Error(w, "blocked by policy", http.StatusForbidden)
 			return
 		}
-		name, version := mavenCoordsFromPath(path)
-		if name == "" || version == "" {
+	}
+
+	// Record a successful download event once per served binary artifact, on both
+	// cache-hit and cache-miss serve paths.
+	recordDownload := func() {
+		if h.evlog == nil || name == "" || version == "" {
 			return
 		}
 		h.evlog.Record(eventlog.PackageEvent{

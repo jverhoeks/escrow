@@ -37,6 +37,21 @@ be installed by `--force` or by a dependency resolver fallback. For Go modules, 
 HTTP 403 on `.info` and `@latest` endpoints. For Cargo, blocked versions are omitted from the
 sparse index NDJSON.
 
+### Enforcement on the download path
+
+Manifest filtering hides a blocked version from resolution, but the artifact endpoint is
+reachable directly — a pinned lockfile URL, a version auto-blocked by a rescan after it was
+already cached, or a rewritten artifact URL. So the download endpoints (npm tarball, PyPI
+wheel/sdist, Cargo crate, NuGet `.nupkg`, Maven jar/war/ear/aar, Go `.zip`) independently
+re-evaluate the full trust engine and policy before serving any bytes, on both cache-miss and
+cache-hit paths. A blocked or known-vulnerable version returns **HTTP 403** with no artifact
+bytes, even when warm in the cache, and the block is recorded as a download event. This closes
+the gap where a pinned or auto-blocked version could still be fetched. Concretely the download
+gate enforces **blocklist + OSV** — the age gate's job (hiding fresh versions from resolution)
+is already done at listing, and no metadata fetch is added to the download hot path. Composer
+artifacts download from the Packagist/GitHub CDN, not through escrow, so this enforcement does
+not apply (see below).
+
 ### Trust pipeline
 
 ```

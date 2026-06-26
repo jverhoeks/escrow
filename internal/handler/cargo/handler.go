@@ -14,6 +14,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -194,9 +195,20 @@ func (h *Handler) serveDownload(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	version := chi.URLParam(r, "version")
 
-	// Record a download event once per served crate, on both cache-hit and
-	// cache-miss serve paths. name/version come straight from the URL params
-	// and match the listing events.
+	// Enforce policy on the artifact path before serving any bytes (blocklist +
+	// OSV): a blocked or known-vulnerable version must not be downloadable even
+	// via a pinned URL or a warm cache. See internal/gate.
+	if name != "" && version != "" {
+		if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
+			trust.Package{Ecosystem: trust.EcosystemCargo, Name: name, Version: version}).Action == policy.ActionBlock {
+			http.Error(w, "blocked by policy", http.StatusForbidden)
+			return
+		}
+	}
+
+	// Record a successful download event once per served crate, on both
+	// cache-hit and cache-miss serve paths. name/version come straight from the
+	// URL params and match the listing events.
 	recordDownload := func() {
 		if h.evlog == nil || name == "" || version == "" {
 			return
