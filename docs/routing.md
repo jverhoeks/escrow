@@ -167,9 +167,14 @@ sudo escrow-cli setup --sudoers
 
 ```bash
 sudo escrow-cli fw-enable [--ecosystems npm,pypi,go,cargo,nuget,maven,composer] \
-                          [--proxy-port 7888] [--proxy-user _escrow]
+                          [--proxy-port 7888] [--proxy-user _escrow] [--block-ipv6]
 sudo escrow-cli fw-disable
 ```
+
+`--block-ipv6` blocks **all** IPv6 egress to `:80`/`:443` (except the proxy user) instead of only
+the registry hosts that have an AAAA record at enable time. Use it on locked-down CI hosts where a
+later-acquired AAAA (dual-stack rollout, CDN change) must not become an IPv6 bypass — at the cost
+of the host's general IPv6 web traffic on those ports. See the IPv6 caveat below.
 
 #### Verify interception is working
 
@@ -203,7 +208,8 @@ pf and iptables resolve hostnames to IP addresses at rule-load time. This means:
 
 | Limitation | Impact | Mitigation |
 |---|---|---|
-| CDN IP rotation | Rules stale after TTL expires (`proxy.golang.org` TTL: 8s) | Re-run `fw-enable` after network change |
+| CDN IP rotation | Rules pin IPs at load time; new connections to a rotated IP are not redirected | Re-run `fw-enable` after network change, or **pair with the egress proxy** (matches hostname at connect time) |
+| IPv6 (later-acquired AAAA) | By default IPv6 is blocked only for registry hosts that have an AAAA *at enable time*; a host that gains one afterward can be reached directly over IPv6 | Run `fw-enable --block-ipv6` for a hard IPv6 cutoff, or pair with the egress proxy |
 | HTTP/3 / QUIC | UDP port 443 bypasses TCP redirect | Package managers use TCP today; monitor as HTTP/3 adoption grows |
 | VPN split-tunnelling | Corporate VPN may mark registry IPs as "direct", bypassing redirect | Methods 1–3 remain effective |
 | New bundled runtimes | Tool that ignores config and bypasses TCP (e.g. custom go binary) | Methods 1–3 provide defence-in-depth |
