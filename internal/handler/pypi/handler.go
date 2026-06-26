@@ -16,6 +16,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -202,23 +203,35 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, filename str
 		http.Error(w, `{"blocked":true,"signal":"sdist","reason":"source distributions are blocked by policy"}`, http.StatusForbidden)
 		return
 	}
-	// Record a download event once per served artifact, on both cache-hit and
-	// cache-miss serve paths. Name/version are parsed from the wheel/sdist
-	// filename; the name is PEP 503-normalized to match the listing events
-	// (which record the normalized simple-index name pip/uv requests).
-	recordDownload := func() {
-		if h.evlog == nil {
+	// Name/version are parsed from the wheel/sdist filename; the name is PEP
+	// 503-normalized to match the listing events (the normalized simple-index
+	// name pip/uv requests).
+	name, version := pkgVersionFromFilename(filename)
+
+	// Enforce policy on the artifact path before serving any bytes (blocklist +
+	// OSV): a blocked or known-vulnerable version must not be downloadable even
+	// via a pinned URL or a warm cache. See internal/gate.
+	if name != "" && version != "" {
+		if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
+			trust.Package{Ecosystem: trust.EcosystemPyPI, Name: name, Version: version}).Action == policy.ActionBlock {
+			http.Error(w, "blocked by policy", http.StatusForbidden)
 			return
 		}
-		if name, version := pkgVersionFromFilename(filename); name != "" && version != "" {
-			h.evlog.Record(eventlog.PackageEvent{
-				Ecosystem: string(trust.EcosystemPyPI),
-				Package:   name + "@" + version,
-				Action:    "allow",
-				Kind:      eventlog.KindDownloaded,
-				Reason:    "artifact downloaded",
-			})
+	}
+
+	// Record a successful download event once per served artifact, on both
+	// cache-hit and cache-miss serve paths.
+	recordDownload := func() {
+		if h.evlog == nil || name == "" || version == "" {
+			return
 		}
+		h.evlog.Record(eventlog.PackageEvent{
+			Ecosystem: string(trust.EcosystemPyPI),
+			Package:   name + "@" + version,
+			Action:    "allow",
+			Kind:      eventlog.KindDownloaded,
+			Reason:    "artifact downloaded",
+		})
 	}
 
 	cacheKey := "pypi/packages/" + filename

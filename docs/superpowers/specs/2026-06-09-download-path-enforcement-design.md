@@ -85,30 +85,29 @@ Handlers stop selecting `listingEngine` on the download path — they use the fu
 
 ### 3. Package construction (metadata nuance)
 
-Each handler builds the richest `trust.Package` it can **without a new mandatory network
-fetch on the hot path**:
+Each handler builds a `trust.Package{Ecosystem, Name, Version}` — all three are already
+parsed at the download endpoint for `recordDownload` (npm `versionFromTarball`, pypi
+`pkgVersionFromFilename`, cargo/nuget URL params, maven `mavenCoordsFromPath`, gomod
+unescape). No `PublishedAt`/`Author` is populated.
 
-- `Ecosystem`, `Name`, `Version` — always available (already parsed for `recordDownload`:
-  npm `versionFromTarball`, pypi `pkgVersionFromFilename`, cargo/nuget URL params,
-  maven `mavenCoordsFromPath`, gomod unescape).
-- `PublishedAt` / `Author` — populated from already-cached manifest/metadata when present
-  (the normal flow: the client fetched the manifest before downloading). Not fetched
-  on-demand.
-
-Signal behavior that follows from this:
+Signal behavior that follows:
 
 | Signal | Inputs | At download |
 |--------|--------|-------------|
 | allowlist / blocklist | eco, name, version | **always enforced** |
 | OSV | eco, name, version | **always enforced** (cache-backed; one cold API call then cached) |
-| age | PublishedAt | enforced when metadata cached; else fail-open (same as listing today) |
-| publisher | author | enforced when metadata cached; else fail-open |
-| popularity | download stats | enforced when available; else fail-open |
+| age | PublishedAt | not re-run (PublishedAt zero ⇒ passes) — already enforced at listing |
+| publisher | author | not re-run (no author at download ⇒ skip) |
+| popularity | download stats | not re-run (skip) |
 
-**Accepted residual:** a cold *direct/pinned* fetch that never hit the manifest is gated
-on blocklist + OSV but not age. This is intentional — the age gate's job (hiding fresh
-versions from resolution) is already done at listing; blocklist + OSV are what matter on a
-pinned re-fetch. We do not add a metadata fetch to the download hot path.
+**Implementation note (revised from the original "enrich from cache" plan):** populating
+`PublishedAt`/`Author` at download was dropped as redundant. In the normal flow a
+too-young version is already filtered out of the listing, so the client never resolves it
+and never requests the artifact; in the direct/pinned-fetch case there is no cached
+metadata to enrich from. So the concrete, complete enforcement the download gate adds is
+**blocklist + OSV** — the two controls that were actually missing — and that needs only
+`(eco, name, version)`. This is the "accept residual" choice, made uniform across all six
+handlers (no per-handler metadata parsing, no fetch on the hot path).
 
 ### 4. Block response & events
 

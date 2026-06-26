@@ -14,6 +14,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -212,20 +213,31 @@ func (h *Handler) serveMod(w http.ResponseWriter, r *http.Request, escapedModule
 
 // serveZip proxies .zip source archives and caches them as blobs.
 func (h *Handler) serveZip(w http.ResponseWriter, r *http.Request, escapedModule, request string) {
-	// Record a download event once per served zip, on both cache-hit and
-	// cache-miss serve paths. The module name and version are unescaped from
-	// the bang-encoded request path to match the clean values listing events use.
-	recordDownload := func() {
-		if h.evlog == nil {
+	// The module name and version are unescaped from the bang-encoded request
+	// path to match the clean values listing events use.
+	module := unescape(escapedModule)
+	version := unescape(strings.TrimSuffix(request, ".zip"))
+
+	// Enforce policy on the artifact path before serving any bytes (blocklist +
+	// OSV): a blocked or known-vulnerable version must not be downloadable even
+	// via a pinned URL or a warm cache. See internal/gate.
+	if module != "" && version != "" {
+		if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
+			trust.Package{Ecosystem: trust.EcosystemGo, Name: module, Version: version}).Action == policy.ActionBlock {
+			http.Error(w, "blocked by policy", http.StatusForbidden)
 			return
 		}
-		version := unescape(strings.TrimSuffix(request, ".zip"))
-		if version == "" {
+	}
+
+	// Record a successful download event once per served zip, on both cache-hit
+	// and cache-miss serve paths.
+	recordDownload := func() {
+		if h.evlog == nil || version == "" {
 			return
 		}
 		h.evlog.Record(eventlog.PackageEvent{
 			Ecosystem: string(trust.EcosystemGo),
-			Package:   unescape(escapedModule) + "@" + version,
+			Package:   module + "@" + version,
 			Action:    "allow",
 			Kind:      eventlog.KindDownloaded,
 			Reason:    "artifact downloaded",

@@ -14,6 +14,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -204,23 +205,33 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 }
 
 func (h *Handler) ServeTarball(w http.ResponseWriter, r *http.Request, pkg, tarball string) {
-	// Record a download event once per served tarball, on both cache-hit and
-	// cache-miss serve paths. The package name matches the listing events
-	// (pkg.Name is the full, possibly-scoped name); the version is parsed from
-	// the tarball filename (<leaf>-<version>.tgz).
-	recordDownload := func() {
-		if h.evlog == nil {
+	version := versionFromTarball(pkg, tarball)
+
+	// Enforce policy on the artifact path before serving any bytes: a blocked
+	// version (manual or rescan auto-block) or a known-vulnerable one must not be
+	// downloadable even via a pinned URL or a warm cache. See internal/gate.
+	if version != "" {
+		if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
+			trust.Package{Ecosystem: trust.EcosystemNPM, Name: pkg, Version: version}).Action == policy.ActionBlock {
+			http.Error(w, "blocked by policy", http.StatusForbidden)
 			return
 		}
-		if version := versionFromTarball(pkg, tarball); version != "" {
-			h.evlog.Record(eventlog.PackageEvent{
-				Ecosystem: string(trust.EcosystemNPM),
-				Package:   pkg + "@" + version,
-				Action:    "allow",
-				Kind:      eventlog.KindDownloaded,
-				Reason:    "artifact downloaded",
-			})
+	}
+
+	// Record a successful download event once per served tarball, on both
+	// cache-hit and cache-miss serve paths. The package name matches the listing
+	// events (the full, possibly-scoped name).
+	recordDownload := func() {
+		if h.evlog == nil || version == "" {
+			return
 		}
+		h.evlog.Record(eventlog.PackageEvent{
+			Ecosystem: string(trust.EcosystemNPM),
+			Package:   pkg + "@" + version,
+			Action:    "allow",
+			Kind:      eventlog.KindDownloaded,
+			Reason:    "artifact downloaded",
+		})
 	}
 
 	cacheKey := fmt.Sprintf("npm/%s/-/%s", pkg, tarball)
