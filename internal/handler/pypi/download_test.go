@@ -2,6 +2,8 @@ package pypi_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -84,4 +86,71 @@ func TestPyPIHandler_CleanFile_200_RecordsAllow(t *testing.T) {
 	events := ev.Events("")
 	require.Len(t, events, 1)
 	assert.Equal(t, "allow", events[0].Action)
+}
+
+// #46: a wheel whose bytes don't match the upstream-declared sha256 must be
+// rejected — not served and not cached.
+func TestPyPIHandler_DigestMismatch_Rejected(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "WHEEL-BYTES")
+	}))
+	defer cdn.Close()
+	c := cache.NewMemory()
+	defer c.Close()
+	ctx := context.Background()
+	require.NoError(t, c.SetMeta(ctx, "pypi/fileurl/"+wheel, []byte(cdn.URL), time.Hour))
+	require.NoError(t, c.SetMeta(ctx, "pypi/digest/"+wheel, []byte("0000000000000000000000000000000000000000000000000000000000000000"), time.Hour))
+	h := pypi.New(cdn.Client(), cdn.URL, trust.NewEngine(), policy.New(nil), c, false, eventlog.New(10))
+
+	rr := httptest.NewRecorder()
+	h.ServeFile(rr, httptest.NewRequest(http.MethodGet, "/pypi/packages/"+wheel, nil), wheel)
+
+	require.Equal(t, http.StatusBadGateway, rr.Code, "mismatch must be rejected")
+	assert.NotContains(t, rr.Body.String(), "WHEEL-BYTES", "bad bytes must not be served")
+	blob, _ := c.GetBlob(ctx, "pypi/packages/"+wheel)
+	assert.Nil(t, blob, "bad bytes must not be cached")
+}
+
+// #46: a wheel whose bytes match the declared sha256 is served and cached.
+func TestPyPIHandler_DigestMatch_ServedAndCached(t *testing.T) {
+	const body = "WHEEL-BYTES"
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, body)
+	}))
+	defer cdn.Close()
+	c := cache.NewMemory()
+	defer c.Close()
+	ctx := context.Background()
+	digest := sha256.Sum256([]byte(body))
+	require.NoError(t, c.SetMeta(ctx, "pypi/fileurl/"+wheel, []byte(cdn.URL), time.Hour))
+	require.NoError(t, c.SetMeta(ctx, "pypi/digest/"+wheel, []byte(hex.EncodeToString(digest[:])), time.Hour))
+	h := pypi.New(cdn.Client(), cdn.URL, trust.NewEngine(), policy.New(nil), c, false, eventlog.New(10))
+
+	rr := httptest.NewRecorder()
+	h.ServeFile(rr, httptest.NewRequest(http.MethodGet, "/pypi/packages/"+wheel, nil), wheel)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, body, rr.Body.String())
+	blob, _ := c.GetBlob(ctx, "pypi/packages/"+wheel)
+	require.NotNil(t, blob, "verified bytes must be cached")
+	blob.Close()
+}
+
+// #46: with no declared digest (pinned/cold fetch, old release), serve unverified
+// (fail open) rather than rejecting legitimate traffic.
+func TestPyPIHandler_NoDigest_FailsOpen(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "WHEEL-BYTES")
+	}))
+	defer cdn.Close()
+	c := cache.NewMemory()
+	defer c.Close()
+	require.NoError(t, c.SetMeta(context.Background(), "pypi/fileurl/"+wheel, []byte(cdn.URL), time.Hour))
+	h := pypi.New(cdn.Client(), cdn.URL, trust.NewEngine(), policy.New(nil), c, false, eventlog.New(10))
+
+	rr := httptest.NewRecorder()
+	h.ServeFile(rr, httptest.NewRequest(http.MethodGet, "/pypi/packages/"+wheel, nil), wheel)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "WHEEL-BYTES", rr.Body.String())
 }

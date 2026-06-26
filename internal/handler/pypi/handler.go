@@ -3,13 +3,18 @@ package pypi
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/sync/singleflight"
@@ -274,20 +279,56 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, filename str
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
-	pr, pw := io.Pipe()
-	cacheDone := make(chan struct{})
-	go func() {
-		defer close(cacheDone)
-		if err := h.cache.SetBlob(context.Background(), cacheKey, pr); err != nil {
-			// Unblock the TeeReader writer immediately on a cache-write failure
-			// (e.g. disk-full / S3 error): otherwise the pipe write blocks until
-			// WriteTimeout, holding the client and upstream connections. See #45.
-			pr.CloseWithError(err)
+
+	// #46: download to a temp file while hashing, verify against the
+	// upstream-declared sha256 (cached from the JSON API), then cache and serve
+	// only verified bytes. A mismatch is rejected — never cached, never served.
+	// When no digest is available (a pinned/cold fetch, or an old release), serve
+	// unverified (fail open) but log it. This trades byte-1 streaming for
+	// integrity; acceptable on a cache miss. The temp file keeps memory bounded
+	// for large wheels. (The #45 streaming pipe stays for the other handlers.)
+	wantDigest := ""
+	if b, _ := h.cache.GetMeta(r.Context(), "pypi/digest/"+filename); len(b) > 0 {
+		wantDigest = string(b)
+	}
+	tmp, err := os.CreateTemp("", "escrow-pypi-*")
+	if err != nil {
+		http.Error(w, "cache temp error", http.StatusInternalServerError)
+		return
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	sum := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmp, sum), resp.Body); err != nil {
+		tmp.Close()
+		http.Error(w, "upstream read error", http.StatusBadGateway)
+		return
+	}
+	tmp.Close()
+
+	if wantDigest != "" {
+		got := hex.EncodeToString(sum.Sum(nil))
+		if !strings.EqualFold(got, wantDigest) {
+			log.Warn().Str("file", filename).Str("want", wantDigest).Str("got", got).
+				Msg("pypi artifact sha256 mismatch — refusing to cache or serve")
+			http.Error(w, "artifact integrity check failed", http.StatusBadGateway)
+			return
 		}
-	}()
-	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
-	pw.CloseWithError(copyErr)
-	<-cacheDone
+	} else {
+		log.Debug().Str("file", filename).Msg("pypi artifact served without sha256 verification (no digest available)")
+	}
+
+	// Commit verified bytes to the cache (best-effort), then serve them.
+	if f, ferr := os.Open(tmpName); ferr == nil {
+		if serr := h.cache.SetBlob(context.Background(), cacheKey, f); serr != nil {
+			log.Debug().Err(serr).Str("file", filename).Msg("pypi cache write failed; serving verified bytes anyway")
+		}
+		f.Close()
+	}
+	if f, ferr := os.Open(tmpName); ferr == nil {
+		io.Copy(w, f) //nolint:errcheck
+		f.Close()
+	}
 	recordDownload()
 }
 
@@ -306,12 +347,20 @@ func (h *Handler) fetchReleases(ctx context.Context, name string) map[string][]m
 	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
 		return nil
 	}
-	// Cache filename → CDN URL so ServeFile can proxy to the correct location.
+	// Cache filename → CDN URL so ServeFile can proxy to the correct location,
+	// and filename → sha256 so ServeFile can verify the downloaded bytes (#46).
 	for _, files := range meta.Releases {
 		for _, f := range files {
-			if fn, ok := f["filename"].(string); ok {
-				if u, ok := f["url"].(string); ok && u != "" {
-					h.cache.SetMeta(ctx, "pypi/fileurl/"+fn, []byte(u), 24*time.Hour)
+			fn, ok := f["filename"].(string)
+			if !ok {
+				continue
+			}
+			if u, ok := f["url"].(string); ok && u != "" {
+				h.cache.SetMeta(ctx, "pypi/fileurl/"+fn, []byte(u), 24*time.Hour)
+			}
+			if digests, ok := f["digests"].(map[string]any); ok {
+				if sum, ok := digests["sha256"].(string); ok && sum != "" {
+					h.cache.SetMeta(ctx, "pypi/digest/"+fn, []byte(sum), 24*time.Hour)
 				}
 			}
 		}
