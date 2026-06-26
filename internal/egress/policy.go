@@ -16,6 +16,31 @@ type Decision struct {
 	Reason string
 }
 
+// ssrfNets are the SSRF-sensitive ranges denied by default in forward mode:
+// cloud metadata / link-local, loopback, RFC1918 private, CGNAT, and the IPv6
+// equivalents (loopback, link-local, unique-local). A build container reaching
+// the proxy must not be able to pivot to these unless the operator explicitly
+// allows them. Parsed once at package init.
+var ssrfNets = mustParseCIDRs([]string{
+	"127.0.0.0/8",    // IPv4 loopback
+	"169.254.0.0/16", // IPv4 link-local (incl. 169.254.169.254 cloud metadata)
+	"10.0.0.0/8",     // RFC1918
+	"172.16.0.0/12",  // RFC1918
+	"192.168.0.0/16", // RFC1918
+	"100.64.0.0/10",  // RFC6598 CGNAT
+	"::1/128",        // IPv6 loopback
+	"fe80::/10",      // IPv6 link-local
+	"fc00::/7",       // IPv6 unique-local (incl. fd00:ec2::254 cloud metadata)
+})
+
+func mustParseCIDRs(in []string) []*net.IPNet {
+	nets, err := parseCIDRs(in)
+	if err != nil {
+		panic("egress: bad built-in CIDR: " + err.Error())
+	}
+	return nets
+}
+
 // Policy decides whether egress to a host/IP is permitted.
 type Policy struct {
 	whitelist  bool // true => deny-by-default; false => forward-everything
@@ -49,11 +74,20 @@ func (p *Policy) Check(host string, ip net.IP) Decision {
 	if hostMatch(p.blockHosts, host) || ipMatch(p.blockNets, ip) {
 		return Decision{Allow: false, Reason: "blacklisted"}
 	}
+	// An explicit allow (host or CIDR) takes precedence over the default-deny.
+	explicitlyAllowed := hostMatch(p.allowHosts, host) || ipMatch(p.allowNets, ip)
 	if p.whitelist {
-		if hostMatch(p.allowHosts, host) || ipMatch(p.allowNets, ip) {
+		if explicitlyAllowed {
 			return Decision{Allow: true, Reason: "whitelisted"}
 		}
 		return Decision{Allow: false, Reason: "not in whitelist"}
+	}
+	// Forward mode: deny SSRF-sensitive ranges (cloud metadata, loopback,
+	// private/link-local) by default unless explicitly allowed. The dial path
+	// checks every resolved IP, so this also stops a public hostname that
+	// resolves (or rebinds) to a metadata/internal address.
+	if !explicitlyAllowed && ipMatch(ssrfNets, ip) {
+		return Decision{Allow: false, Reason: "blocked SSRF-sensitive range (private/link-local/loopback); add to allow_cidrs to permit"}
 	}
 	return Decision{Allow: true, Reason: "forward"}
 }

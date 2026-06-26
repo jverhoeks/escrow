@@ -20,6 +20,11 @@ import (
 
 func startProxy(t *testing.T, cfg config.EgressProxyConfig, el *egresslog.Log) string {
 	t.Helper()
+	// Test upstreams run on 127.0.0.1, which forward mode now denies by default
+	// (SSRF guard). Explicitly allow loopback so the harness can reach them —
+	// what an operator would do to permit a genuinely-local target. Tests that
+	// assert blocking use BlockCIDRs/BlockHosts, which take precedence.
+	cfg.AllowCIDRs = append([]string{"127.0.0.0/8", "::1/128"}, cfg.AllowCIDRs...)
 	pol, err := NewPolicy(cfg)
 	require.NoError(t, err)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

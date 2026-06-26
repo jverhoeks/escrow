@@ -174,13 +174,21 @@ forward_port = 7889          # explicit forward-proxy: one port, HTTP + HTTPS vi
 policy       = "forward"     # "forward" (default-allow) | "whitelist" (deny-by-default)
 block_hosts  = ["telemetry.example", ".ads.example"]   # exact or ".suffix"
 allow_hosts  = []            # used in whitelist mode
-block_cidrs  = ["169.254.0.0/16"]                       # e.g. block cloud metadata
-allow_cidrs  = []
+block_cidrs  = ["169.254.0.0/16"]                       # add to the always-on default block (below)
+allow_cidrs  = []            # explicitly re-permit a default-blocked range
 # (transparent-mode intercept ports are added in the transparent/Phase-2 work)
 ```
 
 The egress proxy is **off by default**, on its own listener, separate from the dashboard/mirror
 port — never an accidental open relay. Run it only on a controlled dev/CI host.
+
+> 🔒 **SSRF default-deny (forward mode).** Even in `forward` mode, escrow always refuses egress
+> to SSRF-sensitive ranges — cloud metadata / link-local (`169.254.0.0/16`, `fe80::/10`),
+> loopback (`127.0.0.0/8`, `::1`), RFC1918 private (`10/8`, `172.16/12`, `192.168/16`), CGNAT
+> (`100.64.0.0/10`), and IPv6 unique-local (`fc00::/7`). This holds for a literal-IP `CONNECT`
+> **and** for a public hostname that resolves (or rebinds) to one of these — every resolved IP
+> is checked. If you genuinely need the proxy to reach a private/internal target, add it to
+> `allow_cidrs` (or `allow_hosts`); an explicit allow overrides the default deny.
 
 For live visibility into proxy decisions, allowed/blocked host counts, bytes proxied, and
 Prometheus metrics (`escrow_egress_requests_total`, `escrow_egress_bytes_total`), see the
