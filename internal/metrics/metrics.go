@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -73,6 +74,23 @@ var (
 		Help: "HTTP responses by status class",
 	}, []string{"class"})
 
+	// InFlightRequests is the current number of in-flight proxy requests — the
+	// saturation signal for the RED method (#41). Fed by the server middleware.
+	InFlightRequests = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "escrow_in_flight_requests",
+		Help: "Number of HTTP requests currently being served",
+	})
+
+	// UpstreamErrorsTotal counts failed upstream fetches (transport error or a
+	// 5xx response) by upstream host. It's the "are upstream fetches failing?"
+	// signal that the policy-decision RequestsTotal can't answer (#41). Fed
+	// centrally by the upstream transport's RoundTripper, so no per-handler
+	// wiring is needed.
+	UpstreamErrorsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "escrow_upstream_errors_total",
+		Help: "Failed upstream fetches (transport error or 5xx) by host and reason",
+	}, []string{"host", "reason"})
+
 	// UpstreamConnReused counts upstream connections by ecosystem and whether an
 	// idle keep-alive connection was reused (httptrace GotConn.Reused). The
 	// reuse ratio per ecosystem is the connection-pool health signal (#17): a
@@ -116,27 +134,24 @@ func HealthHandler(version, backend string, upstreams map[string]string, cacheHe
 	if cacheHealth == nil {
 		cacheHealth = func(context.Context) error { return nil }
 	}
+	probes := &upstreamProbeCache{ttl: 15 * time.Second}
 	return func(w http.ResponseWriter, r *http.Request) {
-		upstreamStatus := make(map[string]bool, len(upstreams))
-		for eco, url := range upstreams {
-			upstreamStatus[eco] = probeUpstream(r.Context(), url)
-		}
+		// Upstream reachability is informational only — a flaky registry does NOT
+		// make escrow unhealthy, because escrow serves cache hits fine while an
+		// upstream is down. Liveness (the 200/503 code) reflects only escrow's own
+		// ability to serve: the cache being writable. Probes are cached so a
+		// liveness/readiness probe loop can't hammer external registries (or be
+		// intercepted by escrow's own pf redirect) on every hit. See #40.
+		upstreamStatus := probes.status(r.Context(), upstreams)
 
 		cacheWritable := cacheHealth(r.Context()) == nil
-
 		status := "ok"
 		if !cacheWritable {
 			status = "degraded"
 		}
-		for _, ok := range upstreamStatus {
-			if !ok {
-				status = "degraded"
-				break
-			}
-		}
 
 		w.Header().Set("Content-Type", "application/json")
-		if status == "degraded" {
+		if !cacheWritable {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 		json.NewEncoder(w).Encode(HealthResponse{
@@ -148,6 +163,29 @@ func HealthHandler(version, backend string, upstreams map[string]string, cacheHe
 			UpstreamStatus: upstreamStatus,
 		})
 	}
+}
+
+// upstreamProbeCache memoizes upstream HEAD results for ttl so /healthz doesn't
+// fire an external HEAD per ecosystem on every hit.
+type upstreamProbeCache struct {
+	ttl    time.Duration
+	mu     sync.Mutex
+	at     time.Time
+	cached map[string]bool
+}
+
+func (c *upstreamProbeCache) status(ctx context.Context, upstreams map[string]string) map[string]bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cached != nil && time.Since(c.at) < c.ttl {
+		return c.cached
+	}
+	fresh := make(map[string]bool, len(upstreams))
+	for eco, url := range upstreams {
+		fresh[eco] = probeUpstream(ctx, url)
+	}
+	c.cached, c.at = fresh, time.Now()
+	return fresh
 }
 
 // probeUpstream does a HEAD request with a 3-second timeout.

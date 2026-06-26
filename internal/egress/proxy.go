@@ -226,6 +226,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	p.recordEgress(egresslog.Event{Host: host, Verb: r.Method, Action: "allow", Reason: "forward"})
+	stripHopByHop(resp.Header) // don't forward the upstream's hop-by-hop headers to the client (#52)
 	for k, vv := range resp.Header {
 		for _, v := range vv {
 			w.Header().Add(k, v)

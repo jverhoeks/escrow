@@ -10,9 +10,14 @@ import (
 // (7 ecosystems × MaxIdleConnsPerHost 20 = 140 potential).
 func TestNew_MaxIdleConns(t *testing.T) {
 	c := New()
-	tr, ok := c.Transport.(*http.Transport)
+	// The transport is wrapped for upstream-error metering; unwrap to the base.
+	ect, ok := c.Transport.(*errorCountingTransport)
 	if !ok {
-		t.Fatalf("Transport is %T, want *http.Transport", c.Transport)
+		t.Fatalf("Transport is %T, want *errorCountingTransport", c.Transport)
+	}
+	tr, ok := ect.base.(*http.Transport)
+	if !ok {
+		t.Fatalf("base transport is %T, want *http.Transport", ect.base)
 	}
 	if tr.MaxIdleConns != 256 {
 		t.Fatalf("MaxIdleConns = %d, want 256", tr.MaxIdleConns)

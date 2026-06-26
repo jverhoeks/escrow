@@ -69,3 +69,24 @@ func TestHealthHandler_NilCacheHealth(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
 	assert.True(t, resp.CacheWritable)
 }
+
+// A single flaky upstream must NOT make /healthz return 503: liveness reflects
+// escrow's own ability to serve (cache writable), not upstream reachability.
+// See #40.
+func TestHealthHandler_FlakyUpstreamStays200(t *testing.T) {
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer down.Close()
+	healthy := func(context.Context) error { return nil }
+	h := metrics.HealthHandler("dev", "disk", map[string]string{"npm": down.URL}, healthy)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code, "flaky upstream must not force 503")
+	var resp metrics.HealthResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	assert.Equal(t, "ok", resp.Status)
+	assert.False(t, resp.UpstreamStatus["npm"], "upstream status is reported as informational")
+}
