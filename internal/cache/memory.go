@@ -47,7 +47,38 @@ func (m *Memory) SetMeta(_ context.Context, key string, data []byte, ttl time.Du
 	cp := make([]byte, len(data))
 	copy(cp, data)
 	m.meta[key] = memEntry{data: cp, expiresAt: time.Now().Add(ttl)}
+	// Bound the map so a long-running memory-backend instance can't OOM from one
+	// retained entry per distinct package key ever requested. Matches the Disk
+	// backend's metaCacheCapacity. See #44.
+	if len(m.meta) > metaCacheCapacity {
+		m.evictLocked()
+	}
 	return nil
+}
+
+// evictLocked reclaims space when the meta map exceeds metaCacheCapacity. It
+// first drops entries expired beyond the stale-on-error grace window (truly
+// unreclaimable — never served again, even stale), then, if still over
+// capacity, evicts the earliest-expiring entries. Caller must hold m.mu.
+func (m *Memory) evictLocked() {
+	grace := time.Duration(m.staleMaxAge.Load())
+	now := time.Now()
+	for k, e := range m.meta {
+		if now.Sub(e.expiresAt) > grace {
+			delete(m.meta, k)
+		}
+	}
+	for len(m.meta) > metaCacheCapacity {
+		var oldestKey string
+		var oldest time.Time
+		first := true
+		for k, e := range m.meta {
+			if first || e.expiresAt.Before(oldest) {
+				oldest, oldestKey, first = e.expiresAt, k, false
+			}
+		}
+		delete(m.meta, oldestKey)
+	}
 }
 
 // SetStaleMaxAge configures the stale-on-error grace window. Zero disables it.

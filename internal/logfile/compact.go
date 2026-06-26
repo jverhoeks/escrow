@@ -4,9 +4,44 @@ package logfile
 
 import (
 	"bufio"
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 )
+
+// ReadTail returns the trailing bytes of path, at most maxBytes. When the file
+// is larger than maxBytes it reads only the last maxBytes and discards the
+// first (possibly partial) line, so the result begins at a record boundary.
+// This bounds startup memory/time for a log that grew large before compaction
+// existed (or between runs), independent of the file's total size. maxBytes <= 0
+// reads the whole file.
+func ReadTail(path string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := fi.Size()
+	if maxBytes <= 0 || size <= maxBytes {
+		return io.ReadAll(f)
+	}
+	if _, err := f.Seek(size-maxBytes, io.SeekStart); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		data = data[i+1:] // drop the partial leading line
+	}
+	return data, nil
+}
 
 // DefaultMaxBytes is the file size at which a JSONL log is compacted down to its
 // in-memory capped events. ~8 MiB ≈ 55k events at ~150 B each, so each

@@ -114,6 +114,12 @@ type blobFile struct {
 	modTime time.Time
 }
 
+// evictOldestBlobs enforces maxBytes over the blobs/ subtree only. The meta/
+// subtree is intentionally NOT counted: metadata is bounded independently by
+// TTL+grace expiry (see purgeExpiredMeta) and the in-memory layer's
+// metaCacheCapacity, so folding it into the blob byte budget would conflate two
+// separate bounding mechanisms. MaxSizeGB therefore caps cached artifact bytes,
+// not the (separately-bounded) metadata footprint. See #50.
 func (d *Disk) evictOldestBlobs() {
 	blobDir := filepath.Join(d.root, "blobs")
 	var files []blobFile

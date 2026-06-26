@@ -4,15 +4,20 @@ import (
 	"context"
 	"strings"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/jverhoeks/escrow/internal/eventlog"
 )
 
 // Consume subscribes to the event log and increments the store for every
 // kind=downloaded event until ctx is cancelled. Run it in its own goroutine.
-func Consume(ctx context.Context, log *eventlog.Log, store *Store) {
-	ch, unsub := log.Subscribe()
+func Consume(ctx context.Context, evlog *eventlog.Log, store *Store) {
+	ch, unsub := evlog.Subscribe()
 	if ch == nil {
-		return // subscriber cap reached; stats simply won't populate
+		// Subscriber cap reached: download stats won't populate and rescan
+		// blast-radius counts read zero. Surface it rather than failing silently.
+		log.Warn().Msg("dlstats: event-log subscriber cap reached — download statistics will not be recorded")
+		return
 	}
 	defer unsub()
 	for {

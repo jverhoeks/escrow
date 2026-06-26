@@ -7,6 +7,7 @@ package dlstats
 import (
 	"encoding/json"
 	"os"
+	"sort"
 	"sync"
 	"time"
 )
@@ -27,6 +28,15 @@ type Store struct {
 	path  string // "" = in-memory only
 	dirty bool
 }
+
+// maxEntries bounds the in-memory (and persisted) map so a long-running
+// instance proxying an ever-widening set of versions can't grow it without
+// limit. When exceeded, the least-recently-downloaded entries are evicted down
+// to evictTo. Generous so real workloads never hit it. See #50.
+const (
+	maxEntries = 100_000
+	evictTo    = 90_000
+)
 
 func key(eco, name, version string) string { return eco + "\x00" + name + "\x00" + version }
 
@@ -62,7 +72,28 @@ func (s *Store) Incr(eco, name, version string) {
 	st.LastAt = now
 	s.m[k] = st
 	s.dirty = true
+	if len(s.m) > maxEntries {
+		s.evictOldestLocked()
+	}
 	s.mu.Unlock()
+}
+
+// evictOldestLocked removes the least-recently-downloaded entries until the map
+// is back to evictTo. Batched (not one-per-insert) so the O(n) scan amortizes.
+// Caller holds s.mu.
+func (s *Store) evictOldestLocked() {
+	type kt struct {
+		k    string
+		last time.Time
+	}
+	all := make([]kt, 0, len(s.m))
+	for k, st := range s.m {
+		all = append(all, kt{k, st.LastAt})
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].last.Before(all[j].last) })
+	for i := 0; i < len(all)-evictTo; i++ {
+		delete(s.m, all[i].k)
+	}
 }
 
 // Get returns the stat for a version, or false if it was never downloaded.

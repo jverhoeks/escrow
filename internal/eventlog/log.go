@@ -91,8 +91,11 @@ func NewWithPath(cap int, path string) (*Log, error) {
 		return l, nil
 	}
 
-	// Load existing events (newest last in file → reverse after load).
-	if data, err := os.ReadFile(path); err == nil {
+	// Load existing events (newest last in file → reverse after load). Read only
+	// the trailing maxBytes so startup stays bounded even if a pre-compaction
+	// file grew far past it; the tail holds far more than `cap` newest events
+	// (~55k at 8 MiB vs cap 5000). See #39.
+	if data, err := logfile.ReadTail(path, l.maxBytes); err == nil {
 		scanner := bufio.NewScanner(strings.NewReader(string(data)))
 		// Raise the token limit (default 64 KiB) to 1 MiB so a large event line
 		// — e.g. one carrying a long Vulns list — doesn't stop the scan early and

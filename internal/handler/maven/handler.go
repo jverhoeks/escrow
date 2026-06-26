@@ -273,7 +273,12 @@ func (h *Handler) serveArtifactFrom(w http.ResponseWriter, r *http.Request, path
 	cacheDone := make(chan struct{})
 	go func() {
 		defer close(cacheDone)
-		h.cache.SetBlob(context.Background(), cacheKey, pr)
+		if err := h.cache.SetBlob(context.Background(), cacheKey, pr); err != nil {
+			// Unblock the TeeReader writer immediately on a cache-write failure
+			// (e.g. disk-full / S3 error): otherwise the pipe write blocks until
+			// WriteTimeout, holding the client and upstream connections. See #45.
+			pr.CloseWithError(err)
+		}
 	}()
 	_, copyErr := io.Copy(w, io.TeeReader(resp.Body, pw))
 	pw.CloseWithError(copyErr)
