@@ -70,3 +70,23 @@ func TestPopularitySignal_MalformedBody_Errors(t *testing.T) {
 	assert.Equal(t, trust.SignalError, report.Result,
 		"a malformed 200 body should surface as SignalError, not be swallowed")
 }
+
+// #51: a spike from an already-popular baseline (>= 100) must now be flagged —
+// the old `baseline.Downloads < 100` floor made hijack spikes on popular
+// packages invisible.
+func TestPopularitySignal_SpikeFromLargeBaseline_Flagged(t *testing.T) {
+	c := cache.NewMemory()
+	defer c.Close()
+	ctx := context.Background()
+	baselineJSON, _ := json.Marshal(map[string]int{"downloads": 5000})
+	c.SetMeta(ctx, "pop/npm/popular-pkg/baseline", baselineJSON, time.Hour)
+	npmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"downloads": 80000}) // 16x spike
+	}))
+	defer npmSrv.Close()
+	sig := trust.NewPopularitySignal(10.0, npmSrv.Client(), c, npmSrv.URL, "")
+	report, err := sig.Check(ctx, trust.Package{Ecosystem: trust.EcosystemNPM, Name: "popular-pkg", Version: "1.0.0"})
+	require.NoError(t, err)
+	assert.Equal(t, trust.SignalWarn, report.Result, "a 16x spike from baseline 5000 must be flagged")
+	assert.Contains(t, report.Reason, "spike")
+}
