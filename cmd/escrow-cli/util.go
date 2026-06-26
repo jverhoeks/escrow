@@ -22,6 +22,12 @@ func die(format string, a ...any) {
 // Permissions are set before data is written so the file is never visible
 // at an incorrect mode, then renamed atomically into place.
 func writeAtomic(dst string, data []byte, mode os.FileMode) error {
+	// Preserve an existing file's mode on rewrite so we never widen access —
+	// e.g. a 0600 .npmrc holding an auth token must not be downgraded to 0644.
+	// The passed mode is the default for newly-created files only. (#52)
+	if fi, statErr := os.Stat(dst); statErr == nil {
+		mode = fi.Mode().Perm()
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(dst), ".escrow-tmp-*")
 	if err != nil {
 		return err

@@ -83,6 +83,8 @@ type Server struct {
 func responseClassMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ww := middleware.NewWrapResponseWriter(w, req.ProtoMajor)
+		metrics.InFlightRequests.Inc()
+		defer metrics.InFlightRequests.Dec() // also fires if a panic unwinds
 		next.ServeHTTP(ww, req)
 		code := ww.Status()
 		if code == 0 {

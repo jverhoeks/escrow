@@ -6,10 +6,15 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
+
+// validServiceName guards the operator-supplied compose --service NAME before
+// it's interpolated as a YAML key, matching the rigor of validateProxyURL. (#52)
+var validServiceName = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 // dockerProxyArgs is the escrow wiring injected into a docker build.
 type dockerProxyArgs struct {
@@ -148,7 +153,12 @@ func runDockerCompose(args []string) {
 	var passthrough []string
 	for i := 0; i < len(rest); i++ {
 		if rest[i] == "--service" && i+1 < len(rest) {
-			services = append(services, rest[i+1])
+			name := rest[i+1]
+			if !validServiceName.MatchString(name) {
+				fmt.Fprintf(os.Stderr, "invalid --service %q: must match %s\n", name, validServiceName.String())
+				os.Exit(2)
+			}
+			services = append(services, name)
 			i++
 			continue
 		}
