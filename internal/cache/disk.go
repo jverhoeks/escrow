@@ -345,6 +345,17 @@ func (d *Disk) Flush() error {
 	return nil
 }
 
+// InvalidateMeta drops all cached metadata (in-memory layer + on-disk meta/
+// files), keeping blobs. See Cache.
+func (d *Disk) InvalidateMeta() error {
+	d.mem.DeleteAll()
+	metaDir := filepath.Join(d.root, "meta")
+	if err := os.RemoveAll(metaDir); err != nil {
+		return err
+	}
+	return os.MkdirAll(metaDir, 0o755)
+}
+
 // Purge immediately sweeps expired meta and evicts over-limit blobs.
 // Exposed for testing; production code relies on the background ticker.
 func (d *Disk) Purge() {

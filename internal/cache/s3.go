@@ -205,4 +205,36 @@ func (s *S3Cache) Healthy(ctx context.Context) error {
 // Flush is not implemented for S3; use the AWS console or CLI to clear the bucket.
 func (s *S3Cache) Flush() error { return nil }
 
+// InvalidateMeta deletes all cached metadata objects (the "meta/" prefix),
+// keeping blobs. See Cache. Best-effort: paginates and batch-deletes; a partial
+// failure is logged, and the remaining stale objects still expire via their
+// embedded TTL. Not exercised by the in-repo test suite (needs a live bucket).
+func (s *S3Cache) InvalidateMeta() error {
+	ctx := context.Background()
+	p := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String("meta/"),
+	})
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("s3 list meta for invalidate: %w", err)
+		}
+		ids := make([]types.ObjectIdentifier, 0, len(page.Contents))
+		for _, obj := range page.Contents {
+			ids = append(ids, types.ObjectIdentifier{Key: obj.Key})
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		if _, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(s.bucket),
+			Delete: &types.Delete{Objects: ids, Quiet: aws.Bool(true)},
+		}); err != nil {
+			return fmt.Errorf("s3 delete meta for invalidate: %w", err)
+		}
+	}
+	return nil
+}
+
 func (s *S3Cache) Close() error { return nil }

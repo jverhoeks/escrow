@@ -60,3 +60,13 @@ func TestBlockList_Add_Persists(t *testing.T) {
 	assert.Equal(t, "flagged", e.Reason)
 	assert.False(t, e.AddedAt.IsZero(), "AddedAt should be set")
 }
+
+func TestList_AddRemoveFireOnChange(t *testing.T) {
+	l, err := block.New("")
+	require.NoError(t, err)
+	var fired int
+	l.SetOnChange(func() { fired++ })
+	require.NoError(t, l.Add(block.Entry{Ecosystem: "npm", Name: "lodash", Version: "1.0.0"}))
+	require.NoError(t, l.Remove("npm", "lodash", "1.0.0"))
+	require.Equal(t, 2, fired, "OnChange must fire on both Add and Remove")
+}

@@ -143,6 +143,14 @@ func (m *Memory) Flush() error {
 	return os.MkdirAll(m.tempDir, 0o755)
 }
 
+// InvalidateMeta drops all cached metadata, keeping blobs. See Cache.
+func (m *Memory) InvalidateMeta() error {
+	m.mu.Lock()
+	m.meta = make(map[string]memEntry)
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *Memory) Close() error {
 	return os.RemoveAll(m.tempDir)
 }

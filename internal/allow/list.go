@@ -17,9 +17,28 @@ type Entry struct {
 }
 
 type List struct {
-	mu      sync.RWMutex
-	entries []Entry
-	path    string // path to allowlist.json; empty = in-memory only
+	mu       sync.RWMutex
+	entries  []Entry
+	path     string // path to allowlist.json; empty = in-memory only
+	onChange func() // fired after a successful Add/Remove; nil = no-op
+}
+
+// SetOnChange registers a callback invoked after every successful Add/Remove
+// (e.g. to invalidate cached metadata so an allowlist change takes effect
+// immediately).
+func (l *List) SetOnChange(fn func()) {
+	l.mu.Lock()
+	l.onChange = fn
+	l.mu.Unlock()
+}
+
+func (l *List) fireOnChange() {
+	l.mu.RLock()
+	fn := l.onChange
+	l.mu.RUnlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 // New creates a List, loading existing entries from path if the file exists.
@@ -58,7 +77,6 @@ func (l *List) IsAllowed(ecosystem, name, version string) (bool, Entry) {
 // only the exact version entry is removed; otherwise all versions are removed.
 func (l *List) Remove(ecosystem, name, version string) error {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	out := make([]Entry, 0, len(l.entries))
 	for _, e := range l.entries {
 		if e.Ecosystem == ecosystem && e.Name == name {
@@ -69,16 +87,21 @@ func (l *List) Remove(ecosystem, name, version string) error {
 		out = append(out, e)
 	}
 	l.entries = out
-	return l.save()
+	err := l.save()
+	l.mu.Unlock()
+	l.fireOnChange()
+	return err
 }
 
 // Add appends an entry and persists if a path is set.
 func (l *List) Add(e Entry) error {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	e.AddedAt = time.Now().UTC()
 	l.entries = append(l.entries, e)
-	return l.save()
+	err := l.save()
+	l.mu.Unlock()
+	l.fireOnChange()
+	return err
 }
 
 // Entries returns a snapshot of all entries.

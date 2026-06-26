@@ -32,6 +32,12 @@ type Cache interface {
 	BlobSize(ctx context.Context, key string) int64
 	// Flush removes all cached entries (metadata and blobs).
 	Flush() error
+	// InvalidateMeta drops all cached metadata (filtered manifests/listings) but
+	// keeps blobs. Called when an allow/block list entry changes, on config
+	// reload, and on a rescan auto-block, so a policy change takes effect on the
+	// next listing request instead of lagging up to the meta TTL (24h for Go).
+	// Blobs are immutable artifacts and are unaffected.
+	InvalidateMeta() error
 	// Healthy reports whether the cache backend is usable (nil = healthy). Disk
 	// does a probe-write, S3 a HeadBucket, memory always returns nil. Used by
 	// /healthz to surface cache degradation for every backend.
