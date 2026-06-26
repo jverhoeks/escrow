@@ -13,6 +13,10 @@ import (
 	"github.com/jverhoeks/escrow/internal/metrics"
 )
 
+// egressShutdownGrace bounds the graceful drain of in-flight HTTP-forward
+// requests when the proxy is stopped (ctx cancelled). See #52.
+const egressShutdownGrace = 5 * time.Second
+
 // Proxy is a forward proxy gated by a host/IP Policy. It tunnels CONNECT
 // (HTTPS) opaquely and forwards absolute-URI HTTP. No TLS interception.
 type Proxy struct {
@@ -89,19 +93,33 @@ func (p *Proxy) Serve(ctx context.Context) error {
 		return err
 	}
 	// Assign p.srv before starting the shutdown goroutine so the goroutine never
-	// races a nil read, and so it can call srv.Close() (which makes Serve return
-	// http.ErrServerClosed). Closing only the listener would surface a raw
+	// races a nil read, and so it can shut the server down (which makes Serve
+	// return http.ErrServerClosed). Closing only the listener would surface a raw
 	// "use of closed network connection" error instead.
 	p.srv = &http.Server{
 		Handler:           http.HandlerFunc(p.handle),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	shutdownDone := make(chan struct{})
 	go func() {
 		<-ctx.Done()
-		_ = p.srv.Close()
+		// Graceful: drain in-flight (non-hijacked) HTTP-forward requests within a
+		// short grace window instead of an abrupt Close. NOTE: active CONNECT
+		// tunnels are hijacked connections, which http.Server.Shutdown does not
+		// track — they end when their copy loop does, not on this grace. See #52.
+		shCtx, cancel := context.WithTimeout(context.Background(), egressShutdownGrace)
+		defer cancel()
+		_ = p.srv.Shutdown(shCtx)
+		close(shutdownDone)
 	}()
-	return p.serveListener(ln)
+	err = p.serveListener(ln)
+	if err == nil {
+		// serveListener returned ErrServerClosed (mapped to nil) → a shutdown is in
+		// progress; wait for the drain so the grace window actually applies.
+		<-shutdownDone
+	}
+	return err
 }
 
 func (p *Proxy) serveListener(ln net.Listener) error {
