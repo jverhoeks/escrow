@@ -2,11 +2,11 @@ package dlstats
 
 import (
 	"context"
-	"strings"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/pkgref"
 )
 
 // Consume subscribes to the event log and increments the store for every
@@ -39,10 +39,4 @@ func Consume(ctx context.Context, evlog *eventlog.Log, store *Store) {
 
 // splitPackage splits "name@version" on the LAST '@' (scoped npm names start
 // with '@'). Mirrors the dashboard's splitPackage.
-func splitPackage(pkg string) (name, version string) {
-	i := strings.LastIndex(pkg, "@")
-	if i <= 0 {
-		return pkg, ""
-	}
-	return pkg[:i], pkg[i+1:]
-}
+func splitPackage(pkg string) (name, version string) { return pkgref.Split(pkg) }

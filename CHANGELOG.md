@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Security & reliability (2026-06 architecture & security audit)
+
+- Download-path policy enforcement, dashboard fail-closed credentials, exact CSRF
+  origin check, OSV CVSS-v3 severity, egress SSRF default-deny, `fw-enable
+  --block-ipv6`, cache invalidation on policy change, graceful-shutdown drain,
+  bounded in-memory/event-log/dlstats growth, RED metrics, PyPI sdist gate-bypass
+  fix, PyPI artifact sha256 verification, and assorted hardening. See the audit
+  epic and its sub-issues for detail.
+
+> **Note:** detailed entries for **1.2.0–1.4.0** and **1.6.0–1.8.0** were not
+> backfilled here; see the Git tags and GitHub Releases for those versions.
+
+---
+
 ## [1.5.0] — 2026-05-21
 
 ### Added
@@ -117,7 +133,7 @@ First production-ready release. Covers all 7 major package ecosystems with age g
 - `allow/block.Remove` used `entries[:0]` aliasing
 - Rate limiter cleanup goroutine had no stop channel (goroutine leak)
 - Maven `filterMetadata` left `<latest>`/`<release>` pointing at blocked versions when all versions blocked
-- Composer `time.Now()` fallback for unknown timestamps (blocked ancient packages) → changed to `time.Date(2000,...)` 
+- Composer `time.Now()` fallback for unknown timestamps (blocked ancient packages) → changed to `time.Date(2000,...)`
 - Disk `SetBlob` not atomic (concurrent writers could corrupt file)
 - Memory `SetBlob` had same race
 - Disk `SetBlob` temp file leaked on `os.Rename` failure

@@ -4,9 +4,14 @@ escrow-cache/
 /escrow-cli
 /escrow-darwin-*
 /escrow-linux-*
+/escrow-windows-*
 /escrow-cli-darwin-*
 /escrow-cli-linux-*
+/escrow-cli-windows-*
 .superpowers/
+
+# Go unit-test coverage output (make test-unit)
+coverage.out
 
 # Local dev / scratch artifacts
 .DS_Store

@@ -21,6 +21,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/dlstats"
 	"github.com/jverhoeks/escrow/internal/egresslog"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/pkgref"
 	"github.com/jverhoeks/escrow/internal/rescan"
 	"github.com/jverhoeks/escrow/internal/upstreamlog"
 	"github.com/rs/zerolog"
@@ -174,7 +175,9 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		d.logger.Debug().Err(err).Msg("login: failed to parse form")
+	}
 	if !d.auth.CheckCredentials(r.FormValue("username"), r.FormValue("password")) {
 		d.loginLimiter.recordFailure(r)
 		http.Redirect(w, r, d.cfg.Path+"/login?error=Invalid+credentials", http.StatusFound)
@@ -529,13 +532,7 @@ func blobSize(ctx context.Context, c cache.Cache, ecosystem, name, version strin
 	return c.BlobSize(ctx, key)
 }
 
-func splitPackage(pkg string) (name, version string) {
-	i := strings.LastIndex(pkg, "@")
-	if i <= 0 {
-		return pkg, ""
-	}
-	return pkg[:i], pkg[i+1:]
-}
+func splitPackage(pkg string) (name, version string) { return pkgref.Split(pkg) }
 
 func (d *Dashboard) handleAllowList(w http.ResponseWriter, r *http.Request) {
 	if d.allowList == nil {

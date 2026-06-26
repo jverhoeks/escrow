@@ -11,6 +11,7 @@ import (
 
 	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/eventlog"
+	"github.com/jverhoeks/escrow/internal/pkgref"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
 
@@ -245,10 +246,4 @@ func (s *Scanner) LastRun() Result {
 	return s.lastRes
 }
 
-func splitPackage(pkg string) (name, version string) {
-	i := strings.LastIndex(pkg, "@")
-	if i <= 0 {
-		return pkg, ""
-	}
-	return pkg[:i], pkg[i+1:]
-}
+func splitPackage(pkg string) (name, version string) { return pkgref.Split(pkg) }

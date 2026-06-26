@@ -79,13 +79,13 @@ func (p *Proxy) dialChecked(ctx context.Context, network, addr string) (net.Conn
 
 // Serve listens on the configured address and serves until ctx is cancelled.
 func (p *Proxy) Serve(ctx context.Context) error {
-	// Register limiter teardown before Listen so a Listen failure still stops
-	// the cleanup goroutine started in New (otherwise it would leak).
-	if p.limiter != nil {
-		defer p.limiter.stop()
-	}
 	ln, err := net.Listen("tcp", p.addr)
 	if err != nil {
+		// serveListener (which owns the deferred limiter.stop) isn't reached on a
+		// listen failure, so stop the limiter's cleanup goroutine here.
+		if p.limiter != nil {
+			p.limiter.stop()
+		}
 		return err
 	}
 	// Assign p.srv before starting the shutdown goroutine so the goroutine never
@@ -101,10 +101,7 @@ func (p *Proxy) Serve(ctx context.Context) error {
 		<-ctx.Done()
 		_ = p.srv.Close()
 	}()
-	if err := p.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-		return err
-	}
-	return nil
+	return p.serveListener(ln)
 }
 
 func (p *Proxy) serveListener(ln net.Listener) error {
