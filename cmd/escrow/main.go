@@ -655,18 +655,29 @@ func main() {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	// drained is closed once the graceful shutdown actually completes. main()
+	// blocks on it below so the deferred Close()s (cache, event log, pid/runtime
+	// files) run AFTER the drain, not while in-flight downloads are still being
+	// served. srv.Start() returns http.ErrServerClosed the instant Shutdown
+	// closes the listener — long before the drain finishes — so without this the
+	// 10s grace window never actually applied. See #37.
+	drained := make(chan struct{})
 	go func() {
 		<-quit
 		rootCancel()
-		_ = dlStore.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		srv.Shutdown(ctx)
+		srv.Shutdown(ctx) // blocks until in-flight requests finish or grace elapses
+		_ = dlStore.Close()
+		close(drained)
 	}()
 
 	if err := srv.Start(); err != nil && err != http.ErrServerClosed {
 		log.Fatal().Err(err).Msg("server stopped unexpectedly")
 	}
+	// Wait for the graceful drain to complete before returning — only then do the
+	// deferred resource closers run.
+	<-drained
 }
 
 // runCIReport fetches the CI report from a running escrow proxy and prints it to stdout.

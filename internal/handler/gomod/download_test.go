@@ -2,11 +2,13 @@ package gomod_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +21,40 @@ import (
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
+
+// failBlobCache wraps a real cache but fails every SetBlob without draining the
+// reader — simulating a disk-full / S3 error mid-stream.
+type failBlobCache struct{ cache.Cache }
+
+func (failBlobCache) SetBlob(context.Context, string, io.Reader) error {
+	return errors.New("simulated disk full")
+}
+
+// A SetBlob failure mid-stream must fail the request promptly, not hang until
+// WriteTimeout holding the client + upstream connections. See #45.
+func TestGoModHandler_BlobWriteError_NoHang(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, strings.Repeat("Z", 1<<16)) // 64 KiB body
+	}))
+	defer upstream.Close()
+	mem := cache.NewMemory()
+	defer mem.Close()
+	h := gomod.New(upstream.Client(), upstream.URL, trust.NewEngine(), policy.New(nil), failBlobCache{mem}, eventlog.New(10))
+
+	r := chi.NewRouter()
+	h.Mount(r)
+	req := httptest.NewRequest(http.MethodGet, "/go/example.com/clean/@v/v1.0.0.zip", nil)
+	rr := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() { r.ServeHTTP(rr, req); close(done) }()
+	select {
+	case <-done:
+		// returned promptly — the pipe writer was unblocked on the cache error.
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler hung after SetBlob failure (pipe writer not unblocked)")
+	}
+}
 
 func TestGoModHandler_BlockedZip_403(t *testing.T) {
 	c := cache.NewMemory()

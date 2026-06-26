@@ -54,3 +54,29 @@ func TestAtomicRewrite_ErrorWhenDirMissing(t *testing.T) {
 	_, err := logfile.AtomicRewrite(path, [][]byte{[]byte("x")})
 	require.Error(t, err)
 }
+
+func TestReadTail_ReturnsWholeFileWhenSmall(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "small.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte("line1\nline2\nline3\n"), 0o600))
+	data, err := logfile.ReadTail(path, 1<<20)
+	require.NoError(t, err)
+	assert.Equal(t, "line1\nline2\nline3\n", string(data))
+}
+
+func TestReadTail_BoundsLargeFileAtLineBoundary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "big.jsonl")
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	// 1000 fixed-width lines (~10 bytes each).
+	for i := 0; i < 1000; i++ {
+		_, _ = f.WriteString("XXXXXXXX\n")
+	}
+	require.NoError(t, f.Close())
+
+	const maxBytes = 100
+	data, err := logfile.ReadTail(path, maxBytes)
+	require.NoError(t, err)
+	// Bounded by maxBytes, and starts at a line boundary (no leading partial line).
+	assert.LessOrEqual(t, len(data), maxBytes)
+	assert.Equal(t, "XXXXXXXX\n", string(data[:9]), "tail must start at a record boundary")
+}

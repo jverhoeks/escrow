@@ -86,7 +86,7 @@ type StorageConfig struct {
 
 type DiskConfig struct {
 	Path           string `json:"path" toml:"path"`
-	MaxSizeGB      int    `json:"max_size_gb" toml:"max_size_gb"`           // 0 = unlimited
+	MaxSizeGB      int    `json:"max_size_gb" toml:"max_size_gb"`           // FIFO budget for cached artifact blobs; 0 = unlimited. Metadata is bounded separately by TTL, not counted here.
 	PurgeIntervalM int    `json:"purge_interval_m" toml:"purge_interval_m"` // minutes between FIFO purge runs; 0 = 60
 }
 
