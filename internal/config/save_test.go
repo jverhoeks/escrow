@@ -10,8 +10,11 @@ import (
 )
 
 func TestValidate(t *testing.T) {
+	// An enabled dashboard now requires credentials for a valid config.
 	c := config.DefaultConfig()
 	c.Server.Port = 7888
+	c.Dashboard.Password = "pass"
+	c.Dashboard.Secret = "aabbccddeeff00112233445566778899"
 	require.Empty(t, c.Validate())
 
 	bad := config.DefaultConfig()

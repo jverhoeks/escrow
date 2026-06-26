@@ -9,13 +9,21 @@ import (
 	"github.com/jverhoeks/escrow/internal/config"
 )
 
+// dashboardCreds fills the credentials the default (dashboard-enabled) config
+// now requires, so a test that only cares about other fields stays valid.
+func dashboardCreds(cfg config.Config) config.Config {
+	cfg.Dashboard.Password = "pass"
+	cfg.Dashboard.Secret = "aabbccddeeff00112233445566778899"
+	return cfg
+}
+
 func TestValidate_ValidConfig(t *testing.T) {
-	cfg := config.DefaultConfig()
-	assert.Empty(t, cfg.Validate(), "default config should have no validation errors")
+	cfg := dashboardCreds(config.DefaultConfig())
+	assert.Empty(t, cfg.Validate(), "default config with dashboard creds should have no validation errors")
 }
 
 func TestValidate_NegativeMinDays(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := dashboardCreds(config.DefaultConfig())
 	cfg.Policy = &config.PolicyConfig{
 		Age: &config.AgePolicyConfig{MinDays: -1, Action: "block"},
 	}
@@ -25,7 +33,7 @@ func TestValidate_NegativeMinDays(t *testing.T) {
 }
 
 func TestValidate_PortZero(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := dashboardCreds(config.DefaultConfig())
 	cfg.Server.Port = 0
 	errs := cfg.Validate()
 	require.Len(t, errs, 1)
@@ -33,7 +41,7 @@ func TestValidate_PortZero(t *testing.T) {
 }
 
 func TestValidate_PortTooLarge(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := dashboardCreds(config.DefaultConfig())
 	cfg.Server.Port = 99999
 	errs := cfg.Validate()
 	require.Len(t, errs, 1)
@@ -41,23 +49,54 @@ func TestValidate_PortTooLarge(t *testing.T) {
 }
 
 func TestValidate_ValidPort(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := dashboardCreds(config.DefaultConfig())
 	cfg.Server.Port = 7888
 	assert.Empty(t, cfg.Validate())
 }
 
-func TestWarnings_EmptySecret(t *testing.T) {
+// An enabled dashboard with an empty secret must abort startup (fail closed):
+// session cookies would be HMAC-signed with an empty key and thus forgeable.
+func TestValidate_DashboardEnabledEmptySecret(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Password = "pass"
 	cfg.Dashboard.Secret = ""
-	warnings := cfg.Warnings()
+	errs := cfg.Validate()
+	require.NotEmpty(t, errs)
 	found := false
-	for _, w := range warnings {
-		if contains(w, "secret") {
+	for _, e := range errs {
+		if contains(e.Error(), "secret") {
 			found = true
 		}
 	}
-	assert.True(t, found, "should warn about empty dashboard secret")
+	assert.True(t, found, "empty dashboard secret should be a fatal validation error")
+}
+
+// An enabled dashboard with an empty password must abort startup: a blank
+// password authenticates as the default admin user.
+func TestValidate_DashboardEnabledEmptyPassword(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Password = ""
+	cfg.Dashboard.Secret = "aabbccddeeff00112233445566778899"
+	errs := cfg.Validate()
+	require.NotEmpty(t, errs)
+	found := false
+	for _, e := range errs {
+		if contains(e.Error(), "password") {
+			found = true
+		}
+	}
+	assert.True(t, found, "empty dashboard password should be a fatal validation error")
+}
+
+// A disabled dashboard imposes no credential requirement.
+func TestValidate_DashboardDisabledEmptyCreds(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = false
+	cfg.Dashboard.Password = ""
+	cfg.Dashboard.Secret = ""
+	assert.Empty(t, cfg.Validate(), "disabled dashboard should not require credentials")
 }
 
 func TestWarnings_ZeroMinDays(t *testing.T) {

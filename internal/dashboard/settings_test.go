@@ -68,7 +68,7 @@ func TestGetSettings_MasksPasswordFlag(t *testing.T) {
 func TestPostSettings_PreservesPasswordAndReloads(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "escrow.toml")
-	os.WriteFile(path, []byte("[server]\n  port = 7888\n[dashboard]\n  password = \"original\"\n"), 0o600)
+	os.WriteFile(path, []byte("[server]\n  port = 7888\n[dashboard]\n  password = \"original\"\n  secret = \"aabbccddeeff00112233445566778899\"\n"), 0o600)
 	reloaded := false
 	reload := func() (dashboard.ReloadResult, error) { reloaded = true; return dashboard.ReloadResult{Reloaded: []string{"policy"}}, nil }
 	h := settingsDash(t, path, reload)
