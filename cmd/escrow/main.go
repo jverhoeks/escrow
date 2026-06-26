@@ -258,6 +258,18 @@ func main() {
 	}
 	polEngine.WithBlockList(blockList)
 
+	// Invalidate cached metadata whenever an allow/block entry changes (dashboard
+	// mutation or rescan auto-block) so the new policy takes effect on the next
+	// listing instead of lagging up to the meta TTL (24h for Go). Blobs are kept.
+	// See #38.
+	invalidateMeta := func() {
+		if err := c.InvalidateMeta(); err != nil {
+			log.Warn().Err(err).Msg("failed to invalidate cached metadata after a list change")
+		}
+	}
+	allowList.SetOnChange(invalidateMeta)
+	blockList.SetOnChange(invalidateMeta)
+
 	// Resolve the effective event-log path so stats survive restarts by default
 	// on the disk backend. An explicit cfg.EventLogPath always wins; otherwise
 	// the disk backend defaults to escrow-events.jsonl inside the cache dir.
@@ -482,6 +494,9 @@ func main() {
 		}
 		// Apply the live-reloadable subset.
 		polEngine.SetConfig(newCfg.Policy)
+		// A policy change can flip allow/block/age decisions, so drop cached
+		// (post-filter) manifests; blobs are immutable and kept. See #38.
+		invalidateMeta()
 		rMinSev := "HIGH"
 		if newCfg.Policy != nil && newCfg.Policy.OSV != nil && newCfg.Policy.OSV.MinSeverity != "" {
 			rMinSev = newCfg.Policy.OSV.MinSeverity
