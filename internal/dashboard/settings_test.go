@@ -21,7 +21,7 @@ func settingsDash(t *testing.T, path string, reload dashboard.ReloadFunc) http.H
 	t.Helper()
 	al, _ := allow.New("")
 	cfg := config.DashboardConfig{Enabled: true, Path: "/dashboard", Username: "admin", Password: "pass", Secret: "aabbccddeeff00112233445566778899"}
-	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al, nil, nil, nil, nil, nil, nil, path, reload)
+	dash := dashboard.New(cfg, eventlog.New(10), zerolog.Nop(), al, nil, nil, nil, nil, nil, nil, nil, path, reload)
 	r := chi.NewRouter()
 	dash.Mount(r)
 	return r

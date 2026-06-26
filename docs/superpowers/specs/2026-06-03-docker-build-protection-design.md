@@ -90,9 +90,17 @@ unified policy-aware proxy. The existing path-mirror is untouched throughout.
 |---|---|---|
 | `RUN wget http://host.docker.internal:7888` from a BuildKit step | **reachable, no `--add-host` needed** on Desktop, even with escrow on `127.0.0.1` only | Desktop forwards host loopback; don't rely on it for Linux |
 | `--network=host` + `127.0.0.1:7888` | reachable on Desktop | not portable (host == VM on Linux) |
-| Proxy-env auto-injection from `~/.docker/config.json` `proxies` | **did NOT inject** `HTTP_PROXY` into `RUN` (classic *and* buildx driver) | **don't build on it** — unreliable on 29.x |
+| Proxy-env injection from `~/.docker/config.json` `proxies.default` (written by Docker Desktop → Settings → Resources → Proxies) | **injects** `HTTP_PROXY`/`HTTPS_PROXY` into `RUN` (verified against the real `~/.docker/config.json`) | a valid zero-`--build-arg` way to route the **egress** lane through escrow on Desktop |
 | Explicit `--build-arg HTTP_PROXY=… HTTPS_PROXY=…` | **works** without an `ARG` line; BuildKit mirrors to lowercase too | proxy env is **auto-propagated** into `RUN` — predeclared args |
 | Explicit `--build-arg NPM_CONFIG_REGISTRY=…` (any non-proxy arg) **without** a matching `ARG` in the Dockerfile | **dropped** — *not* in the `RUN` env (verified: `reg=[]`); present only when `ARG NPM_CONFIG_REGISTRY` is declared | **registry-env build-args silently no-op on unmodified Dockerfiles** — see below |
+
+> **Correction.** An earlier draft of this table reported `~/.docker/config.json` `proxies` as
+> *not* injecting `HTTP_PROXY` and advised "don't build on it." That was wrong — an artifact of a
+> flawed `DOCKER_CONFIG`-override test (a throwaway config dir that wasn't the path the builder
+> actually read), not the real `~/.docker/config.json`. With the GUI-written `proxies.default` in
+> the real config, BuildKit injects the proxy env into `RUN` as expected. The explicit
+> `--build-arg HTTP_PROXY=…` row below remains the portable, CI-friendly method (no machine-global
+> config), and is what `escrow-cli docker build` uses.
 
 > ⚠️ **Registry lane in Phase 1 needs Dockerfile cooperation.** Only the proxy vars
 > (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` + lowercase) auto-propagate into `RUN`. A registry env

@@ -17,6 +17,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/policy"
+	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
 	"github.com/jverhoeks/escrow/internal/upstream"
 )
@@ -161,6 +162,9 @@ func (h *Handler) serveInfo(w http.ResponseWriter, r *http.Request, escapedModul
 		return &proxyResult{status: http.StatusOK, body: bodyBytes}, nil
 	})
 	if err != nil {
+		if staleserve.Serve(w, r, h.cache, cacheKey, "application/json", "go", "info") {
+			return
+		}
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
@@ -192,6 +196,9 @@ func (h *Handler) serveMod(w http.ResponseWriter, r *http.Request, escapedModule
 	upURL := fmt.Sprintf("%s/%s/@v/%s", h.upstreamURL, escapedModule, request)
 	resp, err := h.client.Get(upURL)
 	if err != nil {
+		if staleserve.Serve(w, r, h.cache, cacheKey, "text/plain; charset=utf-8", "go", "mod") {
+			return
+		}
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
@@ -288,6 +295,9 @@ func (h *Handler) servePassthrough(w http.ResponseWriter, r *http.Request, escap
 	upURL := fmt.Sprintf("%s/%s/@v/%s", h.upstreamURL, escapedModule, request)
 	resp, err := h.client.Get(upURL)
 	if err != nil {
+		if staleserve.Serve(w, r, h.cache, cacheKey, "text/plain; charset=utf-8", "go", "pass") {
+			return
+		}
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
@@ -384,6 +394,9 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 		return &proxyResult{status: http.StatusOK, body: bodyBytes}, nil
 	})
 	if err != nil {
+		if staleserve.Serve(w, r, h.cache, "go/latest/"+sfKey, "application/json", "go", "latest") {
+			return
+		}
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}

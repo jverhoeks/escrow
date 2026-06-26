@@ -24,6 +24,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dashboard"
 	"github.com/jverhoeks/escrow/internal/dlstats"
+	"github.com/jverhoeks/escrow/internal/egresslog"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/handler/cargo"
 	"github.com/jverhoeks/escrow/internal/handler/composer"
@@ -66,7 +67,7 @@ func main() {
 	cfgPath := flag.String("config", "escrow.toml", "config file path")
 	hostFlag := flag.String("host", "", "listen host (overrides config; use 0.0.0.0 for all interfaces, default 127.0.0.1)")
 	clearCache := flag.Bool("clear-cache", false, "flush all cached metadata and blobs on startup before serving")
-	clearStats := flag.Bool("clear", false, "clear persisted event-log stats on startup")
+	clearStats := flag.Bool("clear", false, "clear persisted event-log and egress-log stats on startup")
 	// Signal overrides — each flag disables the corresponding policy check regardless of config.
 	noAge := flag.Bool("no-age", false, "disable the age gate (ignore policy.age in config)")
 	noOSV := flag.Bool("no-osv", false, "disable OSV vulnerability scan (ignore policy.osv in config)")
@@ -111,8 +112,9 @@ func main() {
 	switch cfg.Storage.Backend {
 	case "memory":
 		c = cache.NewMemory()
+		log.Warn().Msg("memory cache backend is UNBOUNDED — the metadata map never evicts and grows with traffic; use it only for development/testing, never for a shared/long-running instance (use disk or s3)")
 	case "s3":
-		c, err = cache.NewS3(cfg.Storage.S3.Bucket, cfg.Storage.S3.Region, cfg.Storage.S3.Endpoint)
+		c, err = cache.NewS3(cfg.Storage.S3.Bucket, cfg.Storage.S3.Region, cfg.Storage.S3.Endpoint, config.ExpandPath(cfg.Storage.S3.TempDir))
 		if err != nil {
 			log.Fatal().Err(err).Msg("failed to init S3 cache")
 		}
@@ -136,6 +138,14 @@ func main() {
 			logEvt = logEvt.Int("max_size_gb", cfg.Storage.Disk.MaxSizeGB)
 		}
 		logEvt.Msg("disk cache initialised")
+	}
+	// Configure the opt-in stale-on-error metadata fallback. Zero (the default)
+	// leaves cache behavior byte-for-byte unchanged (including eager
+	// delete-on-expiry), preserving escrow's fail-closed posture.
+	c.SetStaleMaxAge(time.Duration(cfg.Storage.StaleOnErrorMaxAgeM) * time.Minute)
+	if cfg.Storage.StaleOnErrorMaxAgeM > 0 {
+		log.Warn().Int("max_age_m", cfg.Storage.StaleOnErrorMaxAgeM).
+			Msg("stale-on-error enabled: expired metadata may be served when upstream is unreachable, which can briefly re-expose a manifest-removed version")
 	}
 	defer c.Close()
 
@@ -175,6 +185,39 @@ func main() {
 	// Derived from configured upstreams, plus well-known defaults so artifact
 	// CDNs (which differ from the metadata host) are also classified.
 	upstreamLog := upstreamlog.New(5000)
+
+	// Resolve the effective egress-log path so the egress live view survives
+	// restarts by default on the disk backend (mirrors the event log below). An
+	// explicit egress_log_path always wins; memory/s3 backends stay in-memory.
+	var egressLogPath, egressLogMsg string
+	if cfg.EgressLogPath != "" {
+		egressLogPath = config.ExpandPath(cfg.EgressLogPath)
+		egressLogMsg = "egress log persistence enabled"
+	} else if cfg.Storage.Backend == "disk" {
+		egressLogPath = filepath.Join(config.ExpandPath(cfg.Storage.Disk.Path), "escrow-egress.jsonl")
+		egressLogMsg = "egress log persistence enabled (default path)"
+	}
+
+	var egressLog *egresslog.Log
+	if egressLogPath != "" {
+		if *clearStats {
+			if err := os.Remove(egressLogPath); err != nil && !os.IsNotExist(err) {
+				log.Warn().Err(err).Str("path", egressLogPath).Msg("failed to clear egress-log stats")
+			} else {
+				log.Info().Str("path", egressLogPath).Msg("cleared egress-log stats")
+			}
+		}
+		var err error
+		egressLog, err = egresslog.NewWithPath(5000, egressLogPath)
+		if err != nil {
+			log.Fatal().Err(err).Str("path", egressLogPath).Msg("failed to open egress log file")
+		}
+		log.Info().Str("path", egressLogPath).Msg(egressLogMsg)
+	} else {
+		egressLog = egresslog.New(5000)
+	}
+	defer egressLog.Close()
+
 	hostEco := map[string]string{
 		"registry.npmjs.org":     "npm",
 		"pypi.org":               "pypi",
@@ -379,7 +422,7 @@ func main() {
 			log.Warn().Str("host", cfg.Server.Host).
 				Msg("egress proxy is reachable off-host with policy=forward — this is an OPEN RELAY; set egress_proxy.policy=\"whitelist\" or firewall the egress port")
 		}
-		eproxy := egress.New(fmt.Sprintf("%s:%d", cfg.Server.Host, port), pol, evLog)
+		eproxy := egress.New(fmt.Sprintf("%s:%d", cfg.Server.Host, port), pol, egressLog, ep.RateLimitPerMin)
 		go func() {
 			log.Info().Int("port", port).Str("policy", ep.Policy).Msg("egress proxy listening")
 			if err := eproxy.Serve(rootCtx); err != nil {
@@ -412,11 +455,15 @@ func main() {
 			"storage":     fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
 			"ecosystems":  fmt.Sprintf("%v", c.Ecosystems),
 			"secret":      c.Dashboard.Secret,
-			"paths":       fmt.Sprintf("%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath),
+			"paths":       fmt.Sprintf("%s:%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath, c.EgressLogPath),
 			"egress_proxy": egressFingerprint(c.EgressProxy),
 		}
 	}
 	startupSnapshot := restartSnapshot(cfg)
+
+	// dash is declared here (before reloadFn) so the reload closure can call
+	// UpdateCredentials. It is assigned below after dashboard.New(...) is called.
+	var dash *dashboard.Dashboard
 
 	reloadFn := func() (dashboard.ReloadResult, error) {
 		newCfg, err := config.Load(*cfgPath)
@@ -466,26 +513,27 @@ func main() {
 			// Started with no webhook; one can't be created live — needs a restart.
 			restart = append(restart, "alerts")
 		}
+		if dash != nil {
+			dash.UpdateCredentials(newCfg.Dashboard.Username, newCfg.Dashboard.Password, newCfg.Dashboard.Secret)
+			reloaded = append(reloaded, "dashboard_credentials")
+		}
 		log.Info().Strs("reloaded", reloaded).Strs("restart_required", restart).Msg("config reloaded")
 		return dashboard.ReloadResult{Reloaded: reloaded, RestartRequired: restart}, nil
 	}
 
-	cacheDir := ""
-	if cfg.Storage.Backend == "disk" {
-		cacheDir = config.ExpandPath(cfg.Storage.Disk.Path)
-	}
 	srv := server.New(server.Options{
 		Version:                  version,
 		Host:                     cfg.Server.Host,
 		Port:                     cfg.Server.Port,
 		StorageBackend:           cfg.Storage.Backend,
-		CacheDir:                 cacheDir,
+		CacheHealth:              c.Healthy,
 		WriteTimeoutSeconds:      cfg.Server.WriteTimeoutSeconds,
 		ReadHeaderTimeoutSeconds: cfg.Server.ReadHeaderTimeoutSeconds,
 		IdleTimeoutSeconds:       cfg.Server.IdleTimeoutSeconds,
 		TLSCertFile:              cfg.Server.TLSCertFile,
 		TLSKeyFile:               cfg.Server.TLSKeyFile,
 		ProxyRateLimitPerMin:     cfg.Server.ProxyRateLimitPerMin,
+		MaxRequestBodyMB:         cfg.Server.EffectiveMaxRequestBodyMB(),
 		AccessLogPath:            config.ExpandPath(cfg.Server.AccessLogPath),
 		AccessLogMaxDays:         cfg.Server.AccessLogMaxDays,
 		UpstreamURLs:             upstreamURLs,
@@ -565,8 +613,8 @@ func main() {
 	cireport.New(evLog).Mount(r)
 
 	if cfg.Dashboard.Enabled {
-		dash := dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
-			srv.AccessRing(), upstreamLog, dlStore, scanner, *cfgPath, reloadFn)
+		dash = dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
+			srv.AccessRing(), upstreamLog, egressLog, dlStore, scanner, *cfgPath, reloadFn)
 		dash.Mount(r)
 		log.Info().Str("path", cfg.Dashboard.Path).Msg("dashboard enabled")
 	}

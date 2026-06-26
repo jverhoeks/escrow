@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jverhoeks/escrow/internal/logfile"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
 
@@ -28,7 +29,6 @@ const (
 	KindScanned    = "scanned"
 	KindDownloaded = "downloaded"
 	KindRescan     = "rescan"
-	KindEgress     = "egress"
 )
 
 type PackageEvent struct {
@@ -64,6 +64,15 @@ type Log struct {
 	subscribers map[int]chan PackageEvent
 	nextID      int
 	file        *os.File // append-only JSONL; nil = in-memory only
+	path        string   // retained for size-cap compaction
+	curBytes    int64    // bytes written to file since last compaction
+	// INVARIANT: cap × avg-event-size must stay comfortably below maxBytes.
+	// Otherwise post-compaction curBytes (the retained-window size) stays above
+	// maxBytes and the next Record re-triggers a full marshal+fsync+rename under
+	// the write lock on every event (a stall). At cap=5000 / maxBytes=8 MiB that
+	// leaves ~1.6 KB/event; PackageEvent (incl. its Vulns list) stays well under
+	// this in practice. Re-check before lowering maxBytes or raising cap.
+	maxBytes int64 // compact when curBytes exceeds this (0 = never)
 }
 
 // New creates an in-memory event log with the given capacity.
@@ -76,6 +85,8 @@ func New(cap int) *Log {
 // The file is opened for appending; new events are written as they arrive.
 func NewWithPath(cap int, path string) (*Log, error) {
 	l := &Log{cap: cap, subscribers: make(map[int]chan PackageEvent)}
+	l.path = path
+	l.maxBytes = logfile.DefaultMaxBytes
 	if path == "" {
 		return l, nil
 	}
@@ -83,6 +94,10 @@ func NewWithPath(cap int, path string) (*Log, error) {
 	// Load existing events (newest last in file → reverse after load).
 	if data, err := os.ReadFile(path); err == nil {
 		scanner := bufio.NewScanner(strings.NewReader(string(data)))
+		// Raise the token limit (default 64 KiB) to 1 MiB so a large event line
+		// — e.g. one carrying a long Vulns list — doesn't stop the scan early and
+		// silently drop the newer events written after it. Matches egresslog's loader.
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		var loaded []PackageEvent
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
@@ -94,6 +109,11 @@ func NewWithPath(cap int, path string) (*Log, error) {
 				loaded = append(loaded, e)
 			}
 		}
+		// A residual scan error (e.g. a line exceeding even the 1 MiB buffer)
+		// truncates the load; keep the best-effort partial rather than failing
+		// startup for a best-effort observability log (this leaf package has no
+		// logger). The larger buffer makes this practically unreachable.
+		_ = scanner.Err()
 		// Keep last `cap` events; reverse so slice is newest-first.
 		if len(loaded) > cap {
 			loaded = loaded[len(loaded)-cap:]
@@ -109,11 +129,14 @@ func NewWithPath(cap int, path string) (*Log, error) {
 			return nil, fmt.Errorf("create event log directory: %w", err)
 		}
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}
 	l.file = f
+	if fi, serr := f.Stat(); serr == nil {
+		l.curBytes = fi.Size() // Stat failure → 0: compaction triggers later, file stays consistent
+	}
 	return l, nil
 }
 
@@ -140,7 +163,14 @@ func (l *Log) Record(e PackageEvent) {
 	}
 	if l.file != nil {
 		if data, err := json.Marshal(e); err == nil {
-			l.file.Write(append(data, '\n')) // best-effort
+			if n, werr := l.file.Write(append(data, '\n')); werr == nil {
+				l.curBytes += int64(n)
+				// compactLocked holds the write lock across fsync+rename; rare
+				// (every ~DefaultMaxBytes ≈ 8 MiB) so the stall is acceptable.
+				if l.maxBytes > 0 && l.curBytes > l.maxBytes {
+					l.compactLocked()
+				}
+			}
 		}
 	}
 	subs := make(map[int]chan PackageEvent, len(l.subscribers))
@@ -154,6 +184,33 @@ func (l *Log) Record(e PackageEvent) {
 		default:
 		}
 	}
+}
+
+// compactLocked rewrites the file to hold only the in-memory capped events,
+// oldest-first, bounding on-disk growth. The caller MUST hold l.mu. l.events is
+// newest-first and NewWithPath reverses on load, so emit in REVERSE. On error,
+// file persistence is disabled until restart; the in-memory log is unaffected.
+func (l *Log) compactLocked() {
+	lines := make([][]byte, 0, len(l.events))
+	for i := len(l.events) - 1; i >= 0; i-- {
+		if b, err := json.Marshal(l.events[i]); err == nil {
+			lines = append(lines, b)
+		}
+	}
+	if l.file != nil {
+		_ = l.file.Close()
+		l.file = nil
+	}
+	n, err := logfile.AtomicRewrite(l.path, lines)
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	l.file = f
+	l.curBytes = n
 }
 
 func (l *Log) Events(eco string) []PackageEvent {

@@ -14,3 +14,5 @@ escrow-cache/
 dashboard-live-view.png
 escrow-test/
 /run
+# Go test TMPDIR (set via TMPDIR=.gotmp for -race) — never commit build/test cache
+.gotmp/

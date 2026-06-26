@@ -2,8 +2,10 @@ package server
 
 import (
 	"net/http"
+	"net/http/httptrace"
 	"time"
 
+	"github.com/jverhoeks/escrow/internal/metrics"
 	"github.com/jverhoeks/escrow/internal/upstreamlog"
 	"github.com/rs/zerolog"
 )
@@ -27,6 +29,29 @@ type LoggingTransport struct {
 }
 
 func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Per-ecosystem upstream connection-pool instrumentation (#17). Only attached
+	// for hosts mapped to an ecosystem, to bound metric label cardinality and to
+	// skip the trace overhead on unmapped (e.g. NewLoggingClient) paths.
+	eco, ecoOK := t.hostEco[req.URL.Hostname()]
+	if ecoOK {
+		var getConnAt time.Time
+		trace := &httptrace.ClientTrace{
+			GetConn: func(string) { getConnAt = time.Now() },
+			GotConn: func(info httptrace.GotConnInfo) {
+				reused := "false"
+				if info.Reused {
+					reused = "true"
+				}
+				metrics.UpstreamConnReused.WithLabelValues(eco, reused).Inc()
+				// getConnAt is unset if GotConn somehow fires without GetConn; guard it.
+				if !getConnAt.IsZero() {
+					metrics.UpstreamConnAcquireSeconds.WithLabelValues(eco).Observe(time.Since(getConnAt).Seconds())
+				}
+			},
+		}
+		req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	}
+
 	start := time.Now()
 	resp, err := t.Next.RoundTrip(req)
 	ms := float64(time.Since(start).Microseconds()) / 1000
@@ -50,17 +75,15 @@ func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		Int64("bytes", bytes).
 		Msg("upstream")
 
-	if t.rec != nil {
-		if eco, ok := t.hostEco[req.URL.Hostname()]; ok {
-			t.rec.Record(upstreamlog.Event{
-				Ecosystem: eco,
-				Method:    req.Method,
-				URL:       req.URL.String(),
-				Status:    resp.StatusCode,
-				Bytes:     bytes,
-				MS:        ms,
-			})
-		}
+	if t.rec != nil && ecoOK {
+		t.rec.Record(upstreamlog.Event{
+			Ecosystem: eco,
+			Method:    req.Method,
+			URL:       req.URL.String(),
+			Status:    resp.StatusCode,
+			Bytes:     bytes,
+			MS:        ms,
+		})
 	}
 
 	return resp, nil

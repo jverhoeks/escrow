@@ -9,20 +9,26 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/rs/zerolog/log"
+
+	"github.com/jverhoeks/escrow/internal/metrics"
 )
 
 type S3Cache struct {
-	client *s3.Client
-	bucket string
+	client  *s3.Client
+	bucket  string
+	tempDir string // where SetBlob buffers uploads; "" = OS default
+	staleMaxAge atomic.Int64 // stale-on-error grace window (ns); 0 = disabled.
 }
 
-func NewS3(bucket, region, endpoint string) (*S3Cache, error) {
+func NewS3(bucket, region, endpoint, tempDir string) (*S3Cache, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(region),
 	}
@@ -39,7 +45,7 @@ func NewS3(bucket, region, endpoint string) (*S3Cache, error) {
 		})
 	}
 
-	return &S3Cache{client: s3.NewFromConfig(cfg, clientOpts...), bucket: bucket}, nil
+	return &S3Cache{client: s3.NewFromConfig(cfg, clientOpts...), bucket: bucket, tempDir: tempDir}, nil
 }
 
 func (s *S3Cache) metaKey(key string) string {
@@ -75,12 +81,50 @@ func (s *S3Cache) GetMeta(ctx context.Context, key string) ([]byte, error) {
 	return entry.Data, nil
 }
 
-func (s *S3Cache) SetMeta(ctx context.Context, key string, data []byte, ttl time.Duration) error {
+// SetStaleMaxAge configures the stale-on-error grace window. Zero disables it.
+func (s *S3Cache) SetStaleMaxAge(d time.Duration) {
+	s.staleMaxAge.Store(int64(d))
+}
+
+// GetMetaStale returns a recently-expired meta entry within the grace window.
+// S3 retains the object after expiry (GetMeta does not delete), so this reads
+// the retained object and enforces the grace window.
+func (s *S3Cache) GetMetaStale(ctx context.Context, key string) ([]byte, time.Time, error) {
+	grace := time.Duration(s.staleMaxAge.Load())
+	if grace == 0 {
+		return nil, time.Time{}, nil
+	}
+	k := s.metaKey(key)
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: &s.bucket, Key: &k})
+	if err != nil {
+		if isNotFound(err) {
+			return nil, time.Time{}, nil
+		}
+		return nil, time.Time{}, err
+	}
+	defer out.Body.Close()
+	var entry metaEntry
+	if err := json.NewDecoder(out.Body).Decode(&entry); err != nil {
+		return nil, time.Time{}, nil
+	}
+	if time.Since(entry.ExpiresAt) > grace {
+		return nil, time.Time{}, nil
+	}
+	return entry.Data, entry.ExpiresAt, nil
+}
+
+func (s *S3Cache) SetMeta(ctx context.Context, key string, data []byte, ttl time.Duration) (err error) {
+	defer func() {
+		if err != nil {
+			log.Warn().Err(err).Str("op", "setmeta").Msg("cache write failed")
+			metrics.CacheWriteFailuresTotal.WithLabelValues("s3", "meta").Inc()
+		}
+	}()
 	entry := metaEntry{ExpiresAt: time.Now().Add(ttl), Data: data}
 	encoded, _ := json.Marshal(entry)
 	k := s.metaKey(key)
 	ct := aws.String("application/json")
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      &s.bucket,
 		Key:         &k,
 		Body:        bytes.NewReader(encoded),
@@ -101,10 +145,17 @@ func (s *S3Cache) GetBlob(ctx context.Context, key string) (io.ReadCloser, error
 	return out.Body, nil
 }
 
-func (s *S3Cache) SetBlob(ctx context.Context, key string, r io.Reader) error {
+func (s *S3Cache) SetBlob(ctx context.Context, key string, r io.Reader) (err error) {
+	defer func() {
+		if err != nil {
+			log.Warn().Err(err).Str("op", "setblob").Msg("cache write failed")
+			metrics.CacheWriteFailuresTotal.WithLabelValues("s3", "blob").Inc()
+		}
+	}()
 	// Write to a temp file first so we know the content length for the S3 PutObject call.
 	// This avoids buffering the entire blob in RAM (important for large archives).
-	tmp, err := os.CreateTemp("", "escrow-s3-*")
+	// tempDir is configurable so ops can keep large uploads off a small /tmp tmpfs.
+	tmp, err := os.CreateTemp(s.tempDir, "escrow-s3-*")
 	if err != nil {
 		return err
 	}
@@ -115,7 +166,7 @@ func (s *S3Cache) SetBlob(ctx context.Context, key string, r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+	if _, err = tmp.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
 
@@ -142,6 +193,13 @@ func (s *S3Cache) BlobSize(ctx context.Context, key string) int64 {
 		return -1
 	}
 	return *out.ContentLength
+}
+
+// Healthy does a cheap HeadBucket on the configured bucket. A nil error means
+// the bucket exists and is reachable with the current credentials.
+func (s *S3Cache) Healthy(ctx context.Context) error {
+	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &s.bucket})
+	return err
 }
 
 // Flush is not implemented for S3; use the AWS console or CLI to clear the bucket.
