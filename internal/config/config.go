@@ -246,8 +246,11 @@ func DefaultConfig() Config {
 	}
 }
 
-// ExpandPath expands a leading ~ to the user home directory.
+// ExpandPath expands environment variables ($VAR, ${VAR}) and a leading ~ to
+// the user home directory, so config paths like "$TMPDIR/escrow" or
+// "~/.cache/escrow" resolve as documented. See #88.
 func ExpandPath(p string) string {
+	p = os.ExpandEnv(p)
 	if !strings.HasPrefix(p, "~/") && p != "~" {
 		return p
 	}

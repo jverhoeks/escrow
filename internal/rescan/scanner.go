@@ -202,29 +202,40 @@ func (s *Scanner) Start(ctx context.Context) {
 		return
 	}
 	go func() {
-		select {
-		case <-ctx.Done():
+		if !sleepCtx(ctx, 30*time.Second) {
 			return
-		case <-time.After(30 * time.Second):
-			if s.config().Enabled {
-				s.RunOnce(ctx)
-			}
+		}
+		if s.config().Enabled {
+			s.RunOnce(ctx)
 		}
 		for {
 			d := time.Duration(s.config().IntervalHours) * time.Hour
 			if d <= 0 {
 				d = 24 * time.Hour
 			}
-			select {
-			case <-ctx.Done():
+			if !sleepCtx(ctx, d) {
 				return
-			case <-time.After(d):
-				if s.config().Enabled {
-					s.RunOnce(ctx)
-				}
+			}
+			if s.config().Enabled {
+				s.RunOnce(ctx)
 			}
 		}
 	}()
+}
+
+// sleepCtx waits for d or until ctx is cancelled. It returns true if the full
+// duration elapsed, false if ctx was cancelled first. Unlike time.After, the
+// timer is stopped on cancellation, so a long interval (e.g. 24h) doesn't leak
+// a timer for the rest of that interval on shutdown. See #69.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 // LastRun returns the most recent sweep result.

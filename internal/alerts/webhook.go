@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
@@ -65,10 +67,14 @@ func (w *Webhook) Send(pkg trust.Package, d policy.Decision) error {
 	body, _ := json.Marshal(payload)
 	resp, err := w.client.Post(w.target(), "application/json", bytes.NewReader(body))
 	if err != nil {
+		// Every call site fires this fire-and-forget; log here so a failing
+		// alert channel isn't silent (operators rely on block alerts). See #74.
+		log.Warn().Err(err).Str("package", pkg.Name+"@"+pkg.Version).Msg("block-alert webhook delivery failed")
 		return fmt.Errorf("webhook post failed: %w", err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
+		log.Warn().Int("status", resp.StatusCode).Str("package", pkg.Name+"@"+pkg.Version).Msg("block-alert webhook returned error status")
 		return fmt.Errorf("webhook returned %d", resp.StatusCode)
 	}
 	return nil
@@ -97,10 +103,12 @@ func (w *Webhook) SendRescan(eco, name, version string, vulns []string, severity
 	body, _ := json.Marshal(payload)
 	resp, err := w.client.Post(w.target(), "application/json", bytes.NewReader(body))
 	if err != nil {
+		log.Warn().Err(err).Str("package", name+"@"+version).Msg("rescan-alert webhook delivery failed")
 		return fmt.Errorf("rescan webhook post failed: %w", err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
+		log.Warn().Int("status", resp.StatusCode).Str("package", name+"@"+version).Msg("rescan-alert webhook returned error status")
 		return fmt.Errorf("rescan webhook returned %d", resp.StatusCode)
 	}
 	return nil
