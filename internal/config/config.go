@@ -404,6 +404,18 @@ func (c Config) Validate() []error {
 	if c.Rescan != nil && !validSeverities[c.Rescan.MinSeverity] {
 		errs = append(errs, fmt.Errorf("rescan.min_severity %q is not one of CRITICAL/HIGH/MEDIUM/LOW", c.Rescan.MinSeverity))
 	}
+	// Fail closed when the dashboard is enabled without credentials. An empty
+	// secret signs session cookies with an empty key (forgeable); an empty
+	// password lets a blank login authenticate as admin. Both grant full
+	// administrative control (config write, reload, list mutation, cache flush).
+	if c.Dashboard.Enabled {
+		if c.Dashboard.Secret == "" {
+			errs = append(errs, fmt.Errorf("dashboard.secret is empty while the dashboard is enabled — session cookies would be signed with an empty key and thus forgeable; set a random secret, or set dashboard.enabled = false"))
+		}
+		if c.Dashboard.Password == "" {
+			errs = append(errs, fmt.Errorf("dashboard.password is empty while the dashboard is enabled — a blank password authenticates as admin; set a password, or set dashboard.enabled = false"))
+		}
+	}
 	if c.EgressProxy != nil {
 		switch strings.ToLower(c.EgressProxy.Policy) {
 		case "", "forward", "whitelist":
@@ -463,9 +475,6 @@ func (c Config) Warnings() []string {
 	}
 	if c.EgressLogPath != "" && (c.EgressLogPath == c.AllowlistPath || c.EgressLogPath == c.BlocklistPath) {
 		w = append(w, "egress_log_path is the same as allowlist_path or blocklist_path — JSONL appends will corrupt the list file")
-	}
-	if c.Dashboard.Enabled && c.Dashboard.Secret == "" {
-		w = append(w, "dashboard.secret is empty — session cookies are signed with an empty key, making them forgeable. Set a random secret in escrow.toml.")
 	}
 	if c.Policy != nil && c.Policy.Age != nil && c.Policy.Age.MinDays == 0 {
 		w = append(w, "policy.age.min_days is 0 — all packages pass the age gate regardless of publish time. Set min_days >= 1 for meaningful protection.")

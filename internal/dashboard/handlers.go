@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -103,8 +104,14 @@ func (d *Dashboard) originOK(r *http.Request) bool {
 	if origin == "" {
 		return false
 	}
-	return strings.HasPrefix(origin, "http://"+r.Host) ||
-		strings.HasPrefix(origin, "https://"+r.Host)
+	// Compare the Origin's host to r.Host exactly. A prefix match has no host
+	// boundary, so "http://<host>.attacker.com" would satisfy it; parsing and
+	// comparing u.Host closes that bypass.
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host == r.Host
 }
 
 func (d *Dashboard) Mount(r chi.Router) {
