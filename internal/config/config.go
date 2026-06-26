@@ -333,8 +333,11 @@ blocklist_path = "~/.cache/escrow/blocklist.json"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return false, "", fmt.Errorf("write config: %w", err)
 	}
-	msg := fmt.Sprintf("Generated %s\n  username: admin\n  password: %s\n  url:      http://localhost:%d%s",
-		path, password, cfg.Server.Port, cfg.Dashboard.Path)
+	// Do NOT echo the generated password to stdout — in containers/CI that stream
+	// is log-aggregated, leaking the credential. It's written to the 0600 config
+	// file; point the operator there instead. (#63)
+	msg := fmt.Sprintf("Generated %s (mode 0600)\n  username: admin\n  password: stored in the config file — read it with:  grep '^  password' %s\n  url:      http://localhost:%d%s",
+		path, path, cfg.Server.Port, cfg.Dashboard.Path)
 	return true, msg, nil
 }
 

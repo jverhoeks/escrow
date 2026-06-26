@@ -154,3 +154,24 @@ func TestPyPIHandler_NoDigest_FailsOpen(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "WHEEL-BYTES", rr.Body.String())
 }
+
+// #67: a blocklisted package with a hyphenated name must be 403'd on its sdist.
+// The old first-'-' split parsed "django-allauth-0.50.0.tar.gz" as name
+// "django", so gate.Check never matched the "django-allauth" blocklist entry.
+func TestPyPIHandler_BlockedHyphenatedSdist_403(t *testing.T) {
+	const sdist = "django-allauth-0.50.0.tar.gz"
+	c := cache.NewMemory()
+	defer c.Close()
+	pol := policy.New(nil).WithBlockList(pypiBlocklist(t, block.Entry{Ecosystem: "pypi", Name: "django-allauth", Version: "0.50.0"}))
+	ev := eventlog.New(10)
+	h := pypi.New(http.DefaultClient, "http://127.0.0.1:0", trust.NewEngine(), pol, c, false, ev)
+
+	rr := httptest.NewRecorder()
+	h.ServeFile(rr, httptest.NewRequest(http.MethodGet, "/pypi/packages/"+sdist, nil), sdist)
+
+	require.Equal(t, http.StatusForbidden, rr.Code, "blocked hyphenated sdist must be rejected")
+	events := ev.Events("")
+	require.Len(t, events, 1)
+	assert.Equal(t, "block", events[0].Action)
+	assert.Equal(t, "django-allauth@0.50.0", events[0].Package)
+}

@@ -122,3 +122,20 @@ func TestHandleBlockRemove_AuditEventLogged(t *testing.T) {
 	require.NotEmpty(t, events)
 	assert.Equal(t, eventlog.ActionBlocklistRemove, events[0].Action)
 }
+
+// #66: the allow/block API must reject an unknown ecosystem instead of storing
+// a silently-ineffective entry.
+func TestHandleBlock_RejectsUnknownEcosystem(t *testing.T) {
+	handler, _, bl, _ := newDashWithBothLists(t)
+
+	bad, _ := json.Marshal(map[string]string{"ecosystem": "bogus", "name": "evil", "version": "1.0.0"})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, authReq(t, http.MethodPost, "/dashboard/api/block", bad))
+	require.Equal(t, http.StatusBadRequest, rr.Code, "unknown ecosystem must be rejected")
+	require.Empty(t, bl.Entries(), "no entry should be stored for an unknown ecosystem")
+
+	good, _ := json.Marshal(map[string]string{"ecosystem": "npm", "name": "evil", "version": "1.0.0"})
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, authReq(t, http.MethodPost, "/dashboard/api/block", good))
+	require.NotEqual(t, http.StatusBadRequest, rr.Code, "a known ecosystem must be accepted")
+}

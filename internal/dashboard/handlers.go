@@ -300,6 +300,14 @@ func (d *Dashboard) handleStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(d.log.Stats(window))
 }
 
+// knownEcosystems are the ecosystems escrow proxies. An allow/block entry for
+// anything else is silently ineffective (nothing ever matches it), so the
+// dashboard API rejects it rather than storing dead entries. (#66)
+var knownEcosystems = map[string]bool{
+	"npm": true, "pypi": true, "go": true, "cargo": true,
+	"composer": true, "nuget": true, "maven": true,
+}
+
 func (d *Dashboard) handleAllow(w http.ResponseWriter, r *http.Request) {
 	if !d.originOK(r) {
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
@@ -322,6 +330,10 @@ func (d *Dashboard) handleAllow(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Ecosystem == "" || req.Name == "" {
 		http.Error(w, `{"error":"ecosystem and name are required"}`, http.StatusBadRequest)
+		return
+	}
+	if !knownEcosystems[req.Ecosystem] {
+		http.Error(w, `{"error":"unknown ecosystem"}`, http.StatusBadRequest)
 		return
 	}
 	username, _ := d.auth.Username(r)
@@ -557,6 +569,10 @@ func (d *Dashboard) handleBlock(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Ecosystem == "" || req.Name == "" {
 		http.Error(w, `{"error":"ecosystem and name are required"}`, http.StatusBadRequest)
+		return
+	}
+	if !knownEcosystems[req.Ecosystem] {
+		http.Error(w, `{"error":"unknown ecosystem"}`, http.StatusBadRequest)
 		return
 	}
 	username, _ := d.auth.Username(r)
