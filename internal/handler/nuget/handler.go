@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/sync/singleflight"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -20,6 +19,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
 	"github.com/jverhoeks/escrow/internal/upstream"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -29,8 +29,9 @@ const (
 
 type Handler struct {
 	client           *http.Client
-	upstreamURL      string // e.g. "https://api.nuget.org/v3"
-	flatcontainerURL string // e.g. "https://api.nuget.org/v3-flatcontainer" (derived if empty)
+	metaClient       *http.Client  // metadata fetches: shares transport, total timeout (#73)
+	upstreamURL      string        // e.g. "https://api.nuget.org/v3"
+	flatcontainerURL string        // e.g. "https://api.nuget.org/v3-flatcontainer" (derived if empty)
 	engine           *trust.Engine // full engine: age + OSV + publisher (download time)
 	listingEngine    *trust.Engine // age-only engine (registration/version listing)
 	policy           *policy.Engine
@@ -46,6 +47,7 @@ func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *pol
 	}
 	return &Handler{
 		client:      client,
+		metaClient:  upstream.MetadataClient(client),
 		upstreamURL: upstreamURL,
 		engine:      engine,
 		policy:      pol,
@@ -124,7 +126,7 @@ func (h *Handler) serveRegistration(w http.ResponseWriter, r *http.Request) {
 	raw, err, _ := h.sf.Do("reg:"+r.Host+":"+id, func() (any, error) {
 		upURL := fmt.Sprintf("%s/registration5-semver1/%s/index.json", h.upstreamURL, id)
 		t0 := time.Now()
-		resp, err := h.client.Get(upURL)
+		resp, err := h.metaClient.Get(upURL)
 		metrics.ProxyRequestDuration.WithLabelValues("nuget").Observe(time.Since(t0).Seconds())
 		if err != nil {
 			return nil, err
@@ -173,7 +175,7 @@ func (h *Handler) serveVersionList(w http.ResponseWriter, r *http.Request) {
 	if regData == nil {
 		// Registration not cached — fetch it now.
 		regURL := fmt.Sprintf("%s/registration5-semver1/%s/index.json", h.upstreamURL, id)
-		resp, err := h.client.Get(regURL)
+		resp, err := h.metaClient.Get(regURL)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			if resp != nil {
 				resp.Body.Close()
@@ -434,7 +436,7 @@ func extractVersions(regData []byte) []string {
 
 // fetchRegistrationPage fetches a single paged registration page from the upstream URL.
 func (h *Handler) fetchRegistrationPage(ctx context.Context, pageURL string) ([]any, error) {
-	resp, err := h.client.Get(pageURL)
+	resp, err := h.metaClient.Get(pageURL)
 	if err != nil {
 		return nil, err
 	}

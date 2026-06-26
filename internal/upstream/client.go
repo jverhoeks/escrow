@@ -29,6 +29,24 @@ func New() *http.Client {
 	}
 }
 
+// MetadataTimeout bounds a single metadata (manifest/index/json) fetch so a slow
+// upstream that sends headers then trickles the body can't hold the handler —
+// and its client + upstream connections — indefinitely (previously until the
+// server WriteTimeout). The point is to bound an *indefinite* hang, not to be
+// snappy: it's generous (120s) so a legitimately large manifest (npm aws-sdk /
+// @types/node full metadata are tens of MB) still completes on a slow CI link,
+// while far below the old unbounded behavior. Blob fetches keep NO total timeout
+// (large artifacts exceed any fixed ceiling). Overridable in tests. See #73.
+var MetadataTimeout = 120 * time.Second
+
+// MetadataClient derives a metadata-fetch client from base: it shares base's
+// Transport (and thus the connection pool + error metering) but adds a total
+// request Timeout of MetadataTimeout. Use it for manifest/index/json fetches;
+// keep the base client for blob downloads.
+func MetadataClient(base *http.Client) *http.Client {
+	return &http.Client{Transport: base.Transport, Timeout: MetadataTimeout}
+}
+
 // errorCountingTransport wraps a RoundTripper to centrally meter failed upstream
 // fetches (transport error or 5xx) as escrow_upstream_errors_total, so the RED
 // "are upstream fetches failing?" signal needs no per-handler wiring. See #41.

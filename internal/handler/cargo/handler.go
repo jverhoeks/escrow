@@ -38,6 +38,7 @@ type versionMeta struct {
 // Handler proxies the Cargo sparse registry protocol.
 type Handler struct {
 	client        *http.Client
+	metaClient    *http.Client  // metadata fetches: shares transport, total timeout (#73)
 	upstreamURL   string        // "https://index.crates.io"
 	downloadURL   string        // "https://static.crates.io"
 	apiURL        string        // "https://crates.io"
@@ -53,6 +54,7 @@ type Handler struct {
 func New(client *http.Client, engine *trust.Engine, pol *policy.Engine, c cache.Cache, evLog *eventlog.Log) *Handler {
 	return &Handler{
 		client:      client,
+		metaClient:  upstream.MetadataClient(client),
 		upstreamURL: defaultUpstreamURL,
 		downloadURL: defaultDownloadURL,
 		apiURL:      defaultAPIURL,
@@ -142,7 +144,7 @@ func (h *Handler) serveIndex(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("User-Agent", userAgent)
 
 	t0 := time.Now()
-	resp, err := h.client.Do(req)
+	resp, err := h.metaClient.Do(req)
 	metrics.ProxyRequestDuration.WithLabelValues("cargo").Observe(time.Since(t0).Seconds())
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
@@ -289,7 +291,7 @@ func (h *Handler) fetchVersionMeta(ctx context.Context, name string) map[string]
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := h.client.Do(req)
+	resp, err := h.metaClient.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
 			resp.Body.Close()

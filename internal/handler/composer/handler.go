@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/sync/singleflight"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -17,6 +16,8 @@ import (
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
+	"github.com/jverhoeks/escrow/internal/upstream"
+	"golang.org/x/sync/singleflight"
 )
 
 const manifestTTL = 5 * time.Minute
@@ -24,7 +25,8 @@ const manifestTTL = 5 * time.Minute
 // Handler is the Composer/Packagist V2 proxy handler.
 type Handler struct {
 	client        *http.Client
-	upstreamURL   string // e.g. "https://repo.packagist.org"
+	metaClient    *http.Client  // metadata fetches: shares transport, total timeout (#73)
+	upstreamURL   string        // e.g. "https://repo.packagist.org"
 	engine        *trust.Engine // full engine: age + OSV + publisher (download time)
 	listingEngine *trust.Engine // age-only engine (package manifest listing)
 	policy        *policy.Engine
@@ -38,6 +40,7 @@ type Handler struct {
 func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache, evLog *eventlog.Log) *Handler {
 	return &Handler{
 		client:      client,
+		metaClient:  upstream.MetadataClient(client),
 		upstreamURL: upstreamURL,
 		engine:      engine,
 		policy:      pol,
@@ -69,7 +72,7 @@ func (h *Handler) Mount(r chi.Router) {
 // serveRoot proxies /composer/packages.json from Packagist and rewrites
 // metadata-url and providers-url to point to our proxy prefix.
 func (h *Handler) serveRoot(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.client.Get(fmt.Sprintf("%s/packages.json", h.upstreamURL))
+	resp, err := h.metaClient.Get(fmt.Sprintf("%s/packages.json", h.upstreamURL))
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
@@ -121,7 +124,7 @@ func (h *Handler) servePackage(w http.ResponseWriter, r *http.Request) {
 
 	raw, err, _ := h.sf.Do(pkgName, func() (any, error) {
 		t0 := time.Now()
-		resp, err := h.client.Get(fmt.Sprintf("%s/p2/%s.json", h.upstreamURL, pkgName))
+		resp, err := h.metaClient.Get(fmt.Sprintf("%s/p2/%s.json", h.upstreamURL, pkgName))
 		metrics.ProxyRequestDuration.WithLabelValues("composer").Observe(time.Since(t0).Seconds())
 		if err != nil {
 			return nil, err

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/sync/singleflight"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -19,6 +18,8 @@ import (
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
+	"github.com/jverhoeks/escrow/internal/upstream"
+	"golang.org/x/sync/singleflight"
 )
 
 const manifestTTL = 5 * time.Minute
@@ -40,15 +41,16 @@ func extractAuthor(versionData map[string]any) string {
 }
 
 type Handler struct {
-	client         *http.Client
-	upstreamURL    string
-	engine         *trust.Engine // full engine: age + OSV + publisher (download time)
-	listingEngine  *trust.Engine // age-only engine (manifest filtering)
-	policy         *policy.Engine
-	cache          cache.Cache
-	webhook        *alerts.Webhook // may be nil
-	evlog          *eventlog.Log
-	sf             singleflight.Group
+	client        *http.Client
+	metaClient    *http.Client // metadata fetches: shares transport, total timeout (#73)
+	upstreamURL   string
+	engine        *trust.Engine // full engine: age + OSV + publisher (download time)
+	listingEngine *trust.Engine // age-only engine (manifest filtering)
+	policy        *policy.Engine
+	cache         cache.Cache
+	webhook       *alerts.Webhook // may be nil
+	evlog         *eventlog.Log
+	sf            singleflight.Group
 }
 
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
@@ -62,7 +64,7 @@ func (h *Handler) WithListingEngine(e *trust.Engine) *Handler {
 }
 
 func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache, evLog *eventlog.Log) *Handler {
-	return &Handler{client: client, upstreamURL: upstreamURL, engine: engine, policy: pol, cache: c, evlog: evLog}
+	return &Handler{client: client, metaClient: upstream.MetadataClient(client), upstreamURL: upstreamURL, engine: engine, policy: pol, cache: c, evlog: evLog}
 }
 
 func (h *Handler) Mount(r chi.Router) {
@@ -94,7 +96,7 @@ func (h *Handler) ServeManifest(w http.ResponseWriter, r *http.Request, name str
 	// Deduplicate concurrent cold-cache fetches for the same package.
 	raw, err, _ := h.sf.Do(name, func() (any, error) {
 		t0 := time.Now()
-		resp, err := h.client.Get(fmt.Sprintf("%s/%s", h.upstreamURL, name))
+		resp, err := h.metaClient.Get(fmt.Sprintf("%s/%s", h.upstreamURL, name))
 		metrics.ProxyRequestDuration.WithLabelValues("npm").Observe(time.Since(t0).Seconds())
 		if err != nil {
 			return nil, err
