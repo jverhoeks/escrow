@@ -625,7 +625,10 @@ func main() {
 		log.Info().Msg("maven/gradle proxy enabled at /maven2/")
 	}
 
-	cireport.New(evLog).Mount(r)
+	cireport.New(evLog, cfg.CIReportToken).Mount(r)
+	if cfg.CIReportToken == "" {
+		log.Warn().Msg("/ci-report is unauthenticated (exposes the blocklist + evaluated packages); set ci_report_token in escrow.toml to require a token")
+	}
 
 	if cfg.Dashboard.Enabled {
 		dash = dashboard.New(cfg.Dashboard, evLog, log.Logger, allowList, blockList, c,
@@ -701,14 +704,23 @@ func runCIReport(args []string) {
 	fs := flag.NewFlagSet("ci-report", flag.ExitOnError)
 	port := fs.Int("port", 7888, "escrow proxy port")
 	n := fs.Int("n", 200, "max packages to show in the table")
+	token := fs.String("token", os.Getenv("ESCROW_CI_REPORT_TOKEN"), "ci_report_token if the endpoint requires auth (default $ESCROW_CI_REPORT_TOKEN)")
 	fs.Parse(args) //nolint:errcheck
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/ci-report?n=%d", *port, *n)
-	resp, err := http.Get(url) //nolint:gosec — localhost only
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	if *token != "" {
+		req.Header.Set("Authorization", "Bearer "+*token)
+	}
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec — localhost only
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "escrow ci-report: could not reach proxy on port %d: %v\n", *port, err)
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		fmt.Fprintln(os.Stderr, "escrow ci-report: unauthorized — pass --token or set $ESCROW_CI_REPORT_TOKEN")
+		return
+	}
 	io.Copy(os.Stdout, resp.Body) //nolint:errcheck
 }

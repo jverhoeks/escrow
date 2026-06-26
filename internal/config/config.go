@@ -24,6 +24,11 @@ type Config struct {
 
 	DownloadStatsPath string `json:"download_stats_path" toml:"download_stats_path"` // JSON; empty = default to cache dir on disk backend, else in-memory
 
+	// CIReportToken, when set, is required (Authorization: Bearer / ?token=) to
+	// read /ci-report, which exposes the blocklist + evaluated packages. Empty
+	// (default) leaves the endpoint open (with a startup warning). See #75.
+	CIReportToken string `json:"ci_report_token" toml:"ci_report_token"`
+
 	Rescan      *RescanConfig      `json:"rescan" toml:"rescan"`
 	EgressProxy *EgressProxyConfig `json:"egress_proxy" toml:"egress_proxy"`
 }
