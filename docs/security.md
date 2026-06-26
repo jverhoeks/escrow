@@ -52,6 +52,17 @@ is already done at listing, and no metadata fetch is added to the download hot p
 artifacts download from the Packagist/GitHub CDN, not through escrow, so this enforcement does
 not apply (see below).
 
+### Stale-on-error serving vs. blocked versions
+
+When `storage.stale_on_error_max_age_m` is set, escrow may serve recently-expired metadata if
+the upstream is unreachable. This does **not** re-expose a blocked version: adding a block (or a
+rescan auto-block) invalidates cached metadata, so the stale copy is dropped and a stale listing
+can never include the just-blocked version; and even if a stale manifest listed a version that
+later became blocked, the **download gate still returns 403** for it. The only residual is a
+signal-drift case — a version newly filtered by the *age* or *OSV* signal (no blocklist entry,
+so no cache invalidation) can remain listed in a stale manifest until the metadata TTL elapses —
+which is bounded by the TTL and still blocked at download.
+
 ### Artifact integrity verification
 
 For **PyPI**, escrow verifies a downloaded wheel/sdist against the upstream-declared `sha256`
