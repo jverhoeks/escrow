@@ -17,7 +17,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/sync/singleflight"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -26,22 +25,25 @@ import (
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
+	"github.com/jverhoeks/escrow/internal/upstream"
+	"golang.org/x/sync/singleflight"
 )
 
 const manifestTTL = 5 * time.Minute
 
 type Handler struct {
-	client         *http.Client
-	upstreamURL    string
-	engine         *trust.Engine // full engine: age + OSV + publisher (used at download time)
-	listingEngine  *trust.Engine // age-only engine: used during index listing to avoid per-version network calls
-	policy         *policy.Engine
-	cache          cache.Cache
-	blockSdist     bool
-	webhook        *alerts.Webhook // may be nil
-	evlog          *eventlog.Log
-	sfJSON         singleflight.Group // dedup concurrent JSON manifest fetches
-	sfSimple       singleflight.Group // dedup concurrent simple-index fetches
+	client        *http.Client
+	metaClient    *http.Client // metadata fetches: shares transport, total timeout (#73)
+	upstreamURL   string
+	engine        *trust.Engine // full engine: age + OSV + publisher (used at download time)
+	listingEngine *trust.Engine // age-only engine: used during index listing to avoid per-version network calls
+	policy        *policy.Engine
+	cache         cache.Cache
+	blockSdist    bool
+	webhook       *alerts.Webhook // may be nil
+	evlog         *eventlog.Log
+	sfJSON        singleflight.Group // dedup concurrent JSON manifest fetches
+	sfSimple      singleflight.Group // dedup concurrent simple-index fetches
 }
 
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
@@ -55,7 +57,7 @@ func (h *Handler) WithListingEngine(e *trust.Engine) *Handler {
 }
 
 func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *policy.Engine, c cache.Cache, blockSdist bool, evLog *eventlog.Log) *Handler {
-	return &Handler{client: client, upstreamURL: upstreamURL, engine: engine, policy: pol, cache: c, blockSdist: blockSdist, evlog: evLog}
+	return &Handler{client: client, metaClient: upstream.MetadataClient(client), upstreamURL: upstreamURL, engine: engine, policy: pol, cache: c, blockSdist: blockSdist, evlog: evLog}
 }
 
 func (h *Handler) Mount(r chi.Router) {
@@ -160,7 +162,7 @@ func (h *Handler) ServeJSON(w http.ResponseWriter, r *http.Request, name string)
 
 	raw, err, _ := h.sfJSON.Do(name, func() (any, error) {
 		t0 := time.Now()
-		resp, err := h.client.Get(fmt.Sprintf("%s/pypi/%s/json", h.upstreamURL, name))
+		resp, err := h.metaClient.Get(fmt.Sprintf("%s/pypi/%s/json", h.upstreamURL, name))
 		metrics.ProxyRequestDuration.WithLabelValues("pypi").Observe(time.Since(t0).Seconds())
 		if err != nil {
 			return nil, err
@@ -333,7 +335,7 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, filename str
 }
 
 func (h *Handler) fetchReleases(ctx context.Context, name string) map[string][]map[string]any {
-	resp, err := h.client.Get(fmt.Sprintf("%s/pypi/%s/json", h.upstreamURL, name))
+	resp, err := h.metaClient.Get(fmt.Sprintf("%s/pypi/%s/json", h.upstreamURL, name))
 	if err != nil {
 		return nil
 	}
@@ -428,7 +430,7 @@ func (h *Handler) serveFileMetadata(w http.ResponseWriter, r *http.Request, file
 		http.NotFound(w, r)
 		return
 	}
-	resp, err := h.client.Get(fileURL + ".metadata")
+	resp, err := h.metaClient.Get(fileURL + ".metadata")
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if err == nil {
 			resp.Body.Close()

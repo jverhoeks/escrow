@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/sync/singleflight"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -23,6 +22,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
 	upstreamPkg "github.com/jverhoeks/escrow/internal/upstream"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -32,9 +32,10 @@ const (
 
 type Handler struct {
 	client        *http.Client
-	upstreamURL   string // e.g. "https://repo1.maven.org/maven2"
-	snapshotURL   string // snapshot upstream; falls back to upstreamURL if empty
-	searchURL     string // Maven Central Search API base
+	metaClient    *http.Client  // metadata fetches: shares transport, total timeout (#73)
+	upstreamURL   string        // e.g. "https://repo1.maven.org/maven2"
+	snapshotURL   string        // snapshot upstream; falls back to upstreamURL if empty
+	searchURL     string        // Maven Central Search API base
 	engine        *trust.Engine // full engine: age + OSV + publisher (artifact download time)
 	listingEngine *trust.Engine // age-only engine (metadata/version listing)
 	policy        *policy.Engine
@@ -50,6 +51,7 @@ func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *pol
 	}
 	return &Handler{
 		client:      client,
+		metaClient:  upstreamPkg.MetadataClient(client),
 		upstreamURL: upstreamURL,
 		searchURL:   "https://search.maven.org/solrsearch/select",
 		engine:      engine,
@@ -102,7 +104,7 @@ func (h *Handler) serveHead(w http.ResponseWriter, r *http.Request) {
 		}
 		// Fetch full content and cache it — eliminates follow-up GET round-trips
 		// and prevents Maven Central from rate-limiting repeated HEAD probes.
-		resp, err := h.client.Get(upstream + "/" + path)
+		resp, err := h.metaClient.Get(upstream + "/" + path)
 		if err != nil {
 			http.Error(w, "upstream error", http.StatusBadGateway)
 			return
@@ -167,7 +169,7 @@ func (h *Handler) serveMetadataFrom(w http.ResponseWriter, r *http.Request, path
 	sfKey := "meta:" + upstream + ":" + path
 	raw, err, _ := h.sf.Do(sfKey, func() (any, error) {
 		t0 := time.Now()
-		resp, err := h.client.Get(upstream + "/" + path)
+		resp, err := h.metaClient.Get(upstream + "/" + path)
 		metrics.ProxyRequestDuration.WithLabelValues("maven").Observe(time.Since(t0).Seconds())
 		if err != nil {
 			return nil, err
@@ -349,7 +351,7 @@ func (h *Handler) fetchVersionTimestamps(ctx context.Context, groupID, artifactI
 	if err != nil {
 		return nil, err
 	}
-	resp, err := h.client.Do(req)
+	resp, err := h.metaClient.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
 			resp.Body.Close()

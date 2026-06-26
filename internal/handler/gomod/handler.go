@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/sync/singleflight"
 	"github.com/jverhoeks/escrow/internal/alerts"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
@@ -20,6 +19,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
 	"github.com/jverhoeks/escrow/internal/upstream"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -29,6 +29,7 @@ const (
 
 type Handler struct {
 	client        *http.Client
+	metaClient    *http.Client // metadata fetches: shares transport, total timeout (#73)
 	upstreamURL   string
 	engine        *trust.Engine // full engine: age + OSV + publisher (download time)
 	listingEngine *trust.Engine // age-only engine (info/latest listing)
@@ -43,7 +44,7 @@ func New(client *http.Client, upstreamURL string, engine *trust.Engine, pol *pol
 	if upstreamURL == "" {
 		upstreamURL = "https://proxy.golang.org"
 	}
-	return &Handler{client: client, upstreamURL: upstreamURL, engine: engine, policy: pol, cache: c, evlog: evLog}
+	return &Handler{client: client, metaClient: upstream.MetadataClient(client), upstreamURL: upstreamURL, engine: engine, policy: pol, cache: c, evlog: evLog}
 }
 
 func (h *Handler) WithWebhook(wh *alerts.Webhook) *Handler {
@@ -103,7 +104,7 @@ func (h *Handler) serveInfo(w http.ResponseWriter, r *http.Request, escapedModul
 	raw, err, _ := h.sfInfo.Do(sfKey, func() (any, error) {
 		upURL := fmt.Sprintf("%s/%s/@v/%s", h.upstreamURL, escapedModule, request)
 		t0 := time.Now()
-		resp, err := h.client.Get(upURL)
+		resp, err := h.metaClient.Get(upURL)
 		metrics.ProxyRequestDuration.WithLabelValues("go").Observe(time.Since(t0).Seconds())
 		if err != nil {
 			return nil, err
@@ -194,7 +195,7 @@ func (h *Handler) serveMod(w http.ResponseWriter, r *http.Request, escapedModule
 		return
 	}
 	upURL := fmt.Sprintf("%s/%s/@v/%s", h.upstreamURL, escapedModule, request)
-	resp, err := h.client.Get(upURL)
+	resp, err := h.metaClient.Get(upURL)
 	if err != nil {
 		if staleserve.Serve(w, r, h.cache, cacheKey, "text/plain; charset=utf-8", "go", "mod") {
 			return
@@ -298,7 +299,7 @@ func (h *Handler) servePassthrough(w http.ResponseWriter, r *http.Request, escap
 		return
 	}
 	upURL := fmt.Sprintf("%s/%s/@v/%s", h.upstreamURL, escapedModule, request)
-	resp, err := h.client.Get(upURL)
+	resp, err := h.metaClient.Get(upURL)
 	if err != nil {
 		if staleserve.Serve(w, r, h.cache, cacheKey, "text/plain; charset=utf-8", "go", "pass") {
 			return
@@ -332,7 +333,7 @@ func (h *Handler) serveLatest(w http.ResponseWriter, r *http.Request, escapedMod
 	}
 	raw, err, _ := h.sfInfo.Do(sfKey, func() (any, error) {
 		upURL := fmt.Sprintf("%s/%s/@latest", h.upstreamURL, escapedModule)
-		resp, err := h.client.Get(upURL)
+		resp, err := h.metaClient.Get(upURL)
 		if err != nil {
 			return nil, err
 		}
