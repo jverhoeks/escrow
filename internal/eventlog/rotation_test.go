@@ -52,3 +52,29 @@ func TestRotation_CompactsAndPreservesOrder(t *testing.T) {
 	assert.Equal(t, "p0599@1", ev3[0].Package, "newest-first after reopen #2")
 	assert.Equal(t, "p0580@1", ev3[capN-1].Package, "oldest of the kept window")
 }
+
+// #72: compaction now runs its file I/O outside the write lock. Concurrent
+// readers must not race or deadlock against a Record that triggers compaction.
+// Run with -race.
+func TestRecord_ConcurrentReadsDuringCompaction(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	l, err := NewWithPath(50, path)
+	require.NoError(t, err)
+	l.maxBytes = 4 * 1024 // small → compaction fires repeatedly
+	defer l.Close()
+
+	pad := strings.Repeat("x", 256)
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 3000; i++ {
+			_ = l.Events("")
+			_ = l.Stats(0)
+		}
+		close(done)
+	}()
+	for i := 0; i < 3000; i++ {
+		l.Record(PackageEvent{Package: fmt.Sprintf("p%d@1", i), Action: "allow", Reason: pad})
+	}
+	<-done
+	require.LessOrEqual(t, len(l.Events("")), 50, "ring stays bounded")
+}

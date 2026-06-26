@@ -163,14 +163,20 @@ func (l *Log) Record(e PackageEvent) {
 	}
 	l.mu.Lock()
 	l.events.Push(e)
+	var toCompact []PackageEvent // non-nil => run compaction after unlock
 	if l.file != nil {
 		if data, err := json.Marshal(e); err == nil {
 			if n, werr := l.file.Write(append(data, '\n')); werr == nil {
 				l.curBytes += int64(n)
-				// compactLocked holds the write lock across fsync+rename; rare
-				// (every ~DefaultMaxBytes ≈ 8 MiB) so the stall is acceptable.
 				if l.maxBytes > 0 && l.curBytes > l.maxBytes {
-					l.compactLocked()
+					// Snapshot the retained window and detach the file under the
+					// lock; the marshal + fsync + rename run AFTER unlock so readers
+					// (Events/Stats RLock) aren't blocked on disk I/O. While the file
+					// is nil, concurrent Records skip the file write (and the
+					// re-trigger), so there's no overlapping compaction. See #72.
+					toCompact = l.events.Oldest()
+					_ = l.file.Close()
+					l.file = nil
 				}
 			}
 		}
@@ -180,6 +186,9 @@ func (l *Log) Record(e PackageEvent) {
 		subs[id] = ch
 	}
 	l.mu.Unlock()
+	if toCompact != nil {
+		l.compact(toCompact)
+	}
 	for _, ch := range subs {
 		select {
 		case ch <- e:
@@ -188,21 +197,18 @@ func (l *Log) Record(e PackageEvent) {
 	}
 }
 
-// compactLocked rewrites the file to hold only the in-memory capped events,
-// oldest-first, bounding on-disk growth. The caller MUST hold l.mu. l.events is
-// newest-first and NewWithPath reverses on load, so emit in REVERSE. On error,
-// file persistence is disabled until restart; the in-memory log is unaffected.
-func (l *Log) compactLocked() {
-	oldest := l.events.Oldest()
-	lines := make([][]byte, 0, len(oldest))
-	for _, e := range oldest {
+// compact rewrites the on-disk log to the snapshot (oldest-first), bounding
+// on-disk growth. It runs WITHOUT holding l.mu — the caller has already closed
+// and nil'd l.file under the lock — so the marshal + fsync + rename don't block
+// readers; only the final file-handle swap re-takes the lock briefly. On any
+// error, persistence stays disabled (l.file remains nil) until restart; the
+// in-memory log is unaffected. See #72.
+func (l *Log) compact(events []PackageEvent) {
+	lines := make([][]byte, 0, len(events))
+	for _, e := range events {
 		if b, err := json.Marshal(e); err == nil {
 			lines = append(lines, b)
 		}
-	}
-	if l.file != nil {
-		_ = l.file.Close()
-		l.file = nil
 	}
 	n, err := logfile.AtomicRewrite(l.path, lines)
 	if err != nil {
@@ -212,8 +218,10 @@ func (l *Log) compactLocked() {
 	if err != nil {
 		return
 	}
+	l.mu.Lock()
 	l.file = f
 	l.curBytes = n
+	l.mu.Unlock()
 }
 
 func (l *Log) Events(eco string) []PackageEvent {
