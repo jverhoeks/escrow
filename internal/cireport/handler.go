@@ -1,6 +1,7 @@
 package cireport
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -14,20 +15,41 @@ import (
 const maxN = 500
 
 // Handler serves GET /ci-report — a GitHub-flavored Markdown summary of all
-// packages evaluated in the current session. No authentication required.
+// packages evaluated in the current session (blocklist + evaluated packages).
+// When token is non-empty the request must present it as `Authorization: Bearer
+// <token>` or `?token=<token>`; when empty the endpoint is open. See #75.
 type Handler struct {
-	log *eventlog.Log
+	log   *eventlog.Log
+	token string
 }
 
-func New(log *eventlog.Log) *Handler {
-	return &Handler{log: log}
+func New(log *eventlog.Log, token string) *Handler {
+	return &Handler{log: log, token: token}
 }
 
 func (h *Handler) Mount(r chi.Router) {
 	r.Get("/ci-report", h.handle)
 }
 
+// authorized reports whether the request may read the report. With no token
+// configured the endpoint is open; otherwise the presented token must match in
+// constant time.
+func (h *Handler) authorized(r *http.Request) bool {
+	if h.token == "" {
+		return true
+	}
+	got := r.URL.Query().Get("token")
+	if got == "" {
+		got = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(h.token)) == 1
+}
+
 func (h *Handler) handle(w http.ResponseWriter, r *http.Request) {
+	if !h.authorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	n := 200
 	if s := r.URL.Query().Get("n"); s != "" {
 		if v, err := strconv.Atoi(s); err == nil && v > 0 && v <= maxN {
