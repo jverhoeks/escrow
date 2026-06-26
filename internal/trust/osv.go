@@ -37,17 +37,32 @@ type osvPackage struct {
 	Name      string `json:"name"`
 	Ecosystem string `json:"ecosystem"`
 }
+type osvSeverity struct {
+	Type  string `json:"type"`  // e.g. "CVSS_V3", "CVSS_V4"
+	Score string `json:"score"` // CVSS vector string
+}
 type osvResponse struct {
 	Vulns []struct {
-		ID       string `json:"id"`
-		Severity []struct {
-			Type  string `json:"type"`
-			Score string `json:"score"`
-		} `json:"severity"`
+		ID               string        `json:"id"`
+		Severity         []osvSeverity `json:"severity"`
 		DatabaseSpecific *struct {
 			Severity string `json:"severity"` // "LOW", "MEDIUM", "HIGH", "CRITICAL"
 		} `json:"database_specific"`
 	} `json:"vulns"`
+}
+
+// severityFromCVSS derives a qualitative band from the highest-confidence CVSS
+// vector available (preferring v3, which we can score). Returns "" when no
+// scoreable vector is present.
+func severityFromCVSS(sevs []osvSeverity) string {
+	for _, s := range sevs {
+		if s.Type == "CVSS_V3" {
+			if score, ok := cvssBaseScore(s.Score); ok {
+				return severityBandFromScore(score)
+			}
+		}
+	}
+	return ""
 }
 
 // severityRank ranks OSV/GHSA severities. GitHub advisories use "MODERATE"
@@ -132,6 +147,13 @@ func (s *OSVSignal) toReport(resp osvResponse) SignalReport {
 		sev := ""
 		if v.DatabaseSpecific != nil && v.DatabaseSpecific.Severity != "" {
 			sev = strings.ToUpper(v.DatabaseSpecific.Severity)
+		} else {
+			// No database_specific.severity (common for non-GHSA ecosystems:
+			// PYSEC, Go vuln DB, RUSTSEC). Derive the band from a CVSS v3 vector
+			// in the severity[] array so min_severity is honored. v4/v2 vectors
+			// and advisories with no scoreable vector stay "" (unknown) and are
+			// included below — fail closed.
+			sev = severityFromCVSS(v.Severity)
 		}
 		// If severity is unknown or at/above threshold, include it
 		rank, known := severityRank[sev]

@@ -45,6 +45,25 @@ func TestRunOnce_NewVulnBlocksAndRecords(t *testing.T) {
 	require.True(t, found)
 }
 
+// A non-GHSA advisory with only a LOW-scoring CVSS_V3 vector (no
+// database_specific.severity) must NOT auto-block under min_severity=HIGH.
+// Before #47 the rescanner over-blocked these (unknown severity → always
+// counted); deriving the band from the CVSS vector fixes it.
+func TestRunOnce_CVSSv3LowSeverity_NotBlockedUnderHigh(t *testing.T) {
+	log := eventlog.New(100)
+	log.Record(eventlog.PackageEvent{Ecosystem: "pypi", Package: "somepkg@1.0.0", Action: "allow", Kind: eventlog.KindDownloaded})
+	bl, _ := block.New("")
+	// CVSS:3.1 vector scoring 2.0 (LOW), no database_specific.severity.
+	osv := newOSV(t, `{"vulns":[{"id":"PYSEC-2099-1","severity":[{"type":"CVSS_V3","score":"CVSS:3.1/AV:N/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N"}]}]}`)
+	s := rescan.New(rescan.Deps{Log: log, OSV: osv, BlockList: bl}, rescan.Config{MinSeverity: "HIGH", AutoBlock: true})
+
+	res := s.RunOnce(context.Background())
+	require.Equal(t, 0, res.NewFindings)
+	require.Equal(t, 0, res.Blocked)
+	blocked, _ := bl.IsBlocked("pypi", "somepkg", "1.0.0")
+	require.False(t, blocked, "a LOW CVSS_V3 advisory must not be auto-blocked under min_severity=HIGH")
+}
+
 func TestRunOnce_DedupAcrossSweeps(t *testing.T) {
 	log := eventlog.New(100)
 	log.Record(eventlog.PackageEvent{Ecosystem: "npm", Package: "lodash@4.17.21", Action: "allow", Kind: eventlog.KindDownloaded})

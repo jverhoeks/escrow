@@ -121,6 +121,50 @@ func TestOSVSignal_UpstreamError_Errors(t *testing.T) {
 	assert.Equal(t, trust.SignalError, report.Result)
 }
 
+// A non-GHSA advisory carries no database_specific.severity, only a CVSS_V3
+// vector. The band must be derived from that vector so min_severity applies:
+// a LOW-scoring vector (2.0) must be filtered out under min_severity=HIGH.
+func TestOSVSignal_CVSSv3LowSeverity_FilteredUnderHigh(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"vulns": []map[string]any{{
+				"id":       "PYSEC-2099-1",
+				"severity": []map[string]any{{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N"}},
+			}},
+		})
+	}))
+	defer srv.Close()
+	c := cache.NewMemory()
+	defer c.Close()
+	sig := trust.NewOSVSignal("HIGH", srv.Client(), c, srv.URL)
+	pkg := trust.Package{Ecosystem: trust.EcosystemPyPI, Name: "x", Version: "1.0.0"}
+	report, err := sig.Check(context.Background(), pkg)
+	require.NoError(t, err)
+	assert.Equal(t, trust.SignalPass, report.Result, "CVSS_V3 LOW vuln must not block under min_severity=HIGH")
+}
+
+// A CVSS_V3 vector scoring CRITICAL (9.8) is still caught under min_severity=HIGH.
+func TestOSVSignal_CVSSv3Critical_BlockedUnderHigh(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"vulns": []map[string]any{{
+				"id":       "GO-2099-1",
+				"severity": []map[string]any{{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}},
+			}},
+		})
+	}))
+	defer srv.Close()
+	c := cache.NewMemory()
+	defer c.Close()
+	sig := trust.NewOSVSignal("HIGH", srv.Client(), c, srv.URL)
+	pkg := trust.Package{Ecosystem: trust.EcosystemGo, Name: "x", Version: "1.0.0"}
+	report, err := sig.Check(context.Background(), pkg)
+	require.NoError(t, err)
+	assert.Equal(t, trust.SignalFail, report.Result)
+	require.Len(t, report.Vulns, 1)
+	assert.Equal(t, "CRITICAL", report.Vulns[0].Severity)
+}
+
 func TestOSVSignal_LowSeverityFiltered(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
