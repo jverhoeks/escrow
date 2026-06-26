@@ -29,6 +29,11 @@ func TestPkgVersionFromFilename(t *testing.T) {
 		{"zope_interface-6.1.tar.gz", "zope-interface", "6.1"},
 		{"requests-2.31.0.tar.gz", "requests", "2.31.0"},
 		{"foo-1.0.zip", "foo", "1.0"},
+		// #67: legacy hyphenated sdist names — the version starts at the first
+		// '-' followed by a digit, so the hyphenated name is preserved.
+		{"django-allauth-0.50.0.tar.gz", "django-allauth", "0.50.0"},
+		{"django-allauth-0.50.0.zip", "django-allauth", "0.50.0"},
+		{"backports-tarfile-1.2.0.tar.gz", "backports-tarfile", "1.2.0"},
 		// Non-artifacts / unparseable.
 		{"requests.metadata", "", ""},
 		{"noversion.whl", "", ""},

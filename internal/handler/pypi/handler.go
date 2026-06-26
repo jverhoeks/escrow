@@ -441,17 +441,14 @@ func (h *Handler) serveFileMetadata(w http.ResponseWriter, r *http.Request, file
 	io.Copy(w, resp.Body)
 }
 
-// pkgFromFilename extracts a normalized package name from a wheel or sdist filename.
-// Examples: "requests-2.31.0-py3-none-any.whl" → "requests"
-//           "Django-4.2.tar.gz" → "django"
+// pkgFromFilename extracts a normalized package name from a wheel or sdist
+// filename. Examples: "requests-2.31.0-py3-none-any.whl" → "requests";
+// "django-allauth-0.50.0.tar.gz" → "django-allauth". Delegates to
+// pkgVersionFromFilename so the hyphenated-sdist handling stays in one place
+// (see #67).
 func pkgFromFilename(filename string) string {
-	base := strings.TrimSuffix(filename, ".whl")
-	base = strings.TrimSuffix(base, ".tar.gz")
-	base = strings.TrimSuffix(base, ".zip")
-	if i := strings.Index(base, "-"); i > 0 {
-		return strings.ToLower(strings.ReplaceAll(base[:i], "_", "-"))
-	}
-	return ""
+	name, _ := pkgVersionFromFilename(filename)
+	return name
 }
 
 // normalizePyPI applies PEP 503 name normalization: runs of [-_.] collapse to a
@@ -481,10 +478,16 @@ func normalizePyPI(name string) string {
 
 // pkgVersionFromFilename parses (normalized name, version) from a wheel or sdist
 // filename. Wheels (PEP 427) are reliable: "name-version-pytag-abi-plat.whl",
-// so field[1] is the version. Sdists use "name-version.tar.gz"/".zip"; the
-// first '-' after the name marks the version for modern (PEP 625) sdists whose
-// name uses '_'. Legacy hyphenated sdist names (e.g. "django-allauth-0.50.0")
-// can misparse — best-effort first-dash split. Returns "","" if unparseable.
+// so field[1] is the version. Sdists use "name-version.tar.gz"/".zip"; a naive
+// first-'-' split misparses hyphenated names ("django-allauth-0.50.0" → name
+// "django"), which lets a blocklisted hyphenated sdist slip past gate.Check.
+// Instead split at the first '-' that is FOLLOWED BY A DIGIT: a PEP 440 version
+// always starts with a digit (or "N!" epoch), and package-name segments don't,
+// so "django-allauth-0.50.0" → name "django-allauth", version "0.50.0", while
+// modern PEP 625 names (underscores) still parse correctly. Returns "","" if
+// unparseable. (Residual: a name segment that itself starts with a digit, e.g.
+// "foo-2bar-1.0", can still misparse — rare; the digit-boundary heuristic is a
+// best-effort improvement over the first-'-' split.)
 func pkgVersionFromFilename(filename string) (name, version string) {
 	if strings.HasSuffix(filename, ".whl") {
 		base := strings.TrimSuffix(filename, ".whl")
@@ -503,9 +506,10 @@ func pkgVersionFromFilename(filename string) (name, version string) {
 	default:
 		return "", "" // not a recognized artifact (e.g. .egg, .metadata)
 	}
-	i := strings.IndexByte(base, '-')
-	if i <= 0 || i+1 >= len(base) {
-		return "", ""
+	for i := 0; i < len(base); i++ {
+		if base[i] == '-' && i+1 < len(base) && base[i+1] >= '0' && base[i+1] <= '9' {
+			return normalizePyPI(base[:i]), base[i+1:]
+		}
 	}
-	return normalizePyPI(base[:i]), base[i+1:]
+	return "", ""
 }
