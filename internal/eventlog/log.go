@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jverhoeks/escrow/internal/pkgref"
 	"github.com/jverhoeks/escrow/internal/logfile"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
@@ -302,9 +303,4 @@ func (l *Log) Stats(window time.Duration) Stats {
 	return s
 }
 
-func packageName(pkg string) string {
-	if i := strings.LastIndex(pkg, "@"); i > 0 {
-		return pkg[:i]
-	}
-	return pkg
-}
+func packageName(pkg string) string { return pkgref.Name(pkg) }

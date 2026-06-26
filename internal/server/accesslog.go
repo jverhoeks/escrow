@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/rs/zerolog/log"
+
 	"github.com/jverhoeks/escrow/internal/accesslog"
 )
 
@@ -107,7 +109,11 @@ func NewAccessLogger(path string, maxDays int) (*AccessLogger, error) {
 func (al *AccessLogger) rotate(today string) {
 	al.f.Close()
 	rotated := strings.TrimSuffix(al.path, filepath.Ext(al.path)) + "." + al.day + filepath.Ext(al.path)
-	os.Rename(al.path, rotated) //nolint:errcheck
+	if err := os.Rename(al.path, rotated); err != nil {
+		// Not fatal — the day's lines keep appending to al.path below rather than
+		// being lost — but surface it so a recurring rotation failure is visible.
+		log.Warn().Err(err).Str("from", al.path).Str("to", rotated).Msg("access log rotation rename failed")
+	}
 	f, err := os.OpenFile(al.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		// Failed to reopen — discard writes and leave al.day unchanged so the

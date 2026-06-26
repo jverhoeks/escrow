@@ -5,7 +5,7 @@ NEXT_MAJOR := $(shell bash scripts/bump-version.sh major $(CURRENT))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build test \
+.PHONY: help build test test-unit \
         release-patch release-minor release-major \
         tag tap
 
@@ -27,6 +27,10 @@ build: ## Cross-compile binaries for all platforms (darwin/linux/windows × amd6
 
 test: ## Run integration tests against a live escrow instance (needs ESCROW_DIR)
 	@bash tests/test-escrow-full.sh
+
+test-unit: ## Run Go unit tests with the race detector + coverage
+	go test -race -coverprofile=coverage.out -covermode=atomic ./...
+	@go tool cover -func=coverage.out | tail -1
 
 # ── Release ────────────────────────────────────────────────────────────────────
 #

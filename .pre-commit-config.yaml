@@ -22,3 +22,16 @@ repos:
       - id: actionlint
         # Only lint actual workflow files, not composite-action manifests.
         files: ^\.github/workflows/.*\.ya?ml$
+
+  # go vet as a local hook (uses the toolchain on PATH). (#85)
+  # NOTE: gofmt is intentionally NOT added here — the tree currently uses a
+  # non-gofmt import grouping, so a gofmt hook would block every commit until a
+  # separate repo-wide reformat is done.
+  - repo: local
+    hooks:
+      - id: go-vet
+        name: go vet
+        entry: bash -c 'go vet ./...'
+        language: system
+        types: [go]
+        pass_filenames: false
