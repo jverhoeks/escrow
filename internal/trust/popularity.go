@@ -61,7 +61,12 @@ func (s *PopularitySignal) Check(ctx context.Context, pkg Package) (SignalReport
 		return SignalReport{Signal: s.Name(), Result: SignalSkip, Reason: "no usable baseline"}, nil
 	}
 	ratio := float64(currentDownloads) / float64(baseline.Downloads)
-	if ratio > s.spikeFactor && baseline.Downloads < 100 {
+	// Flag any spike above the factor regardless of baseline size. The previous
+	// `&& baseline.Downloads < 100` restricted flagging to tiny packages, so a
+	// hijack spike on an already-popular package (baseline ≥ 100) was never
+	// caught — the opposite of what's wanted. See #51. (A rolling/median baseline
+	// to also catch gradual ramps is a deeper follow-up.)
+	if ratio > s.spikeFactor {
 		return SignalReport{
 			Signal: s.Name(),
 			Result: SignalWarn,

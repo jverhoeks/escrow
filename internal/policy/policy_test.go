@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/policy"
@@ -200,4 +201,20 @@ func TestEngine_SetConfig_AppliesLive(t *testing.T) {
 
 	e.SetConfig(&config.PolicyConfig{OSV: &config.OSVPolicyConfig{Action: "block"}})
 	require.Equal(t, policy.ActionBlock, e.Evaluate(res).Action)
+}
+
+// #51: allow/block decision reasons carry the matched entry's provenance —
+// who added it and whether it matched a specific version or all versions.
+func TestEvaluate_ListReasonCarriesProvenance(t *testing.T) {
+	bl, err := block.New("")
+	require.NoError(t, err)
+	require.NoError(t, bl.Add(block.Entry{Ecosystem: "npm", Name: "evil", Version: "", Reason: "malware", AddedBy: "alice"}))
+	e := policy.New(nil).WithBlockList(bl)
+	d := e.Evaluate(trust.TrustResult{
+		Package: trust.Package{Ecosystem: trust.EcosystemNPM, Name: "evil", Version: "1.2.3"},
+	})
+	require.Equal(t, policy.ActionBlock, d.Action)
+	assert.Contains(t, d.Reason, "malware")
+	assert.Contains(t, d.Reason, "added_by=alice")
+	assert.Contains(t, d.Reason, "wildcard")
 }

@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/jverhoeks/escrow/internal/allow"
@@ -8,6 +9,30 @@ import (
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/trust"
 )
+
+// listReason annotates an allow/block decision with provenance — who added the
+// entry and whether it matched all versions (wildcard) or a specific one — so
+// the event log records which entry governed the decision, not just its free
+// text. See #51.
+func listReason(reason, addedBy, version string) string {
+	var b strings.Builder
+	if reason != "" {
+		b.WriteString(reason)
+	}
+	scope := "version " + version
+	if version == "" {
+		scope = "all versions (wildcard)"
+	}
+	if b.Len() > 0 {
+		b.WriteString(" ")
+	}
+	b.WriteString("[" + scope)
+	if addedBy != "" {
+		b.WriteString(", added_by=" + addedBy)
+	}
+	b.WriteString("]")
+	return b.String()
+}
 
 type Action string
 
@@ -65,7 +90,7 @@ func (e *Engine) Evaluate(result trust.TrustResult) Decision {
 			return Decision{
 				Action: ActionAllow,
 				Signal: "override",
-				Reason: "allowlist: " + entry.Reason,
+				Reason: "allowlist: " + listReason(entry.Reason, entry.AddedBy, entry.Version),
 			}
 		}
 	}
@@ -78,7 +103,7 @@ func (e *Engine) Evaluate(result trust.TrustResult) Decision {
 			return Decision{
 				Action: ActionBlock,
 				Signal: "manual-block",
-				Reason: "blocklist: " + entry.Reason,
+				Reason: "blocklist: " + listReason(entry.Reason, entry.AddedBy, entry.Version),
 			}
 		}
 	}
