@@ -84,8 +84,8 @@ You can edit most of this live from the dashboard's **Settings** page — see
   enabled  = true
   path     = "/dashboard"
   username = "admin"
-  password = ""            # generated on first boot
-  secret   = ""            # HMAC session-cookie secret; generated on first boot
+  password = ""            # generated on first boot; required (non-empty) if you write the config by hand
+  secret   = ""            # HMAC session-cookie secret; empty + enabled aborts startup (fail closed)
 
 [alerts]
   webhook_url = ""

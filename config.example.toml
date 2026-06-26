@@ -66,11 +66,15 @@
   webhook_url = ""   # POST JSON to this URL on every block; blank = disabled
 
 [dashboard]
+  # When enabled = true, password and secret must both be non-empty or escrow
+  # refuses to start (fail closed). escrow auto-generates random values only
+  # when it creates escrow.toml itself on first boot; a hand-copied config like
+  # this one must set them explicitly (or set enabled = false).
   enabled  = true
   path     = "/dashboard"
   username = "admin"
-  password = "changeme"    # replaced by random value on first boot
-  secret   = ""            # HMAC secret for session cookies; replaced by random value on first boot
+  password = "changeme"                              # set a real password
+  secret   = "change-me-to-a-random-32-byte-hex-str" # HMAC secret for session cookies
 
 allowlist_path = "escrow-allowlist.json"
 blocklist_path = "escrow-blocklist.json"

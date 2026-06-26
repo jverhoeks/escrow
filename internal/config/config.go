@@ -410,10 +410,10 @@ func (c Config) Validate() []error {
 	// administrative control (config write, reload, list mutation, cache flush).
 	if c.Dashboard.Enabled {
 		if c.Dashboard.Secret == "" {
-			errs = append(errs, fmt.Errorf("dashboard.secret is empty while the dashboard is enabled — session cookies would be signed with an empty key and thus forgeable; set a random secret"))
+			errs = append(errs, fmt.Errorf("dashboard.secret is empty while the dashboard is enabled — session cookies would be signed with an empty key and thus forgeable; set a random secret, or set dashboard.enabled = false"))
 		}
 		if c.Dashboard.Password == "" {
-			errs = append(errs, fmt.Errorf("dashboard.password is empty while the dashboard is enabled — a blank password authenticates as admin; set a password"))
+			errs = append(errs, fmt.Errorf("dashboard.password is empty while the dashboard is enabled — a blank password authenticates as admin; set a password, or set dashboard.enabled = false"))
 		}
 	}
 	if c.EgressProxy != nil {
