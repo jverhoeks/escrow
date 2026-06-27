@@ -16,6 +16,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   fix, PyPI artifact sha256 verification, and assorted hardening. See the audit
   epic and its sub-issues for detail.
 
+### Security — audit-fix verification follow-up (2026-06-27)
+
+Independent verification of the audit-fix changes found three regressions/gaps
+the fixes introduced or left open. All are now closed, each with a regression
+test that fails on the pre-fix code:
+
+- **Download-gate bypass (re-opened #35).** The artifact policy gate failed
+  *open* when it could not parse an artifact's coordinates, so the gate was
+  skipped and the bytes served — even from a warm cache. Confirmed reachable for
+  PyPI `.egg`/`.exe`/`.msi` distributions and Maven `.zip`/`.tar.gz` archives. All
+  six ecosystem download handlers (npm, PyPI, Maven, NuGet, Cargo, Go) now **fail
+  closed**: an artifact whose name/version cannot be derived is rejected with 403
+  rather than served unchecked. Maven gates every request path except an explicit
+  metadata/POM/checksum/signature exempt-list.
+- **Egress SSRF denylist gap (#43).** Forward-mode default-deny was missing
+  `0.0.0.0/8` and `::/128`; on Linux, `connect()` to `0.0.0.0` is routed to
+  loopback, bypassing the `127.0.0.0/8` deny. Both ranges are now denied.
+- **Rescan inventory regression (#111).** The incremental rescan index is now
+  seeded from the full event log when the subscription starts; previously the
+  first event recorded after startup flipped the index "ready" with only that
+  event, silently dropping all pre-existing packages from the rescan inventory so
+  they were never re-checked for retroactive CVEs.
+
 > **Note:** detailed entries for **1.2.0–1.4.0** and **1.6.0–1.8.0** were not
 > backfilled here; see the Git tags and GitHub Releases for those versions.
 
