@@ -156,8 +156,16 @@ func (s *Scanner) inventory() (map[verKey]struct{}, map[verKey]map[string]bool) 
 		s.idxMu.RUnlock()
 		return inv, baseline
 	}
-	// Fallback: scan the full event log (used once on first sweep before the
-	// subscription has delivered any events).
+	// Fallback: scan the full event log. Used only when the subscription never
+	// started (channel cap reached), since otherwise the index is seeded from a
+	// full scan in subscribeIndex before the first sweep.
+	return s.scanLog()
+}
+
+// scanLog builds the downloaded-version set and per-version vuln baseline from a
+// single full pass over the event log. Shared by the incremental-index seed and
+// the inventory() fallback.
+func (s *Scanner) scanLog() (map[verKey]struct{}, map[verKey]map[string]bool) {
 	inv := map[verKey]struct{}{}
 	baseline := map[verKey]map[string]bool{}
 	for _, e := range s.deps.Log.Events("") {
@@ -267,6 +275,17 @@ func (s *Scanner) subscribeIndex(ctx context.Context) {
 		return
 	}
 	defer unsub()
+	// Seed the index from the full event log once, AFTER Subscribe has registered
+	// the channel — any event recorded during the seed is also buffered in ch and
+	// re-applied by the loop below (set updates are idempotent). Without this seed
+	// the index would contain only post-startup events, so the first new event
+	// would flip indexReady() true and silently drop all pre-startup history
+	// (e.g. ~5K packages preloaded from the on-disk log) from the rescan
+	// inventory — defeating retroactive CVE rescans. See A2 / #111.
+	inv, baseline := s.scanLog()
+	s.idxMu.Lock()
+	s.inv, s.baseline = inv, baseline
+	s.idxMu.Unlock()
 	for {
 		select {
 		case <-ctx.Done():
