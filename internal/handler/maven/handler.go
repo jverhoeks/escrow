@@ -221,18 +221,31 @@ func (h *Handler) serveMetadataFrom(w http.ResponseWriter, r *http.Request, path
 
 // serveArtifactFrom proxies a Maven artifact from a specific upstream URL.
 func (h *Handler) serveArtifactFrom(w http.ResponseWriter, r *http.Request, path, upstream string) {
-	// group:artifact and version are derived from the repository path layout
-	// (.../artifactId/version/file.ext) for binary archives only (jar/war/ear/aar
-	// — not poms, checksums or module descriptors), matching the "group:artifact"
-	// + version format the listing events record.
+	// group:artifact and version for the download event are derived from the
+	// repository path layout (.../artifactId/version/file.ext) for binary archives
+	// only (jar/war/ear/aar), matching the "group:artifact" + version format the
+	// listing events record.
 	name, version := mavenCoordsFromPath(path)
 
-	// Enforce policy on the artifact path before serving any bytes (blocklist +
-	// OSV): a blocked or known-vulnerable version must not be downloadable even
-	// via a pinned URL or a warm cache. See internal/gate.
-	if name != "" && version != "" {
+	// Enforce policy before serving any bytes (blocklist + OSV): a blocked or
+	// known-vulnerable version must not be downloadable even via a pinned URL or a
+	// warm cache. See internal/gate.
+	//
+	// Fail closed: every path except metadata/POM/checksum/signature files is
+	// treated as a code-bearing artifact and MUST be gated — including non-jar
+	// archives (.zip/.tar.gz/...) that mavenCoordsFromPath deliberately ignores.
+	// If coordinates can't be derived for such a path we reject it rather than
+	// serve it ungated, otherwise a blocked version hides behind an unrecognised
+	// archive extension and bypasses the gate. POMs, checksums and signatures
+	// carry no installable code and are exempt.
+	if !mavenGateExempt(path) {
+		gname, gver := mavenLayoutCoords(path)
+		if gname == "" || gver == "" {
+			http.Error(w, "cannot verify package policy for this artifact", http.StatusForbidden)
+			return
+		}
 		if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
-			trust.Package{Ecosystem: trust.EcosystemMaven, Name: name, Version: version}).Action == policy.ActionBlock {
+			trust.Package{Ecosystem: trust.EcosystemMaven, Name: gname, Version: gver}).Action == policy.ActionBlock {
 			http.Error(w, "blocked by policy", http.StatusForbidden)
 			return
 		}
@@ -309,6 +322,15 @@ func mavenCoordsFromPath(path string) (name, version string) {
 	default:
 		return "", ""
 	}
+	return mavenLayoutCoords(path)
+}
+
+// mavenLayoutCoords derives ("groupId:artifactId", version) from the Maven
+// repository path layout "<group/with/slashes>/<artifactId>/<version>/<file>"
+// regardless of file extension. Used by the policy gate, which must cover every
+// code-bearing artifact, not just the jar/war/ear/aar set mavenCoordsFromPath
+// records as downloads. Returns "","" for malformed paths.
+func mavenLayoutCoords(path string) (name, version string) {
 	parts := strings.Split(path, "/")
 	if len(parts) < 4 {
 		return "", ""
@@ -320,6 +342,26 @@ func mavenCoordsFromPath(path string) (name, version string) {
 		return "", ""
 	}
 	return groupID + ":" + artifactID, version
+}
+
+// mavenGateExempt reports whether a Maven repo path is a non-code file —
+// metadata, POM, Gradle module descriptor, checksum or signature — that carries
+// no installable code and so needs no policy gate. Everything else is treated as
+// a code-bearing artifact and is gated (fail closed). maven-metadata.xml is
+// routed to serveMetadata before reaching the artifact path, so it isn't listed.
+func mavenGateExempt(path string) bool {
+	switch {
+	case strings.HasSuffix(path, ".pom"),
+		strings.HasSuffix(path, ".xml"),
+		strings.HasSuffix(path, ".module"),
+		strings.HasSuffix(path, ".sha1"),
+		strings.HasSuffix(path, ".sha256"),
+		strings.HasSuffix(path, ".sha512"),
+		strings.HasSuffix(path, ".md5"),
+		strings.HasSuffix(path, ".asc"):
+		return true
+	}
+	return false
 }
 
 // mimeByPath returns a known Content-Type for common Maven artifact extensions.
