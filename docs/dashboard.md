@@ -140,6 +140,102 @@ the same default as the package event log. The egress proxy itself (`enabled`, `
 `block_hosts`, `allow_hosts`, …) is configured under `[egress_proxy]`; see
 [Docker & `docker build` protection](docker.md#configure-the-egress-proxy-escrowtoml).
 
+---
+
+## Dashboard REST API
+
+All state-changing endpoints require CSRF protection (see [Security model](security.md)).
+The frontend reads a per-session CSRF token from `GET /dashboard/api/me` and sends it as
+the `X-CSRF-Token` header on mutating requests.
+
+### Session
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/dashboard/login` | — | Login page (HTML) |
+| `POST` | `/dashboard/login` | — | Submit credentials (`username`, `password` form values); sets session cookie |
+| `GET` | `/dashboard/logout` | — | Clears session cookie, redirects to login |
+| `GET` | `/dashboard/` | Session | Main dashboard page (SPA shell, HTML) |
+| `GET` | `/dashboard/api/me` | Session | Returns `{"username":"…","csrfToken":"…"}` — the operator name and CSRF token for mutating requests |
+
+### Live stream (SSE)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/dashboard/api/stream?eco=<filter>` | Session | SSE — pushes each new policy decision as `data: <json>\n\n`. Optional `eco` query param filters to one ecosystem. Sends `: ping` keep-alives every 15 s. |
+
+### Events
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/dashboard/api/events?eco=<filter>&n=<count>&since=<RFC3339>` | Session | Returns the most recent *n* events (max 1000, default 100). Optional `eco` filter, optional `since` timestamp for polling. |
+
+### Stats
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/dashboard/api/stats?window=<1h\|24h>` | Session | Returns aggregate blocked/warned/allowed counts and top-blocked packages for the window |
+| `GET` | `/dashboard/api/stats/timeseries?window=<duration>&kind=<downloaded>` | Session | Returns hourly-bucketed time series of allowed/denied/warned counts per ecosystem. `kind=downloaded` limits the allowed series to artifact downloads only. Shape: `{"buckets":["…"],"series":{"allowed":{"npm":[…]}}}` |
+
+### Package inventory
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/dashboard/api/packages?eco=<filter>` | Session | Flat list of all seen packages+versions with status, hit/download counts, cache status |
+| `GET` | `/dashboard/api/packages/tree?eco=<filter>` | Session | Hierarchical: ecosystem → namespace/package → version tree. Namespace split is ecosystem-aware (npm `@scope/name`, maven `group:artifact`, go `host/path`, nuget `prefix.suffix`, flat otherwise). |
+
+### Vulnerabilities
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/dashboard/api/cves?eco=<filter>` | Session | One entry per (vuln ID, package, version), deduplicated, sorted by severity then recency |
+| `GET` | `/dashboard/api/newly-vulnerable` | Session | Packages that were downloaded before a CVE was discovered (`kind=rescan` events). Includes download count for exposure triage. |
+
+### Allow / block lists
+
+| Method | Path | Auth | CSRF | Description |
+|--------|------|------|------|-------------|
+| `GET` | `/dashboard/api/allowlist` | Session | — | Returns all allow-list entries |
+| `POST` | `/dashboard/api/allow` | Session | Yes | Add an allow-list entry. Body: `{"ecosystem":"…","name":"…","version":"…","reason":"…"}`. Records an `allowlist_add` event. |
+| `DELETE` | `/dashboard/api/allow` | Session | Yes | Remove an allow-list entry. Body: `{"ecosystem":"…","name":"…","version":"…"}`. Records an `allowlist_remove` event. |
+| `GET` | `/dashboard/api/blocklist` | Session | — | Returns all block-list entries |
+| `POST` | `/dashboard/api/block` | Session | Yes | Add a block-list entry. Body: `{"ecosystem":"…","name":"…","version":"…","reason":"…"}`. Records a `blocklist_add` event. |
+| `DELETE` | `/dashboard/api/block` | Session | Yes | Remove a block-list entry. Body: `{"ecosystem":"…","name":"…","version":"…"}`. Records a `blocklist_remove` event. |
+
+### Rescan
+
+| Method | Path | Auth | CSRF | Description |
+|--------|------|------|------|-------------|
+| `GET` | `/dashboard/api/rescan/status` | Session | — | Returns `{"enabled":true/false, "last_run":"…", "scanned":N, "new_findings":N, "blocked":N, "errors":N}` |
+| `POST` | `/dashboard/api/rescan` | Session | Yes | Trigger an immediate re-scan of all cached packages. Returns scan result counts. |
+
+### Logs
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/dashboard/api/accesslog?n=<count>` | Session | Newest *n* server access log entries (max 1000, default 200). Filters out the dashboard's own polling traffic. |
+| `GET` | `/dashboard/api/upstreamlog?eco=<filter>&n=<count>` | Session | Newest *n* upstream registry request log entries, filtered by ecosystem |
+| `GET` | `/dashboard/api/egresslog?n=<count>&action=<allow\|block>` | Session | Newest *n* egress proxy decisions (max 5000, default 500). Optional action filter. |
+| `GET` | `/dashboard/api/egress/stream` | Session | SSE — pushes each new egress proxy decision as `data: <json>\n\n`. Sends `: ping` keep-alives every 15 s. |
+| `GET` | `/dashboard/api/egress/stats/timeseries?window=<duration>&bucket=<duration>` | Session | Egress stats: summary cards (total/allow/block/hosts/bytes), top-host tables, and time-series buckets. Defaults: `window=24h`, `bucket=1h`. |
+
+### Settings & reload
+
+| Method | Path | Auth | CSRF | Description |
+|--------|------|------|------|-------------|
+| `GET` | `/dashboard/api/settings` | Session | — | Returns the on-disk config (password/secret redacted) with `password_set`, `secret_set`, and `config_path` metadata |
+| `POST` | `/dashboard/api/settings` | Session | Yes | Validate and save a new config. Password/secret are immutable via this API (always preserved from disk). Returns `{"ok":true, "reloaded":[…], "restart_required":[…]}`. |
+| `POST` | `/dashboard/api/settings/validate` | Session | Yes | Validate a candidate config without writing it. Returns `{"ok":true/false, "errors":[…]}`. |
+| `POST` | `/dashboard/api/reload` | Session | Yes | Re-read the on-disk config and apply the live-reloadable subset. Returns `{"reloaded":[…], "restart_required":[…]}`. |
+
+### Cache
+
+| Method | Path | Auth | CSRF | Description |
+|--------|------|------|------|-------------|
+| `POST` | `/dashboard/api/cache/flush` | Session | Yes | Wipes the entire cache (metadata + blobs). Logged with operator name. |
+
+---
+
 ### Approving & blocking
 
 **Approve a blocked package:** click **Approve** on any blocked event (or version in the tree).
