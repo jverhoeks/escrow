@@ -55,6 +55,14 @@ var (
 		Help: "Total bytes proxied through the egress proxy (allow path)",
 	})
 
+	// EgressHostBytesTotal breaks down proxied bytes by destination host and
+	// action (allow/block). Blocked connections carry zero bytes; this metric
+	// counts only the bytes actually proxied on the allow path.
+	EgressHostBytesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "escrow_egress_host_bytes_total",
+		Help: "Egress proxy bytes by destination host and action",
+	}, []string{"host", "action"})
+
 	// CacheWriteFailuresTotal counts cache write failures, labelled by backend
 	// (disk/s3) and op (meta/blob). Incremented centrally in the cache backends
 	// so failures are metered even though the proxy handlers ignore the returned

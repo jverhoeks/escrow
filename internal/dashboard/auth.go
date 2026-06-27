@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
@@ -12,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+const csrfTokenLen = 32 // bytes of random data per CSRF token, base64-encoded = 44 chars
 
 const cookieName = "escrow_session"
 const cookieTTL = 24 * time.Hour
@@ -67,10 +70,18 @@ func (a *Auth) CheckCredentials(username, password string) bool {
 	return uOK && pOK
 }
 
+// generateCSRFToken returns a random base64-encoded token for CSRF protection.
+func generateCSRFToken() string {
+	b := make([]byte, csrfTokenLen)
+	rand.Read(b)
+	return base64.URLEncoding.EncodeToString(b)
+}
+
 func (a *Auth) SetCookie(w http.ResponseWriter, r *http.Request, username string) {
 	c := a.creds.Load()
 	expiry := time.Now().Add(cookieTTL).Unix()
-	payload := fmt.Sprintf("%s|%d", username, expiry)
+	csrfToken := generateCSRFToken()
+	payload := fmt.Sprintf("%s|%d|%s", username, expiry, csrfToken)
 	value := base64.URLEncoding.EncodeToString([]byte(payload)) + "." + c.sign(payload)
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	http.SetCookie(w, &http.Cookie{
@@ -85,32 +96,52 @@ func (a *Auth) SetCookie(w http.ResponseWriter, r *http.Request, username string
 }
 
 func (a *Auth) IsValid(r *http.Request) bool {
+	u, _, _ := a.parseCookie(r)
+	return u != ""
+}
+
+// CSRFToken returns the CSRF token from the session cookie, if the session is valid.
+func (a *Auth) CSRFToken(r *http.Request) (string, bool) {
+	_, _, token := a.parseCookie(r)
+	return token, token != ""
+}
+
+// parseCookie extracts (username, expiry, csrfToken, ok) from a valid session cookie.
+func (a *Auth) parseCookie(r *http.Request) (username string, expiry int64, csrfToken string) {
 	c := a.creds.Load()
 	cookie, err := r.Cookie(cookieName)
 	if err != nil {
-		return false
+		return "", 0, ""
 	}
 	parts := strings.SplitN(cookie.Value, ".", 2)
 	if len(parts) != 2 {
-		return false
+		return "", 0, ""
 	}
 	payloadBytes, err := base64.URLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return false
+		return "", 0, ""
 	}
 	payload := string(payloadBytes)
 	if !hmac.Equal([]byte(c.sign(payload)), []byte(parts[1])) {
-		return false
+		return "", 0, ""
 	}
-	fields := strings.SplitN(payload, "|", 2)
-	if len(fields) != 2 {
-		return false
+	fields := strings.SplitN(payload, "|", 3)
+	if len(fields) < 2 {
+		return "", 0, ""
 	}
-	expiry, err := strconv.ParseInt(fields[1], 10, 64)
+	exp, err := strconv.ParseInt(fields[1], 10, 64)
 	if err != nil {
-		return false
+		return "", 0, ""
 	}
-	return time.Now().Unix() < expiry
+	if time.Now().Unix() >= exp {
+		return "", 0, ""
+	}
+	username = fields[0]
+	expiry = exp
+	if len(fields) >= 3 {
+		csrfToken = fields[2]
+	}
+	return username, expiry, csrfToken
 }
 
 func (a *Auth) ClearCookie(w http.ResponseWriter) {
@@ -130,26 +161,6 @@ func (a *Auth) Middleware(loginPath string) func(http.Handler) http.Handler {
 }
 
 func (a *Auth) Username(r *http.Request) (string, bool) {
-	c := a.creds.Load()
-	cookie, err := r.Cookie(cookieName)
-	if err != nil {
-		return "", false
-	}
-	parts := strings.SplitN(cookie.Value, ".", 2)
-	if len(parts) != 2 {
-		return "", false
-	}
-	payloadBytes, err := base64.URLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return "", false
-	}
-	payload := string(payloadBytes)
-	if !hmac.Equal([]byte(c.sign(payload)), []byte(parts[1])) {
-		return "", false
-	}
-	fields := strings.SplitN(payload, "|", 2)
-	if len(fields) != 2 {
-		return "", false
-	}
-	return fields[0], true
+	u, _, _ := a.parseCookie(r)
+	return u, u != ""
 }
