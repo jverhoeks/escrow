@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 
 	"github.com/jverhoeks/escrow/internal/metrics"
@@ -13,6 +14,19 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
+
+// resetConnMetricsOnce ensures prometheus counters are reset exactly once per
+// test binary invocation, even when -count>1 runs the test multiple times.
+// Without this guard, repeated Reset() calls between -count iterations can
+// zero counters mid-assertion in concurrent or sequential runs.
+var resetConnMetricsOnce sync.Once
+
+func resetConnMetrics() {
+	resetConnMetricsOnce.Do(func() {
+		metrics.UpstreamConnReused.Reset()
+		metrics.UpstreamConnAcquireSeconds.Reset()
+	})
+}
 
 func TestLoggingTransport_RecordsKnownHostsOnly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,8 +75,7 @@ func TestLoggingTransport_RecordsConnReuseMetrics(t *testing.T) {
 	require.NoError(t, err)
 	host := u.Hostname()
 
-	metrics.UpstreamConnReused.Reset()
-	metrics.UpstreamConnAcquireSeconds.Reset()
+	resetConnMetrics()
 
 	// One client (one underlying transport, so the idle pool persists across the
 	// two requests). Its own *http.Transport isolates the pool to this test.
