@@ -22,12 +22,14 @@ type Decision struct {
 // the proxy must not be able to pivot to these unless the operator explicitly
 // allows them. Parsed once at package init.
 var ssrfNets = mustParseCIDRs([]string{
+	"0.0.0.0/8",      // RFC1122 "this host" — on Linux connect() to 0.0.0.0 routes to loopback
 	"127.0.0.0/8",    // IPv4 loopback
 	"169.254.0.0/16", // IPv4 link-local (incl. 169.254.169.254 cloud metadata)
 	"10.0.0.0/8",     // RFC1918
 	"172.16.0.0/12",  // RFC1918
 	"192.168.0.0/16", // RFC1918
 	"100.64.0.0/10",  // RFC6598 CGNAT
+	"::/128",         // IPv6 unspecified (the "this host" equivalent)
 	"::1/128",        // IPv6 loopback
 	"fe80::/10",      // IPv6 link-local
 	"fc00::/7",       // IPv6 unique-local (incl. fd00:ec2::254 cloud metadata)

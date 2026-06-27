@@ -225,12 +225,18 @@ func (h *Handler) ServeTarball(w http.ResponseWriter, r *http.Request, pkg, tarb
 	// Enforce policy on the artifact path before serving any bytes: a blocked
 	// version (manual or rescan auto-block) or a known-vulnerable one must not be
 	// downloadable even via a pinned URL or a warm cache. See internal/gate.
-	if version != "" {
-		if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
-			trust.Package{Ecosystem: trust.EcosystemNPM, Name: pkg, Version: version}).Action == policy.ActionBlock {
-			http.Error(w, "blocked by policy", http.StatusForbidden)
-			return
-		}
+	//
+	// Fail closed: a tarball whose version can't be parsed can't be policy-checked,
+	// so it must not be served — a blocked version must not hide behind an
+	// unparseable artifact name.
+	if version == "" {
+		http.Error(w, "cannot verify package policy for this artifact", http.StatusForbidden)
+		return
+	}
+	if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
+		trust.Package{Ecosystem: trust.EcosystemNPM, Name: pkg, Version: version}).Action == policy.ActionBlock {
+		http.Error(w, "blocked by policy", http.StatusForbidden)
+		return
 	}
 
 	// Record a successful download event once per served tarball, on both

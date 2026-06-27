@@ -234,12 +234,17 @@ func (h *Handler) serveZip(w http.ResponseWriter, r *http.Request, escapedModule
 	// Enforce policy on the artifact path before serving any bytes (blocklist +
 	// OSV): a blocked or known-vulnerable version must not be downloadable even
 	// via a pinned URL or a warm cache. See internal/gate.
-	if module != "" && version != "" {
-		if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
-			trust.Package{Ecosystem: trust.EcosystemGo, Name: module, Version: version}).Action == policy.ActionBlock {
-			http.Error(w, "blocked by policy", http.StatusForbidden)
-			return
-		}
+	//
+	// Fail closed: a zip whose module/version can't be parsed can't be
+	// policy-checked, so it must not be served.
+	if module == "" || version == "" {
+		http.Error(w, "cannot verify package policy for this artifact", http.StatusForbidden)
+		return
+	}
+	if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
+		trust.Package{Ecosystem: trust.EcosystemGo, Name: module, Version: version}).Action == policy.ActionBlock {
+		http.Error(w, "blocked by policy", http.StatusForbidden)
+		return
 	}
 
 	// Record a successful download event once per served zip, on both cache-hit

@@ -234,12 +234,20 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, filename str
 	// Enforce policy on the artifact path before serving any bytes (blocklist +
 	// OSV): a blocked or known-vulnerable version must not be downloadable even
 	// via a pinned URL or a warm cache. See internal/gate.
-	if name != "" && version != "" {
-		if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
-			trust.Package{Ecosystem: trust.EcosystemPyPI, Name: name, Version: version}).Action == policy.ActionBlock {
-			http.Error(w, "blocked by policy", http.StatusForbidden)
-			return
-		}
+	//
+	// Fail closed: an artifact we cannot identify (name/version unparsed — e.g. a
+	// legacy .egg/.exe/.msi distribution) cannot be policy-checked, so it must NOT
+	// be served. Otherwise a blocked or vulnerable version hides behind an
+	// unparsed extension and bypasses the gate entirely. (.metadata sidecars and
+	// sdist blocking are handled above, before we reach here.)
+	if name == "" || version == "" {
+		http.Error(w, "cannot verify package policy for this artifact", http.StatusForbidden)
+		return
+	}
+	if gate.Check(r.Context(), h.engine, h.policy, h.evlog,
+		trust.Package{Ecosystem: trust.EcosystemPyPI, Name: name, Version: version}).Action == policy.ActionBlock {
+		http.Error(w, "blocked by policy", http.StatusForbidden)
+		return
 	}
 
 	// Record a successful download event once per served artifact, on both

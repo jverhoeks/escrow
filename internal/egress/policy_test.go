@@ -58,6 +58,11 @@ func TestPolicy_ForwardMode_DefaultDenySSRF(t *testing.T) {
 		{"ipv6 loopback", "localhost", net.ParseIP("::1"), false},
 		{"ipv6 link-local", "x", net.ParseIP("fe80::1"), false},
 		{"ipv6 ula", "x", net.ParseIP("fd00:ec2::254"), false},
+		// 0.0.0.0 (and the 0.0.0.0/8 "this host" range) must be denied: on Linux
+		// connect() to 0.0.0.0 is routed to loopback, bypassing the 127/8 guard.
+		{"this-host 0.0.0.0", "x", net.ParseIP("0.0.0.0"), false},
+		{"this-host range", "x", net.ParseIP("0.1.2.3"), false},
+		{"ipv6 unspecified", "x", net.ParseIP("::"), false},
 		{"public ip allowed", "registry.npmjs.org", net.ParseIP("104.16.0.1"), true},
 		{"hostname no ip allowed", "registry.npmjs.org", nil, true},
 	}

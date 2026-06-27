@@ -155,6 +155,25 @@ func TestPyPIHandler_NoDigest_FailsOpen(t *testing.T) {
 	assert.Equal(t, "WHEEL-BYTES", rr.Body.String())
 }
 
+// #35/#54 gate-bypass regression: a code-bearing artifact whose name/version
+// can't be parsed (e.g. a legacy .egg/.exe/.msi distribution) must fail closed —
+// it cannot be policy-checked, so it must not be served even from a warm cache.
+// Previously the gate was skipped when coords were empty, serving the bytes 200.
+func TestPyPIHandler_UnparseableArtifact_FailsClosed_CacheHit(t *testing.T) {
+	const egg = "evil-1.0-py3.7.egg"
+	c := cache.NewMemory()
+	defer c.Close()
+	require.NoError(t, c.SetBlob(context.Background(), "pypi/packages/"+egg, strings.NewReader("MALICIOUS-EGG-BYTES")))
+	// No blocklist entry at all: an unidentifiable artifact must still fail closed.
+	h := pypi.New(http.DefaultClient, "http://127.0.0.1:0", trust.NewEngine(), policy.New(nil), c, false, eventlog.New(10))
+
+	rr := httptest.NewRecorder()
+	h.ServeFile(rr, httptest.NewRequest(http.MethodGet, "/pypi/packages/"+egg, nil), egg)
+
+	require.Equal(t, http.StatusForbidden, rr.Code, "unparseable artifact must fail closed, not serve ungated bytes")
+	assert.NotContains(t, rr.Body.String(), "MALICIOUS-EGG-BYTES")
+}
+
 // #67: a blocklisted package with a hyphenated name must be 403'd on its sdist.
 // The old first-'-' split parsed "django-allauth-0.50.0.tar.gz" as name
 // "django", so gate.Check never matched the "django-allauth" blocklist entry.
