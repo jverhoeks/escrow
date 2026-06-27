@@ -22,6 +22,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
+	"github.com/jverhoeks/escrow/internal/pkgname"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -73,6 +74,10 @@ func (h *Handler) Mount(r chi.Router) {
 }
 
 func (h *Handler) ServeSimpleIndex(w http.ResponseWriter, r *http.Request, name string) {
+	if !pkgname.Safe(name) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 	cacheKey := "pypi/meta/simple/" + name
 	if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
 		metrics.CacheHitsTotal.WithLabelValues("pypi", "simple").Inc()
@@ -208,6 +213,10 @@ func (h *Handler) ServeJSON(w http.ResponseWriter, r *http.Request, name string)
 }
 
 func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, filename string) {
+	if !pkgname.Safe(filename) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 	// PEP 658: metadata sidecar — fetch only the METADATA file, not the full wheel.
 	if strings.HasSuffix(filename, ".metadata") {
 		h.serveFileMetadata(w, r, strings.TrimSuffix(filename, ".metadata"))

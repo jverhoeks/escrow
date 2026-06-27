@@ -15,6 +15,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
+	"github.com/jverhoeks/escrow/internal/pkgname"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -113,6 +114,10 @@ func regCacheKey(id, host string) string {
 // serveRegistration fetches the NuGet registration index, filters by trust policy, and caches the result.
 func (h *Handler) serveRegistration(w http.ResponseWriter, r *http.Request) {
 	id := strings.ToLower(chi.URLParam(r, "id"))
+	if !pkgname.Safe(id) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 	cacheKey := regCacheKey(id, r.Host)
 
 	if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
@@ -159,6 +164,10 @@ func (h *Handler) serveRegistration(w http.ResponseWriter, r *http.Request) {
 // It derives the list from the (cached) filtered registration.
 func (h *Handler) serveVersionList(w http.ResponseWriter, r *http.Request) {
 	id := strings.ToLower(chi.URLParam(r, "id"))
+	if !pkgname.Safe(id) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 	// Version list cache is also host-aware because it's derived from the host-aware registration.
 	cacheKey := "nuget/versions/" + r.Host + "/" + id
 
@@ -207,6 +216,10 @@ func (h *Handler) serveVersionList(w http.ResponseWriter, r *http.Request) {
 // serveDownload proxies a .nupkg file, caching it as a blob.
 func (h *Handler) serveDownload(w http.ResponseWriter, r *http.Request) {
 	id := strings.ToLower(chi.URLParam(r, "id"))
+	if !pkgname.Safe(id) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 	version := strings.ToLower(chi.URLParam(r, "version"))
 	filename := chi.URLParam(r, "filename")
 	cacheKey := fmt.Sprintf("nuget/pkgs/%s/%s/%s", id, version, filename)

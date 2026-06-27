@@ -13,6 +13,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/cache"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/metrics"
+	"github.com/jverhoeks/escrow/internal/pkgname"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -113,6 +114,10 @@ func (h *Handler) servePackage(w http.ResponseWriter, r *http.Request) {
 	wildcard := chi.URLParam(r, "*")
 	// Strip .json suffix to get the canonical package name (e.g. "symfony/console")
 	pkgName := strings.TrimSuffix(wildcard, ".json")
+	if !pkgname.Safe(pkgName) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 
 	cacheKey := "composer/meta/" + pkgName
 	if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
