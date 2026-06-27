@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/jverhoeks/escrow/internal/alerts"
-	"github.com/jverhoeks/escrow/internal/egress"
 	"github.com/jverhoeks/escrow/internal/allow"
 	"github.com/jverhoeks/escrow/internal/block"
 	"github.com/jverhoeks/escrow/internal/cache"
@@ -24,6 +23,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/config"
 	"github.com/jverhoeks/escrow/internal/dashboard"
 	"github.com/jverhoeks/escrow/internal/dlstats"
+	"github.com/jverhoeks/escrow/internal/egress"
 	"github.com/jverhoeks/escrow/internal/egresslog"
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/handler/cargo"
@@ -421,6 +421,10 @@ func main() {
 
 	// Egress proxy (Docker build protection, Phase 1): optional second listener.
 	// nil section => disabled. Forward proxy only; no TLS interception.
+	// egressDone is closed when the proxy's Serve returns; default-closed so the
+	// shutdown wait below is a no-op when the proxy is disabled. See #52.
+	egressDone := make(chan struct{})
+	close(egressDone)
 	if ep := cfg.EgressProxy; ep != nil && (ep.Enabled == nil || *ep.Enabled) {
 		pol, err := egress.NewPolicy(*ep)
 		if err != nil {
@@ -435,7 +439,9 @@ func main() {
 				Msg("egress proxy is reachable off-host with policy=forward — this is an OPEN RELAY; set egress_proxy.policy=\"whitelist\" or firewall the egress port")
 		}
 		eproxy := egress.New(fmt.Sprintf("%s:%d", cfg.Server.Host, port), pol, egressLog, ep.RateLimitPerMin)
+		egressDone = make(chan struct{})
 		go func() {
+			defer close(egressDone)
 			log.Info().Int("port", port).Str("policy", ep.Policy).Msg("egress proxy listening")
 			if err := eproxy.Serve(rootCtx); err != nil {
 				log.Error().Err(err).Msg("egress proxy stopped")
@@ -463,11 +469,12 @@ func main() {
 	// reports any that changed as restart-required.
 	restartSnapshot := func(c config.Config) map[string]string {
 		return map[string]string{
-			"server":      fmt.Sprintf("%s:%d:%s:%s", c.Server.Host, c.Server.Port, c.Server.TLSCertFile, c.Server.TLSKeyFile),
-			"storage":     fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
-			"ecosystems":  fmt.Sprintf("%v", c.Ecosystems),
-			"secret":      c.Dashboard.Secret,
-			"paths":       fmt.Sprintf("%s:%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath, c.EgressLogPath),
+			"server":     fmt.Sprintf("%s:%d:%s:%s", c.Server.Host, c.Server.Port, c.Server.TLSCertFile, c.Server.TLSKeyFile),
+			"storage":    fmt.Sprintf("%s:%s", c.Storage.Backend, c.Storage.Disk.Path),
+			"ecosystems": fmt.Sprintf("%v", c.Ecosystems),
+			// dashboard.secret/password/username are applied live by reloadFn via
+			// UpdateCredentials, so they are NOT restart-required. See #52.
+			"paths":        fmt.Sprintf("%s:%s:%s:%s:%s", c.AllowlistPath, c.BlocklistPath, c.EventLogPath, c.Server.AccessLogPath, c.EgressLogPath),
 			"egress_proxy": egressFingerprint(c.EgressProxy),
 		}
 	}
@@ -696,6 +703,9 @@ func main() {
 	// Wait for the graceful drain to complete before returning — only then do the
 	// deferred resource closers run.
 	<-drained
+	// And wait for the egress proxy's own graceful drain (rootCancel above stopped
+	// it); no-op if the proxy is disabled. See #52.
+	<-egressDone
 }
 
 // runCIReport fetches the CI report from a running escrow proxy and prints it to stdout.
