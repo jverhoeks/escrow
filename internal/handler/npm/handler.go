@@ -15,6 +15,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
+	"github.com/jverhoeks/escrow/internal/pkgname"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -85,6 +86,10 @@ func (h *Handler) Mount(r chi.Router) {
 }
 
 func (h *Handler) ServeManifest(w http.ResponseWriter, r *http.Request, name string) {
+	if !pkgname.Safe(name) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 	cacheKey := "npm/meta/" + name
 	if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
 		metrics.CacheHitsTotal.WithLabelValues("npm", "manifest").Inc()
@@ -211,6 +216,10 @@ func (h *Handler) filterManifest(ctx context.Context, name string, manifest map[
 }
 
 func (h *Handler) ServeTarball(w http.ResponseWriter, r *http.Request, pkg, tarball string) {
+	if !pkgname.Safe(pkg) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 	version := versionFromTarball(pkg, tarball)
 
 	// Enforce policy on the artifact path before serving any bytes: a blocked

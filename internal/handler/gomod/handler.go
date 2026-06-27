@@ -15,6 +15,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
+	"github.com/jverhoeks/escrow/internal/pkgname"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -65,6 +66,10 @@ func (h *Handler) Mount(r chi.Router) {
 
 func (h *Handler) Serve(w http.ResponseWriter, r *http.Request) {
 	urlPath := chi.URLParam(r, "*")
+	if !pkgname.Safe(urlPath) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 
 	if idx := strings.Index(urlPath, "/@v/"); idx >= 0 {
 		h.serveVersioned(w, r, urlPath[:idx], urlPath[idx+4:])

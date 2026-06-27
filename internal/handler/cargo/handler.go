@@ -16,6 +16,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
+	"github.com/jverhoeks/escrow/internal/pkgname"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/trust"
 	"github.com/jverhoeks/escrow/internal/upstream"
@@ -130,6 +131,10 @@ func (h *Handler) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	indexPath := chi.URLParam(r, "*")
+	if !pkgname.Safe(indexPath) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 	// indexPath looks like "se/rd/serde" or "3/s/syn" etc.
 	// Extract the crate name from the last segment.
 	parts := strings.Split(strings.Trim(indexPath, "/"), "/")
@@ -195,6 +200,10 @@ func (h *Handler) serveIndex(w http.ResponseWriter, r *http.Request) {
 // serveDownload proxies a .crate file from static.crates.io, caching it locally.
 func (h *Handler) serveDownload(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	if !pkgname.Safe(name) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 	version := chi.URLParam(r, "version")
 
 	// Enforce policy on the artifact path before serving any bytes (blocklist +

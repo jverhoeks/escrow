@@ -18,6 +18,7 @@ import (
 	"github.com/jverhoeks/escrow/internal/eventlog"
 	"github.com/jverhoeks/escrow/internal/gate"
 	"github.com/jverhoeks/escrow/internal/metrics"
+	"github.com/jverhoeks/escrow/internal/pkgname"
 	"github.com/jverhoeks/escrow/internal/policy"
 	"github.com/jverhoeks/escrow/internal/staleserve"
 	"github.com/jverhoeks/escrow/internal/trust"
@@ -91,6 +92,10 @@ func (h *Handler) Mount(r chi.Router) {
 // from Maven Central caused by rapid-fire HEAD probes.
 func (h *Handler) serveHead(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "*")
+	if !pkgname.Safe(path) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 	upstream := h.upstreamURL
 	if h.snapshotURL != "" && strings.Contains(path, "SNAPSHOT") {
 		upstream = h.snapshotURL
@@ -138,6 +143,10 @@ func (h *Handler) serveHead(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	path := chi.URLParam(r, "*")
+	if !pkgname.Safe(path) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
 
 	// Route snapshot artifacts to the dedicated snapshot upstream if configured.
 	if h.snapshotURL != "" && strings.Contains(path, "SNAPSHOT") {
