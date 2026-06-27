@@ -28,6 +28,12 @@ type S3Cache struct {
 	staleMaxAge atomic.Int64 // stale-on-error grace window (ns); 0 = disabled.
 }
 
+// NewS3WithClient creates an S3Cache with a pre-built client. Used by tests
+// that inject a mock S3 client; production code should use NewS3.
+func NewS3WithClient(bucket string, client *s3.Client, tempDir string) *S3Cache {
+	return &S3Cache{client: client, bucket: bucket, tempDir: tempDir}
+}
+
 func NewS3(bucket, region, endpoint, tempDir string) (*S3Cache, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(region),
