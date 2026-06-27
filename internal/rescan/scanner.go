@@ -60,6 +60,11 @@ type Scanner struct {
 	mu      sync.Mutex // serializes sweeps
 	lastMu  sync.RWMutex
 	lastRes Result
+
+	idxMu   sync.RWMutex
+	inv     map[verKey]struct{}
+	baseline map[verKey]map[string]bool
+	idxDone chan struct{} // closed when the subscription goroutine exits
 }
 
 func New(deps Deps, cfg Config) *Scanner { return &Scanner{deps: deps, cfg: cfg} }
@@ -129,7 +134,38 @@ type verKey struct{ eco, name, version string }
 
 // inventory returns the downloaded version set and, per version, the set of
 // already-known vuln IDs (from prior osv/rescan events) used as the baseline.
+// When the incremental subscription index is ready it uses that instead of
+// scanning the full event log. This avoids iterating up to 5 000 events on
+// every 24-hour rescan cycle (see A2). On the very first call (before the
+// subscription has received any events) it falls back to the full scan.
 func (s *Scanner) inventory() (map[verKey]struct{}, map[verKey]map[string]bool) {
+	if s.indexReady() {
+		s.idxMu.RLock()
+		inv := make(map[verKey]struct{}, len(s.inv))
+		for k := range s.inv {
+			inv[k] = struct{}{}
+		}
+		baseline := make(map[verKey]map[string]bool, len(s.baseline))
+		for k, ids := range s.baseline {
+			m := make(map[string]bool, len(ids))
+			for id := range ids {
+				m[id] = true
+			}
+			baseline[k] = m
+		}
+		s.idxMu.RUnlock()
+		return inv, baseline
+	}
+	// Fallback: scan the full event log. Used only when the subscription never
+	// started (channel cap reached), since otherwise the index is seeded from a
+	// full scan in subscribeIndex before the first sweep.
+	return s.scanLog()
+}
+
+// scanLog builds the downloaded-version set and per-version vuln baseline from a
+// single full pass over the event log. Shared by the incremental-index seed and
+// the inventory() fallback.
+func (s *Scanner) scanLog() (map[verKey]struct{}, map[verKey]map[string]bool) {
 	inv := map[verKey]struct{}{}
 	baseline := map[verKey]map[string]bool{}
 	for _, e := range s.deps.Log.Events("") {
@@ -195,13 +231,18 @@ func (s *Scanner) handleFinding(cfg Config, k verKey, vulns []trust.Vuln, res *R
 	}
 }
 
-// Start runs RunOnce until ctx is cancelled. The first sweep runs after a short
-// delay so startup isn't blocked. The interval is re-read each cycle and the
-// enabled flag re-checked, so a live SetConfig (hot reload) takes effect.
+// Start runs RunOnce until ctx is cancelled. It also starts a background
+// goroutine that subscribes to the event log and maintains an incrementally-
+// updated rescan index, avoiding a full event-log scan on every cycle.
+// The first sweep runs after a short delay so startup isn't blocked. The
+// interval is re-read each cycle and the enabled flag re-checked, so a live
+// SetConfig (hot reload) takes effect.
 func (s *Scanner) Start(ctx context.Context) {
 	if !s.config().Enabled {
 		return
 	}
+	s.idxDone = make(chan struct{})
+	go s.subscribeIndex(ctx)
 	go func() {
 		if !sleepCtx(ctx, 30*time.Second) {
 			return
@@ -222,6 +263,71 @@ func (s *Scanner) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// subscribeIndex subscribes to the event log and maintains the scanner's
+// incrementally-updated rescan index. Exits when ctx is cancelled or when
+// the event log's subscribe channel returns nil (cap reached).
+func (s *Scanner) subscribeIndex(ctx context.Context) {
+	defer close(s.idxDone)
+	ch, unsub := s.deps.Log.Subscribe()
+	if ch == nil {
+		return
+	}
+	defer unsub()
+	// Seed the index from the full event log once, AFTER Subscribe has registered
+	// the channel — any event recorded during the seed is also buffered in ch and
+	// re-applied by the loop below (set updates are idempotent). Without this seed
+	// the index would contain only post-startup events, so the first new event
+	// would flip indexReady() true and silently drop all pre-startup history
+	// (e.g. ~5K packages preloaded from the on-disk log) from the rescan
+	// inventory — defeating retroactive CVE rescans. See A2 / #111.
+	inv, baseline := s.scanLog()
+	s.idxMu.Lock()
+	s.inv, s.baseline = inv, baseline
+	s.idxMu.Unlock()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e, ok := <-ch:
+			if !ok {
+				return
+			}
+			name, version := splitPackage(e.Package)
+			if name == "" {
+				continue
+			}
+			k := verKey{e.Ecosystem, name, version}
+			s.idxMu.Lock()
+			if e.Kind == eventlog.KindDownloaded {
+				if s.inv == nil {
+					s.inv = make(map[verKey]struct{})
+				}
+				s.inv[k] = struct{}{}
+			}
+			if len(e.Vulns) > 0 {
+				if s.baseline == nil {
+					s.baseline = make(map[verKey]map[string]bool)
+				}
+				if s.baseline[k] == nil {
+					s.baseline[k] = make(map[string]bool)
+				}
+				for _, v := range e.Vulns {
+					s.baseline[k][v.ID] = true
+				}
+			}
+			s.idxMu.Unlock()
+		}
+	}
+}
+
+// indexReady returns true when the incremental index has been populated from
+// the subscription stream (at least one event received).
+func (s *Scanner) indexReady() bool {
+	s.idxMu.RLock()
+	defer s.idxMu.RUnlock()
+	return s.inv != nil || s.baseline != nil
 }
 
 // sleepCtx waits for d or until ctx is cancelled. It returns true if the full

@@ -205,6 +205,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		p.egress.AddBytes(n)
 	}
 	metrics.EgressBytesTotal.Add(float64(n))
+	metrics.EgressHostBytesTotal.WithLabelValues(host, "allow").Add(float64(n))
 }
 
 // hopByHop are headers that must not be forwarded by a proxy (RFC 7230 §6.1).
@@ -253,6 +254,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		p.egress.AddBytes(n)
 	}
 	metrics.EgressBytesTotal.Add(float64(n))
+	metrics.EgressHostBytesTotal.WithLabelValues(host, "allow").Add(float64(n))
 }
 
 func (p *Proxy) recordEgress(e egresslog.Event) {

@@ -88,18 +88,31 @@ func (d *Dashboard) dlStat(eco, name, version string) (int, time.Time) {
 }
 
 // originOK returns false when the request comes from a different origin (CSRF guard).
-// A mutating dashboard request must either:
-//  1. carry an Origin header matching the dashboard's host, OR
-//  2. carry the X-Escrow-Request: 1 header.
+// A mutating dashboard request must satisfy at least one of:
+//  1. carry the X-Escrow-Request: 1 header (browser JS-only header, CORS-gated), OR
+//  2. carry an X-CSRF-Token header matching the session cookie's embedded CSRF
+//     token (defense-in-depth against SSRF / compromised internal services that
+//     can set arbitrary headers but cannot read the session cookie), OR
+//  3. carry an Origin header matching the dashboard's host.
 //
-// The X-Escrow-Request header is a CSRF "custom header" check — browsers will
-// only let same-origin JS set it (CORS preflight requirements), so a
-// cross-origin <form>/<img>/<script> can't forge it. Allowing requests with no
-// Origin AND no custom header used to let an attacker submit a hidden form
-// from any web page; now those requests are rejected.
+// The X-Escrow-Request header is the primary CSRF "custom header" check — browsers
+// will only let same-origin JS set it (CORS preflight requirements), so a
+// cross-origin <form>/<img>/<script> can't forge it.
+//
+// The X-CSRF-Token check is defense-in-depth: an attacker who can set arbitrary
+// headers (SSRF, compromised proxy) cannot read the session cookie to extract
+// the token, and the token is random per session.
 func (d *Dashboard) originOK(r *http.Request) bool {
 	if r.Header.Get("X-Escrow-Request") == "1" {
 		return true
+	}
+	// CSRF session token check: the frontend reads the token from /api/me and
+	// sends it as X-CSRF-Token on state-changing requests. An SSRF/header-injection
+	// attacker can't read the cookie, so the token stays secret.
+	if d.auth != nil {
+		if token, ok := d.auth.CSRFToken(r); ok && token != "" && token == r.Header.Get("X-CSRF-Token") {
+			return true
+		}
 	}
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -203,12 +216,16 @@ func (d *Dashboard) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// handleMe returns the currently authenticated dashboard user so the UI can
-// display the real operator name instead of a hard-coded placeholder.
+// handleMe returns the currently authenticated dashboard user and CSRF token so the UI can
+// display the real operator name and include the CSRF token on state-changing requests.
 func (d *Dashboard) handleMe(w http.ResponseWriter, r *http.Request) {
 	username, _ := d.auth.Username(r)
+	csrfToken, _ := d.auth.CSRFToken(r)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"username": username})
+	json.NewEncoder(w).Encode(map[string]string{
+		"username":  username,
+		"csrfToken": csrfToken,
+	})
 }
 
 func (d *Dashboard) handleStream(w http.ResponseWriter, r *http.Request) {
