@@ -111,24 +111,18 @@ func regCacheKey(id, host string) string {
 	return "nuget/reg/" + host + "/" + id
 }
 
-// serveRegistration fetches the NuGet registration index, filters by trust policy, and caches the result.
-func (h *Handler) serveRegistration(w http.ResponseWriter, r *http.Request) {
-	id := strings.ToLower(chi.URLParam(r, "id"))
-	if !pkgname.Safe(id) {
-		http.Error(w, "invalid package name", http.StatusBadRequest)
-		return
-	}
-	cacheKey := regCacheKey(id, r.Host)
-
-	if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
-		metrics.CacheHitsTotal.WithLabelValues("nuget", "registration").Inc()
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(cached)
-		return
-	}
-
-	base := proxyBase(r)
-	raw, err, _ := h.sf.Do("reg:"+r.Host+":"+id, func() (any, error) {
+// fetchRegistration returns the filtered registration bytes for id, fetching +
+// caching via singleflight under a host-scoped key. Both serveRegistration and
+// serveVersionList call it, so concurrent requests for the same uncached package
+// collapse into one upstream fetch instead of racing two. See #100.
+func (h *Handler) fetchRegistration(host, id, base string) ([]byte, error) {
+	cacheKey := regCacheKey(id, host)
+	raw, err, _ := h.sf.Do("reg:"+host+":"+id, func() (any, error) {
+		// Re-check the cache inside the flight: a concurrent flight for the same
+		// key may have just populated it.
+		if cached, _ := h.cache.GetMeta(context.Background(), cacheKey); cached != nil {
+			return cached, nil
+		}
 		upURL := fmt.Sprintf("%s/registration5-semver1/%s/index.json", h.upstreamURL, id)
 		t0 := time.Now()
 		resp, err := h.metaClient.Get(upURL)
@@ -150,6 +144,29 @@ func (h *Handler) serveRegistration(w http.ResponseWriter, r *http.Request) {
 		return filtered, nil
 	})
 	if err != nil {
+		return nil, err
+	}
+	return raw.([]byte), nil
+}
+
+// serveRegistration fetches the NuGet registration index, filters by trust policy, and caches the result.
+func (h *Handler) serveRegistration(w http.ResponseWriter, r *http.Request) {
+	id := strings.ToLower(chi.URLParam(r, "id"))
+	if !pkgname.Safe(id) {
+		http.Error(w, "invalid package name", http.StatusBadRequest)
+		return
+	}
+	cacheKey := regCacheKey(id, r.Host)
+
+	if cached, _ := h.cache.GetMeta(r.Context(), cacheKey); cached != nil {
+		metrics.CacheHitsTotal.WithLabelValues("nuget", "registration").Inc()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(cached)
+		return
+	}
+
+	data, err := h.fetchRegistration(r.Host, id, proxyBase(r))
+	if err != nil {
 		if staleserve.Serve(w, r, h.cache, cacheKey, "application/json", "nuget", "registration") {
 			return
 		}
@@ -157,7 +174,7 @@ func (h *Handler) serveRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(raw.([]byte))
+	w.Write(data)
 }
 
 // serveVersionList returns the filtered list of available versions for a package.
@@ -178,32 +195,21 @@ func (h *Handler) serveVersionList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use the host-aware registration cache to derive the version list.
+	// Use the host-aware registration cache to derive the version list. On a miss
+	// fetch via the shared singleflight helper so a concurrent registration +
+	// version-list request for the same package collapses to one upstream call.
 	rCacheKey := regCacheKey(id, r.Host)
 	regData, _ := h.cache.GetMeta(r.Context(), rCacheKey)
 	if regData == nil {
-		// Registration not cached — fetch it now.
-		regURL := fmt.Sprintf("%s/registration5-semver1/%s/index.json", h.upstreamURL, id)
-		resp, err := h.metaClient.Get(regURL)
-		if err != nil || resp.StatusCode != http.StatusOK {
-			if resp != nil {
-				resp.Body.Close()
-			}
+		var err error
+		regData, err = h.fetchRegistration(r.Host, id, proxyBase(r))
+		if err != nil {
 			if staleserve.Serve(w, r, h.cache, cacheKey, "application/json", "nuget", "versions") {
 				return
 			}
 			http.Error(w, "upstream error", http.StatusBadGateway)
 			return
 		}
-		defer resp.Body.Close()
-		regData, err = upstream.ReadBody(resp.Body)
-		if err != nil {
-			http.Error(w, "upstream read error", http.StatusBadGateway)
-			return
-		}
-		base := proxyBase(r)
-		regData = h.filterRegistration(context.Background(), id, regData, base)
-		h.cache.SetMeta(context.Background(), rCacheKey, regData, registrationTTL)
 	}
 
 	versions := extractVersions(regData)
