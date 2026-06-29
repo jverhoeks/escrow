@@ -1,0 +1,26 @@
+[server]
+  host = "127.0.0.1"
+  port = 7888
+  log_level = "debug"
+
+[ecosystems]
+  npm = false
+  pypi = false
+  go = false
+  cargo = false
+  composer = false
+  nuget = false
+  maven = false
+
+[storage]
+  backend = "memory"
+
+[dashboard]
+  enabled = true
+  path = "/dashboard"
+  username = "admin"
+  password = "admin"
+  secret = "test-secret-thirty-two-chars-long!!"
+
+allowlist_path = ""
+blocklist_path = ""
