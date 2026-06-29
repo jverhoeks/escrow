@@ -7,6 +7,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-06-29
+
 ### Security & reliability (2026-06 architecture & security audit)
 
 - Download-path policy enforcement, dashboard fail-closed credentials, exact CSRF

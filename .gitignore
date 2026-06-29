@@ -16,6 +16,10 @@ coverage.out
 # Local dev / scratch artifacts
 .DS_Store
 .playwright-mcp/
+node_modules/
+playwright-report/
+test-results/
+tests/e2e/escrow.pid
 dashboard-live-view.png
 escrow-test/
 /run
