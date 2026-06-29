@@ -55,7 +55,7 @@ sed -i '' \
   "$FORMULA"
 
 echo "→ Updated formula:"
-grep -E "url|sha256|version" "$FORMULA" | head -4
+grep -E "url|sha256|version" "$FORMULA" | head -4 || true
 
 cd "$TAP_DIR"
 git diff Formula/escrow.rb

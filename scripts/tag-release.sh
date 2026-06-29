@@ -12,8 +12,9 @@ MAJOR="v$(echo "${VERSION#v}" | cut -d. -f1)"
 PREV=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 \
         || git rev-list --max-parents=0 HEAD)
 
-# Changelog from previous tag
-CHANGELOG=$(git log "${PREV}..HEAD" --oneline | head -30)
+# Changelog from previous tag (use -n, not `| head`, so a >30-commit range
+# doesn't SIGPIPE git log under `set -o pipefail`)
+CHANGELOG=$(git log "${PREV}..HEAD" --oneline -n 30)
 
 # Exact version tag
 git tag "$VERSION"
